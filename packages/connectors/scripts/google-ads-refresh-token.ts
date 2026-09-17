@@ -23,10 +23,21 @@
  *                            silently produces a token-less response. This is
  *                            the single most common way to get stuck here.
  *   `scope=.../adwords`    — the Google Ads API scope. Not the analytics one.
+ *
+ * Running inside a container or a Codespace: the listener is on the container's
+ * loopback, and the browser is on your machine, so the callback may never
+ * arrive. That is not a failure mode worth engineering around, because the
+ * authorisation code is sitting in the browser's address bar either way — so
+ * this races the listener against a paste. Whichever arrives first wins, and
+ * you do not have to know in advance which one will work.
+ *
+ * `GOOGLE_ADS_OAUTH_PORT` pins the port, for when loopback forwarding is set up
+ * and a predictable port makes it easier to forward.
  */
 import { createServer } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { once } from 'node:events';
+import { createInterface } from 'node:readline';
 import type { AddressInfo } from 'node:net';
 
 const SCOPE = 'https://www.googleapis.com/auth/adwords';
@@ -96,9 +107,78 @@ const server = createServer((req, res) => {
   resolveCallback({ code });
 });
 
-server.listen(0, '127.0.0.1');
+/**
+ * The same authorisation code, arriving by hand.
+ *
+ * Accepts the whole redirect URL or a bare code. A pasted URL still carries the
+ * `state` parameter, so it is checked exactly as the callback is; a bare code
+ * cannot be checked, which is noted rather than silently skipped.
+ */
+function pastedRedirect(): Promise<Callback> {
+  return new Promise<Callback>((resolve) => {
+    if (!process.stdin.isTTY) return; // Non-interactive: listener only.
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.setPrompt('Paste the redirect URL (or the code): ');
+    rl.prompt();
+
+    rl.on('line', (line) => {
+      const text = line.trim();
+      if (!text) {
+        rl.prompt();
+        return;
+      }
+
+      if (text.includes('code=')) {
+        let url: URL;
+        try {
+          url = new URL(text);
+        } catch {
+          console.error('That does not parse as a URL. Paste the whole address.');
+          rl.prompt();
+          return;
+        }
+        if (url.searchParams.get('state') !== state) {
+          console.error('State mismatch — that URL is from a different run. Start again.');
+          rl.prompt();
+          return;
+        }
+        const code = url.searchParams.get('code');
+        if (!code) {
+          console.error('No code in that URL.');
+          rl.prompt();
+          return;
+        }
+        rl.close();
+        resolve({ code });
+        return;
+      }
+
+      // A bare code, not a URL. Google's look like `4/0AY0e-g7...`, so anything
+      // else is a stray line or a half-copied paste. Accepting it would spend
+      // the one-shot code on a doomed exchange and report `invalid_grant`,
+      // which reads as a credential problem rather than as a typo.
+      if (!/^4\/[A-Za-z0-9_-]{10,}$/.test(text)) {
+        console.error(
+          'That is neither a redirect URL nor an authorisation code. Paste the ' +
+            'whole address from the browser, starting with http://localhost:.',
+        );
+        rl.prompt();
+        return;
+      }
+      console.log('Treating that as a bare authorisation code (state not verifiable).');
+      rl.close();
+      resolve({ code: text });
+    });
+  });
+}
+
+const requestedPort = Number(process.env.GOOGLE_ADS_OAUTH_PORT ?? 0);
+server.listen(requestedPort, '127.0.0.1');
 await once(server, 'listening');
 const { port } = server.address() as AddressInfo;
+// Must be a loopback address: Google accepts `http://localhost:<any port>` for
+// a Desktop client and rejects anything else, including a forwarded
+// `*.app.github.dev` URL, which is not loopback however convenient it looks.
 const redirectUri = `http://localhost:${port}`;
 
 const authUrl = new URL(AUTH_ENDPOINT);
@@ -114,12 +194,25 @@ authUrl.search = new URLSearchParams({
   state,
 }).toString();
 
-console.log('Open this in a browser, signed in as a user with access to the');
-console.log('manager account whose developer token you will use:\n');
+console.log('Step 1. Open this in a browser, signed in as a user with access to');
+console.log('the manager account:\n');
 console.log(`  ${authUrl}\n`);
-console.log(`Listening on ${redirectUri} for the callback. Ctrl-C to abort.`);
+console.log('Step 2. Approve the consent screen.\n');
+console.log(`Step 3. The browser is sent to ${redirectUri}?code=...`);
+console.log('        If this process can see that callback, it completes on its own.');
+console.log('        If the browser instead shows "unable to connect" — which is what');
+console.log('        happens when it runs on a different machine from this process,');
+console.log('        such as a Codespace — that page is not an error. The code is in');
+console.log('        the address bar. Copy the whole URL and paste it below.\n');
 
-const result = await callback;
+if (process.env.CODESPACES === 'true') {
+  console.log('Detected a Codespace, so the paste route is the likely one: the');
+  console.log('listener is on the container\u2019s loopback and your browser is not.\n');
+}
+
+console.log('Waiting for the callback, or for a pasted URL. Ctrl-C to abort.\n');
+
+const result = await Promise.race([callback, pastedRedirect()]);
 server.close();
 
 if (result.error || !result.code) {

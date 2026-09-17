@@ -381,10 +381,10 @@ export const spartan: TenantSeed = {
     },
     {
       platform: 'google_ads',
-      accountIdentifier: '696-268-5494',
+      accountIdentifier: '467-747-3505',
       status: 'waiting_on_client',
       blockedReason:
-        'Awaiting OAuth credentials. Every Google Ads credential for this tenant ' +
+        'Awaiting the OAuth refresh token. Every Google Ads credential for this tenant ' +
         'belongs to Spartan rather than to Zeeraa: the manager account is theirs, ' +
         'the OAuth consent is theirs, and since Google sunset developer tokens on ' +
         '9 September 2026 the API access level belongs to the Google Cloud project ' +
@@ -396,9 +396,10 @@ export const spartan: TenantSeed = {
         // arrive under a different arrangement entirely; nothing in the connector
         // assumes one agency-level account covers every client.
         loginCustomerId: '6962685494',
-        // customerId is the account being reported on, and is set once the client
-        // confirms which of the accounts under that manager is in scope.
-        customerId: 'pending',
+        // Spartan Business Solutions LLC, the account in scope for the
+        // engagement. One connection reports on one account; a second account
+        // under the same manager would be a second connection row.
+        customerId: '4677473505',
       },
     },
     { platform: 'microsoft_ads', accountIdentifier: 'pending', status: 'not_configured' },

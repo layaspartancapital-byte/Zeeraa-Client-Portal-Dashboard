@@ -60,14 +60,19 @@ them into the connection row; the two ids are not secret and can go anywhere.
 | `GOOGLE_ADS_CLIENT_SECRET` | Same OAuth client | `GOCSPX-…` |
 | `GOOGLE_ADS_REFRESH_TOKEN` | Generated once, see below | `1//0…` |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Spartan Capital MCC | `6962685494` — ten digits, dashes stripped |
-| `GOOGLE_ADS_CUSTOMER_ID` | The account being reported on | ten digits, dashes stripped |
+| `GOOGLE_ADS_CUSTOMER_ID` | Spartan Business Solutions LLC | `4677473505` |
 
 `GOOGLE_ADS_DEVELOPER_TOKEN` is **not** needed. If one is supplied it is stored
 and sent, and it changes nothing.
 
-The account id is the one still outstanding: the manager account may hold more
-than one, and the connector reports on exactly one per connection. Confirm which
-account is in scope for the engagement.
+Confirmed 17 September 2026: Cloud project `scg-ads-conversions`, **Basic**
+access (15,000 operations a day, full API functionality), reporting on Spartan
+Business Solutions LLC (`4677473505`) through the Spartan Capital MCC
+(`6962685494`). Basic comfortably covers a 90-day click backfill in a single
+run — 90 requests against a 15,000 ceiling.
+
+A second account under the same manager would be a second connection row, not a
+second value here: one connection reports on one account.
 
 ### The OAuth client must be a **Desktop app**
 
@@ -81,19 +86,28 @@ project whose access level governs the connection.
 
 ### Generating the refresh token
 
-On a machine with a browser, signed in as a user with access to the manager
-account:
-
 ```bash
-GOOGLE_ADS_CLIENT_ID=... GOOGLE_ADS_CLIENT_SECRET=... \
-  pnpm --filter @zeeraa/connectors google-ads-token
+pnpm --filter @zeeraa/connectors google-ads-token
 ```
 
-It opens a local listener, prints a URL, and prints the refresh token once you
-consent. Three settings in it are load-bearing and each fails differently:
+Reads `GOOGLE_ADS_CLIENT_ID` and `GOOGLE_ADS_CLIENT_SECRET` from the
+environment, prints a consent URL, and prints the refresh token once you
+approve. Three settings in it are load-bearing and each fails differently:
 `access_type=offline` (or there is nothing to store), `prompt=consent` (or a
 *second* authorisation silently returns no refresh token at all), and the
 `adwords` scope.
+
+**Running it from a Codespace.** Google requires a loopback redirect for a
+Desktop client, so `http://localhost:<port>` is the only address it will accept
+— a forwarded `*.app.github.dev` URL is rejected, however convenient it looks.
+The listener is on the container's loopback and your browser is not, so the
+callback usually cannot reach it, and the browser lands on "unable to connect".
+
+That page is not an error. The authorisation code is in the address bar. The
+script races the listener against a paste, so copying the whole URL back into
+the terminal completes it either way, and you do not have to know in advance
+which route will work. `GOOGLE_ADS_OAUTH_PORT` pins the port if you do have
+loopback forwarding set up and want it predictable.
 
 ### What the grant depends on
 
