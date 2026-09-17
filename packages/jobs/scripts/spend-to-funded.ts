@@ -141,31 +141,41 @@ try {
     const result = await runInTenant((tx) =>
       spendToFunded(tx, tenantId, 'google_ads', range, model),
     );
-    console.log(`  attributed spend:            ${money(result.spend, currency)}`);
-    console.log(`  unattributed spend:          ${money(result.unattributedSpend, currency)}`);
-    console.log(`  funded deals (attributed):   ${result.fundedDeals}`);
-    console.log(`  funded deals (unattributed): ${result.unattributedFundedDeals}`);
+
+    console.log(`  channel spend (google_ads):  ${money(result.channelSpend, currency)}`);
+    console.log(`  deals attributed to channel: ${result.attributedDeals}`);
+    console.log(`    of those, campaign known:  ${result.dealsResolvingToCampaign}`);
+    console.log(`  deals attributed elsewhere:  ${result.dealsAttributedElsewhere}`);
+    console.log(`  deals attributed to nobody:  ${result.unattributedDeals}`);
     console.log(
-      `  COST PER FUNDED DEAL:        ${
+      `  COST PER ${(stage ?? 'VALUE').toUpperCase()} DEAL (google_ads): ${
         result.value === null
-          ? 'no value — no funded deal in the period to divide by'
+          ? 'no value — no deal attributed to this channel in the period'
           : money(result.value, currency)
       }`,
     );
 
-    // The same period's spend over every deal that funded in it, attributed or
-    // not. Not the metric — it credits paid spend with deals that may owe it
-    // nothing — but printed beside the metric because the distance between the
-    // two is the size of the attribution gap, stated in the unit the client
-    // thinks in rather than as a percentage.
-    const allDeals = result.fundedDeals + result.unattributedFundedDeals;
-    const allSpend = result.spend + result.unattributedSpend;
-    console.log(
-      `  (all spend ÷ all funded deals: ${
-        allDeals === 0 ? 'no value' : money(allSpend / allDeals, currency)
-      } over ${allDeals} deals — the attribution gap is the distance between these two)`,
-    );
+    // The bracket, not a second headline. `high` is the confirmed figure; `low`
+    // is what it would become if every deal nobody can claim turned out to be
+    // this channel's. Printed as a range because a single number would be a
+    // claim the attribution cannot support.
+    const { low, high } = result.plausibleRange;
+    if (low !== null && high !== null && result.unattributedDeals > 0) {
+      console.log(
+        `  plausible range:             ${money(low, currency)} – ${money(high, currency)}` +
+          `  (if all ${result.unattributedDeals} unattributed deals were this channel's, through none of them)`,
+      );
+    } else if (result.unattributedDeals === 0) {
+      console.log('  plausible range:             no unattributed deals — the figure is not bracketed');
+    }
   }
+
+  console.log(
+    '\n  Blended cost per funded deal across all channels is a different metric\n' +
+      '  with a different denominator — total marketing spend over total\n' +
+      '  marketing-sourced deals — and is deliberately not computed here. It\n' +
+      '  needs every channel ingested before it means anything.',
+  );
 } finally {
   await close();
   const { closeConnections } = await import('@zeeraa/db');

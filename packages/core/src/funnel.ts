@@ -56,6 +56,62 @@ export function reachedByStage(
     }));
 }
 
+/**
+ * Which channel a deal is attributed to, or null when none is.
+ *
+ * A lookup rather than a field on the event: attribution is resolved per model,
+ * and the same opportunity can belong to a different channel under first touch
+ * than under last touch.
+ */
+export type ChannelOf = (opportunityExternalId: string) => string | null;
+
+/**
+ * Stage reach for one channel.
+ *
+ * The rule this exists to enforce: a channel's rate divides that channel's
+ * numerator by that channel's denominator. A channel's offer rate is offers
+ * attributed to it over leads attributed to it — never over the total, which
+ * would mix a channel's numerator with everybody's denominator and produce a
+ * number that falls whenever another channel has a good month.
+ *
+ * It is a named function rather than a `filter` at each call site so that the
+ * filtering is impossible to leave out by accident, and so the one place it
+ * happens is the one place to read when a rate looks wrong.
+ */
+export function channelReach(
+  stages: readonly StageDefinition[],
+  events: readonly StageEvent[],
+  channelOf: ChannelOf,
+  channel: string,
+  origins: Readonly<Record<string, StageOrigin>> = {},
+): StageReach[] {
+  return reachedByStage(
+    stages,
+    events.filter((e) => channelOf(e.opportunityExternalId) === channel),
+    origins,
+  );
+}
+
+/**
+ * Stage reach for deals no channel can claim.
+ *
+ * Its own population, reported as its own row. Folding these into a channel
+ * would overstate that channel; dropping them entirely would quietly shrink
+ * the funnel and make every channel look like the whole business.
+ */
+export function unattributedReach(
+  stages: readonly StageDefinition[],
+  events: readonly StageEvent[],
+  channelOf: ChannelOf,
+  origins: Readonly<Record<string, StageOrigin>> = {},
+): StageReach[] {
+  return reachedByStage(
+    stages,
+    events.filter((e) => channelOf(e.opportunityExternalId) === null),
+    origins,
+  );
+}
+
 export type ConversionRate = {
   from: string;
   to: string;
@@ -72,6 +128,12 @@ export type ConversionRate = {
  * underwriting, so there is no approval rate" and "every deal that reached
  * underwriting was declined" are opposite findings, and a zero would render
  * them identically.
+ *
+ * Whatever population `reach` describes is the population the rate describes.
+ * For a per-channel rate that must be `channelReach` — both halves of the
+ * fraction drawn from the same channel — and the caller cannot fix a mixed
+ * population afterwards, because by this point the counts are integers with
+ * nothing left to say where they came from.
  */
 export function stageConversionRate(
   reach: readonly StageReach[],

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjacentConversionRates,
+  channelReach,
   reachedByStage,
   stageConversionRate,
   stageVelocity,
+  unattributedReach,
   type StageDefinition,
   type StageEvent,
 } from '../src/funnel';
@@ -143,5 +145,55 @@ describe('stage velocity', () => {
 
   it('reports no sample rather than zero days when nothing reached both', () => {
     expect(stageVelocity([], 'lead', 'funded')).toEqual({ medianDays: null, sampleSize: 0 });
+  });
+});
+
+describe('channelReach', () => {
+  const CHANNELS: Record<string, string | null> = {
+    A: 'google_ads',
+    B: 'google_ads',
+    C: 'meta',
+    D: null,
+  };
+  const channelOf = (id: string) => CHANNELS[id] ?? null;
+
+  it("scopes both halves of a rate to the same channel", () => {
+    // Four leads, of which two are Google Ads. One Google Ads lead reaches
+    // offer, as does the Meta lead. Google Ads' offer rate is 1/2, not 2/4 and
+    // not 1/4 — a channel's numerator over a channel's denominator.
+    const timeline = [
+      ...events({ A: ['lead', 'offer'] }),
+      ...events({ B: ['lead'] }),
+      ...events({ C: ['lead', 'offer'] }),
+      ...events({ D: ['lead'] }),
+    ];
+
+    const google = channelReach(SPARTAN, timeline, channelOf, 'google_ads');
+    const rate = stageConversionRate(google, 'lead', 'offer');
+    expect(rate).toEqual({ from: 'lead', to: 'offer', numerator: 1, denominator: 2, rate: 0.5 });
+
+    // The same events across everybody would give a different, meaningless
+    // number for this channel.
+    expect(stageConversionRate(reachedByStage(SPARTAN, timeline), 'lead', 'offer').rate).toBe(0.5);
+    expect(stageConversionRate(reachedByStage(SPARTAN, timeline), 'lead', 'offer').denominator).toBe(4);
+  });
+
+  it('gives deals no channel can claim their own population', () => {
+    const timeline = [
+      ...events({ A: ['lead', 'offer'] }),
+      ...events({ D: ['lead'] }),
+    ];
+    const orphan = unattributedReach(SPARTAN, timeline, channelOf);
+    expect(orphan.find((r) => r.stage === 'lead')?.count).toBe(1);
+    expect(orphan.find((r) => r.stage === 'offer')?.count).toBe(0);
+    // And it is not inside any channel's figures.
+    expect(
+      channelReach(SPARTAN, timeline, channelOf, 'google_ads').find((r) => r.stage === 'lead')?.count,
+    ).toBe(1);
+  });
+
+  it('returns a null rate for a channel with nothing at the earlier stage', () => {
+    const reach = channelReach(SPARTAN, events({ C: ['lead'] }), channelOf, 'google_ads');
+    expect(stageConversionRate(reach, 'lead', 'offer').rate).toBeNull();
   });
 });

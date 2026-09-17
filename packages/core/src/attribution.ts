@@ -83,51 +83,102 @@ export function resolveBothModels(
   };
 }
 
-export type CostPerFundedDeal = {
-  spend: number;
-  fundedDeals: number;
-  /** Null when no deal funded in the period — not zero, and not infinity. */
+export type ChannelCostPerDeal = {
+  /**
+   * Every unit of this channel's spend in the period, whether or not it
+   * resolved to a campaign. Account-level spend is still this channel's spend;
+   * leaving it out would understate the channel's cost.
+   */
+  channelSpend: number;
+  /**
+   * Deals attributed to this channel. The only denominator this metric has.
+   */
+  attributedDeals: number;
+  /** Null when no deal is attributed to this channel — not zero, not infinity. */
   value: number | null;
   /**
-   * Spend that reached no funded deal, and funded deals that reached no spend.
-   * Both are reported rather than folded in: a cost per funded deal computed
-   * over attributed spend alone flatters itself, and one computed over all
-   * spend while counting only attributed deals does the opposite.
+   * Deals that reached the stage in the period with no channel attributed at
+   * all. Reported beside the figure and never inside it: a channel's cost per
+   * deal that divides by deals the channel may have had nothing to do with is
+   * not a channel metric, it is a flattering one.
    */
-  unattributedSpend: number;
-  unattributedFundedDeals: number;
+  unattributedDeals: number;
+  /**
+   * Deals attributed to a different channel. Separated from `unattributedDeals`
+   * because they cannot move this channel's figure — somebody else's deal is
+   * not uncertainty about ours.
+   */
+  dealsAttributedElsewhere: number;
+  /**
+   * How far the unattributed deals could move the figure if they were resolved.
+   *
+   * A bracket, not a confidence interval and not an estimate. `high` is the
+   * confirmed value — none of the unattributed deals belong to this channel.
+   * `low` assumes every one of them does, which is the most generous reading
+   * the data permits. The truth is inside, and usually not at either end.
+   *
+   * Rendered as a range so the uncertainty is visible. A single number here
+   * would be a claim the attribution cannot support, and the gap between the
+   * ends is exactly the cost of the coverage problem.
+   */
+  plausibleRange: { low: number | null; high: number | null };
 };
 
 /**
- * Attributed media spend and fees divided by deals that reached Funded in the
- * same period (§8).
+ * A channel's spend divided by the deals attributed to that channel (§8).
  *
- * Returns null on a zero denominator. A period with spend and no funded deals
- * does not have an infinite cost per deal, and it does not have a cost of zero;
- * it has no cost per deal, and the UI renders that as an explicit empty state
- * rather than as a number.
+ * The denominator is the whole point. Funded deals arrive from organic,
+ * referral, outbound and repeat business as well as from paid media, so
+ * dividing one channel's spend by every deal in the period produces a number
+ * that is not wrong so much as meaningless — it improves whenever the sales
+ * team has a good month and would keep improving if the channel were switched
+ * off. A channel metric divides that channel's spend by that channel's deals,
+ * and says separately how many deals it could not speak for.
  *
- * The two unattributed figures are part of the result, not a diagnostic beside
- * it. Spartan's click-ID coverage is partial by construction — `gclid` reaches
- * 37.4% of converted leads and `click_view` only serves 90 days — so a caller
- * that cannot see the unattributed share cannot tell a good cost per deal from
- * a well-attributed fraction of a bad one.
+ * Generic across stages: cost per funded deal is this with the value stage,
+ * cost per offer is this with the offer stage. The metric does not know which
+ * stage a tenant calls valuable — `funnel_stages.counts_value` does.
+ *
+ * Blended cost per deal across every channel is a different metric with a
+ * different denominator — total marketing spend over total marketing-sourced
+ * deals — and it is not this function with the arguments added up. It needs
+ * every channel ingested before it means anything.
+ */
+export function channelCostPerDeal(input: {
+  channelSpend: number;
+  attributedDeals: number;
+  unattributedDeals?: number;
+  dealsAttributedElsewhere?: number;
+}): ChannelCostPerDeal {
+  const { channelSpend, attributedDeals } = input;
+  const unattributedDeals = input.unattributedDeals ?? 0;
+  const value = attributedDeals === 0 ? null : channelSpend / attributedDeals;
+  const mostGenerousDenominator = attributedDeals + unattributedDeals;
+
+  return {
+    channelSpend,
+    attributedDeals,
+    value,
+    unattributedDeals,
+    dealsAttributedElsewhere: input.dealsAttributedElsewhere ?? 0,
+    plausibleRange: {
+      low: mostGenerousDenominator === 0 ? null : channelSpend / mostGenerousDenominator,
+      high: value,
+    },
+  };
+}
+
+/**
+ * Cost per funded deal for one channel — the north star (§8), named because the
+ * product names it, and one call to `channelCostPerDeal`.
  */
 export function costPerFundedDeal(input: {
-  attributedSpend: number;
-  unattributedSpend?: number;
-  fundedDeals: number;
-  unattributedFundedDeals?: number;
-}): CostPerFundedDeal {
-  const spend = input.attributedSpend;
-  const fundedDeals = input.fundedDeals;
-  return {
-    spend,
-    fundedDeals,
-    value: fundedDeals === 0 ? null : spend / fundedDeals,
-    unattributedSpend: input.unattributedSpend ?? 0,
-    unattributedFundedDeals: input.unattributedFundedDeals ?? 0,
-  };
+  channelSpend: number;
+  attributedDeals: number;
+  unattributedDeals?: number;
+  dealsAttributedElsewhere?: number;
+}): ChannelCostPerDeal {
+  return channelCostPerDeal(input);
 }
 
 export type AttributionCoverage = {

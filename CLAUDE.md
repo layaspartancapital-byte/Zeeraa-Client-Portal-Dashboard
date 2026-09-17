@@ -51,6 +51,15 @@ commit history and get it wrong.
 - Metrics are named, unit-tested functions in `packages/core`. Never recompute a
   metric inline in a component — the same word must mean the same thing on every
   screen.
+- **A channel's metric takes both halves from that channel.** Cost per deal is
+  that channel's spend over the deals attributed to that channel; a channel's
+  conversion rate is its own numerator over its own denominator. Deals no
+  channel can claim are their own count and never enter anybody's denominator —
+  a metric that improves when a *different* channel has a good month is not
+  measuring the channel it is named after. Use `channelCostPerDeal` and
+  `channelReach`; both exist so the scoping cannot be forgotten at a call site.
+  Blended-across-channels is a separate metric with a different denominator, and
+  it does not mean anything until every channel is ingested.
 - Dates are normalised into the tenant timezone **at ingest**, never at query
   time.
 - Money is `numeric` in the database and never a float.

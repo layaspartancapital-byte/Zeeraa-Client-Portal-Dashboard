@@ -2,12 +2,12 @@ import { and, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@zeeraa/db';
 import {
   attributionCoverage,
-  costPerFundedDeal,
+  channelCostPerDeal,
   resolveBothModels,
   type AttributionCoverage,
   type AttributionModel,
   type AttributionTouch,
-  type CostPerFundedDeal,
+  type ChannelCostPerDeal,
   type DateRange,
 } from '@zeeraa/core';
 import { clicksByClickId } from './writer';
@@ -207,9 +207,24 @@ export async function valueStageKey(tx: Database, tenantId: string): Promise<str
   return row?.key ?? null;
 }
 
-export type SpendToFunded = CostPerFundedDeal & {
+export type SpendToFunded = ChannelCostPerDeal & {
+  platform: string;
+  /** Which stage counts as value for this tenant. Null when none is configured. */
+  stage: string | null;
   model: AttributionModel;
   range: DateRange;
+  /** Deals reaching the value stage in the period, from every source. Context, never a denominator. */
+  dealsInPeriod: number;
+  /**
+   * Of `attributedDeals`, those whose click also resolves to a campaign.
+   *
+   * The remainder are deals we know came from this channel — a `gclid` is a
+   * Google Ads click by definition — whose click has aged out of the platform's
+   * lookback window. They belong in the channel's denominator, because the
+   * channel is known; they cannot appear in the per-campaign breakdown, because
+   * the campaign is not.
+   */
+  dealsResolvingToCampaign: number;
   /** Per campaign, for the breakdown. Campaigns with no funded deal included. */
   byCampaign: {
     campaignId: string | null;
@@ -260,6 +275,7 @@ export async function spendToFunded(
     ? await tx
         .select({
           campaignId: schema.attribution.campaignId,
+          attributedPlatform: schema.attribution.platform,
           opportunityExternalId: schema.stageEvents.opportunityExternalId,
         })
         .from(schema.stageEvents)
@@ -284,14 +300,37 @@ export async function spendToFunded(
         )
     : [];
 
-  // A stage can recur, so the same opportunity can hold two funded events.
-  // Counting rows would double-count the deal.
+  // A stage can recur, so the same opportunity can hold two events for it.
+  // Counting rows would count the deal twice.
   const dealsByCampaign = new Map<string | null, Set<string>>();
+  const dealsInPeriod = new Set<string>();
+  const attributedHere = new Set<string>();
+  const resolvingToCampaign = new Set<string>();
+  const attributedElsewhere = new Set<string>();
+
   for (const row of funded) {
-    const set = dealsByCampaign.get(row.campaignId) ?? new Set<string>();
-    set.add(row.opportunityExternalId);
-    dealsByCampaign.set(row.campaignId, set);
+    dealsInPeriod.add(row.opportunityExternalId);
+
+    if (row.attributedPlatform === platform) {
+      attributedHere.add(row.opportunityExternalId);
+      if (row.campaignId != null) {
+        resolvingToCampaign.add(row.opportunityExternalId);
+        const set = dealsByCampaign.get(row.campaignId) ?? new Set<string>();
+        set.add(row.opportunityExternalId);
+        dealsByCampaign.set(row.campaignId, set);
+      }
+    } else if (row.attributedPlatform != null) {
+      attributedElsewhere.add(row.opportunityExternalId);
+    }
   }
+
+  // A deal attributed to this channel under one touch is this channel's, even
+  // if another row for the same deal named somebody else. The sets are built in
+  // that order so the stronger claim wins rather than the last row read.
+  for (const id of attributedHere) attributedElsewhere.delete(id);
+  const unattributedDeals = [...dealsInPeriod].filter(
+    (id) => !attributedHere.has(id) && !attributedElsewhere.has(id),
+  ).length;
 
   const byCampaign = spendRows.map((row) => {
     const deals = dealsByCampaign.get(row.campaignId)?.size ?? 0;
@@ -301,30 +340,29 @@ export async function spendToFunded(
       campaignName: row.campaignName ?? null,
       spend,
       fundedDeals: deals,
+      // The same rule one level down: a campaign's spend over the deals
+      // attributed to that campaign, never over the channel's deals.
       costPerFundedDeal: deals === 0 ? null : spend / deals,
     };
   });
 
-  const attributedSpend = byCampaign
-    .filter((c) => c.campaignId != null)
-    .reduce((sum, c) => sum + c.spend, 0);
-  const unattributedSpend = byCampaign
-    .filter((c) => c.campaignId == null)
-    .reduce((sum, c) => sum + c.spend, 0);
-
-  const attributedDeals = [...dealsByCampaign.entries()]
-    .filter(([campaignId]) => campaignId != null)
-    .reduce((sum, [, deals]) => sum + deals.size, 0);
-  const unattributedDeals = dealsByCampaign.get(null)?.size ?? 0;
+  // Every unit of this channel's spend in the period, including spend that
+  // resolved to no campaign. Account-level spend is still this channel's spend,
+  // and excluding it would understate what the channel cost.
+  const channelSpend = byCampaign.reduce((sum, c) => sum + c.spend, 0);
 
   return {
+    platform,
+    stage,
     model,
     range,
-    ...costPerFundedDeal({
-      attributedSpend,
-      unattributedSpend,
-      fundedDeals: attributedDeals,
-      unattributedFundedDeals: unattributedDeals,
+    dealsInPeriod: dealsInPeriod.size,
+    dealsResolvingToCampaign: resolvingToCampaign.size,
+    ...channelCostPerDeal({
+      channelSpend,
+      attributedDeals: attributedHere.size,
+      unattributedDeals,
+      dealsAttributedElsewhere: attributedElsewhere.size,
     }),
     byCampaign,
   };

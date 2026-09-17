@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attributionCoverage,
+  channelCostPerDeal,
   costPerFundedDeal,
   resolveAttribution,
   resolveBothModels,
@@ -61,31 +62,80 @@ describe('resolveAttribution', () => {
   });
 });
 
-describe('costPerFundedDeal', () => {
-  it('divides attributed spend by funded deals', () => {
-    expect(costPerFundedDeal({ attributedSpend: 45_000, fundedDeals: 10 }).value).toBe(4_500);
+describe('channelCostPerDeal', () => {
+  it("divides a channel's spend by the deals attributed to that channel", () => {
+    expect(channelCostPerDeal({ channelSpend: 45_000, attributedDeals: 10 }).value).toBe(4_500);
   });
 
-  it('returns null with no funded deals, not zero and not infinity', () => {
-    // Spend with no funded deals has no cost per deal. The UI renders an
-    // explicit empty state rather than a number.
-    const result = costPerFundedDeal({ attributedSpend: 12_000, fundedDeals: 0 });
-    expect(result.value).toBeNull();
-    expect(result.spend).toBe(12_000);
+  it('never folds unattributed deals into the denominator', () => {
+    // The mistake this guards against: 21 deals funded in the period, 6 of them
+    // attributed to this channel, the other 15 from organic, referral, outbound
+    // and repeat business. Dividing by 21 would make the channel look four
+    // times cheaper than it is, and would improve every time the sales team had
+    // a good month.
+    const result = channelCostPerDeal({
+      channelSpend: 78_873.97,
+      attributedDeals: 6,
+      unattributedDeals: 15,
+    });
+    expect(result.attributedDeals).toBe(6);
+    expect(result.unattributedDeals).toBe(15);
+    expect(result.value).toBeCloseTo(13_145.66, 2);
+    // Not 78_873.97 / 21.
+    expect(result.value).not.toBeCloseTo(3_755.90, 2);
   });
 
-  it('carries the unattributed shares rather than folding them in', () => {
-    // A cost per deal over attributed spend alone flatters itself; one over all
-    // spend while counting only attributed deals does the opposite.
-    const result = costPerFundedDeal({
-      attributedSpend: 30_000,
-      unattributedSpend: 20_000,
-      fundedDeals: 6,
-      unattributedFundedDeals: 4,
+  it('brackets the figure by what the unattributed deals could do to it', () => {
+    const result = channelCostPerDeal({
+      channelSpend: 78_873.97,
+      attributedDeals: 6,
+      unattributedDeals: 15,
+    });
+    // High: none of the unattributed deals belong to this channel — the
+    // confirmed figure. Low: every one of them does, the most generous reading
+    // the data permits. The truth is inside, and usually at neither end.
+    expect(result.plausibleRange.high).toBe(result.value);
+    expect(result.plausibleRange.low).toBeCloseTo(3_755.90, 2);
+  });
+
+  it('keeps deals attributed elsewhere out of the range entirely', () => {
+    // Somebody else's deal is not uncertainty about ours: it can never move
+    // this channel's figure, so it is neither a denominator nor a bound.
+    const result = channelCostPerDeal({
+      channelSpend: 10_000,
+      attributedDeals: 2,
+      unattributedDeals: 0,
+      dealsAttributedElsewhere: 8,
     });
     expect(result.value).toBe(5_000);
-    expect(result.unattributedSpend).toBe(20_000);
-    expect(result.unattributedFundedDeals).toBe(4);
+    expect(result.dealsAttributedElsewhere).toBe(8);
+    expect(result.plausibleRange.low).toBe(5_000);
+    expect(result.plausibleRange.high).toBe(5_000);
+  });
+
+  it('returns null with no attributed deals, not zero and not infinity', () => {
+    const result = channelCostPerDeal({ channelSpend: 12_000, attributedDeals: 0 });
+    expect(result.value).toBeNull();
+    expect(result.plausibleRange.high).toBeNull();
+    expect(result.channelSpend).toBe(12_000);
+  });
+
+  it('still brackets when nothing is attributed but deals exist', () => {
+    // Spend, deals, and no link between them. There is no cost per deal to
+    // report, but the range still says what it could be at best.
+    const result = channelCostPerDeal({
+      channelSpend: 12_000,
+      attributedDeals: 0,
+      unattributedDeals: 4,
+    });
+    expect(result.value).toBeNull();
+    expect(result.plausibleRange.low).toBe(3_000);
+    expect(result.plausibleRange.high).toBeNull();
+  });
+
+  it('costPerFundedDeal is the same metric on the value stage', () => {
+    const input = { channelSpend: 9_000, attributedDeals: 3, unattributedDeals: 6 };
+    expect(costPerFundedDeal(input)).toEqual(channelCostPerDeal(input));
   });
 });
 

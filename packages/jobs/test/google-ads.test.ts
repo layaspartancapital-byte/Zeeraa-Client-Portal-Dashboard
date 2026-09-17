@@ -467,10 +467,15 @@ describe('the spend-to-funded join', () => {
     const result = await inTenant((tx) =>
       spendToFunded(tx, tenantId, 'google_ads', { start: '2026-09-01', end: '2026-09-30' }, 'last_touch'),
     );
-    expect(result.value).toBe(4_500);
-    expect(result.fundedDeals).toBe(1);
-    // Account-level spend with no campaign behind it is reported, not folded in.
-    expect(result.unattributedSpend).toBe(500);
+    // The channel's whole spend, account-level included: 4,500 on the campaign
+    // plus 500 that resolved to none. Account-level spend is still Google Ads
+    // spend, and leaving it out of the numerator would understate what the
+    // channel cost by exactly the amount hardest to attribute.
+    expect(result.channelSpend).toBe(5_000);
+    expect(result.attributedDeals).toBe(1);
+    expect(result.value).toBe(5_000);
+    // The per-campaign breakdown still divides a campaign's own spend by the
+    // deals attributed to that campaign.
     expect(result.byCampaign.find((c) => c.campaignId === campaignId)?.costPerFundedDeal).toBe(4_500);
   });
 
@@ -499,7 +504,7 @@ describe('the spend-to-funded join', () => {
     const result = await inTenant((tx) =>
       spendToFunded(tx, tenantId, 'google_ads', { start: '2026-09-01', end: '2026-09-30' }, 'last_touch'),
     );
-    expect(result.fundedDeals).toBe(1);
+    expect(result.attributedDeals).toBe(1);
     expect(result.value).toBe(1_000);
   });
 
@@ -519,6 +524,6 @@ describe('the spend-to-funded join', () => {
       spendToFunded(tx, tenantId, 'google_ads', { start: '2026-09-01', end: '2026-09-30' }, 'last_touch'),
     );
     expect(result.value).toBeNull();
-    expect(result.spend).toBe(900);
+    expect(result.channelSpend).toBe(900);
   });
 });

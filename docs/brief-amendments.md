@@ -343,3 +343,92 @@ A note on where that limit now lives: Google sunset developer tokens on
 9 September 2026, and the API access level is a property of the Google Cloud
 project behind the OAuth client rather than of a token. See
 `docs/google-ads-credentials.md`.
+
+---
+
+## §8 — `cost_per_funded_deal` is a channel metric, and its denominator is not "funded deals in period"
+
+**Amended 17 September 2026.**
+
+The brief said:
+
+> `cost_per_funded_deal` = attributed spend ÷ funded deals in period
+
+Read literally, that divides one channel's spend by *every* deal that funded in
+the period. It was implemented that way, and the first run against real data
+showed what it produces: Google Ads spend of $78,873.97 over 21 funded deals,
+$3,755.90 — a number that counts organic, referral, sales-outbound and repeat
+business in the denominator of a paid-media metric.
+
+**The rule now:** a channel's cost per deal is that channel's spend divided by
+the deals attributed to that channel. Deals no channel can claim are reported as
+their own count and never enter any channel's denominator. Implemented as
+`channelCostPerDeal` in `packages/core/src/attribution.ts`;
+`costPerFundedDeal` is that function on the value stage.
+
+### Why
+
+The literal reading has a property that disqualifies it. A channel's cost per
+deal computed over all deals improves whenever *something else* improves: a good
+month from the sales team, a referral wave, a renewal cycle. It would keep
+improving if the channel were switched off entirely, right up to the moment
+spend hit zero. A metric that reports "this channel got cheaper" when the truth
+is "another channel got busier" is not a measurement, and it is the number the
+brief puts in the dark band at the top of the executive view.
+
+### What replaces it
+
+Three figures, always together:
+
+1. **Confirmed.** Channel spend ÷ deals attributed to that channel.
+2. **Unattributed deals**, as their own count. Never folded into a denominator.
+3. **A plausible range.** `high` is the confirmed figure — none of the
+   unattributed deals belong to this channel. `low` assumes every one of them
+   does, which is the most generous reading the data permits. The truth is
+   inside and usually at neither end, and the width of the bracket is the cost
+   of the coverage problem stated in the client's own unit.
+
+The range is a bracket, not a confidence interval. Nothing here models a
+probability; it states two bounds that the data cannot rule out.
+
+Deals attributed to a *different* channel are separated from unattributed ones
+and excluded from the bracket entirely. Somebody else's deal is not uncertainty
+about ours: it can never move this channel's figure.
+
+### Two consequences worth stating
+
+**The numerator is the channel's whole spend**, including spend that resolved to
+no campaign. Account-level Google Ads spend is still Google Ads spend, and
+excluding it would understate the channel's cost by exactly the portion hardest
+to attribute — the same flattery as the denominator problem, in the other
+direction. The per-campaign breakdown still divides a campaign's own spend by
+the deals attributed to that campaign.
+
+**A deal whose click has aged out still counts for the channel.** A `gclid` is a
+Google Ads click by definition, so the channel is known even when the campaign
+is not. Such a deal belongs in the channel's denominator and cannot appear in
+the per-campaign breakdown. For Spartan today that is the difference between a
+denominator of 9 and one of 6, and between $8,763.77 and $13,145.66.
+
+### The same rule at every stage
+
+`stage_conversion_rate(n, n+1)` sliced by channel takes both halves from that
+channel: a channel's offer rate is offers attributed to it over leads attributed
+to it, never over the total. Enforced by `channelReach` in
+`packages/core/src/funnel.ts`, which exists so the filtering is a named
+operation rather than a `filter` somebody can forget at one call site.
+`unattributedReach` gives deals no channel can claim their own row.
+`cost_per_stage(stage)` follows the same rule, being `channelCostPerDeal` on a
+non-value stage.
+
+### Blended cost per funded deal is a different metric
+
+Total marketing spend over total marketing-sourced funded deals. It is not this
+function with the arguments summed, and it is **not computed yet**: with only
+Google Ads ingested, any blended figure would silently be the Google Ads figure
+wearing a broader name. It waits until every channel in the engagement is
+ingested.
+
+This means the brief's north-star metric (§9.1, the dark band at the top of the
+executive view) cannot render as a single blended number today. Per channel it
+can, with its range.
