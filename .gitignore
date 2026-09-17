@@ -14,3 +14,6 @@ scripts/.mutation-apply.mts
 # Written by `next dev`; disabled via agentRules in next.config.ts.
 apps/web/AGENTS.md
 apps/web/CLAUDE.md
+
+# cron job logs
+.cron-*.log

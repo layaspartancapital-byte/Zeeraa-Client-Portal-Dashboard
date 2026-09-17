@@ -1,24 +1,32 @@
 # Zeeraa ingestion schedule, without Inngest.
 #
 # The Inngest functions in packages/jobs/src/inngest/functions.ts are the real
-# schedule. Until the app is deployed and registered with Inngest, nothing runs
-# — and for click_view that is not a delay, it is permanent loss: Google serves
-# ninety days and then stops, so every night nobody syncs is a day of
-# attribution no later run recovers.
+# schedule and carry the durable steps a long backfill needs. Until the app is
+# deployed and registered with Inngest, nothing runs on its own — this is the
+# stand-in.
 #
-# Install on any box that can reach the database and the ad platforms:
+# Install:  crontab scripts-crontab.example
+# Verify:   crontab -l
 #
-#   crontab -l > /tmp/c; cat scripts-crontab.example >> /tmp/c; crontab /tmp/c
+# cron gets a minimal environment: no nvm, no shell profile, no repo .env. So
+# PATH is set explicitly and each job sources ./.env itself. A crontab that
+# works interactively and not under cron is the usual way a schedule turns out
+# never to have run.
 #
-# The environment has to carry DATABASE_URL_JOBS, DATABASE_URL_OWNER,
-# ENCRYPTION_KEY and the platform credentials. cron does not read your shell
-# profile, so source an env file explicitly as below.
+# IT ONLY FIRES WHILE THE MACHINE IS UP. On a GitHub Codespace that is a real
+# limit: the container suspends after its idle timeout (30 minutes here), and a
+# suspended container runs no cron at all. Check with:
+#   gh api /user/codespaces/$CODESPACE_NAME --jq .idle_timeout_minutes
+# For a schedule that genuinely runs unattended, deploy and register with
+# Inngest, or install this on a host that stays up.
 
+SHELL=/bin/bash
+PATH=/home/codespace/nvm/current/bin:/usr/local/bin:/usr/bin:/bin
 ZEERAA=/workspaces/Zeeraa-Client-Portal-Dashboard
 
 # Ads, nightly at 03:00 New York. Ads run first: the click window is the only
 # thing in the pipeline with an expiry on it.
-0 3 * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled nightly >> /var/log/zeeraa-nightly.log 2>&1
+0 3 * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled nightly >> $ZEERAA/.cron-nightly.log 2>&1
 
 # Salesforce incremental, hourly.
-0 * * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled hourly >> /var/log/zeeraa-hourly.log 2>&1
+0 * * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled hourly >> $ZEERAA/.cron-hourly.log 2>&1

@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 17 September 2026.**
+**Last updated: 17 September 2026, end of session.**
 
 ---
 
@@ -145,6 +145,38 @@ Next, in order:
 3. Chase the Opportunity click-ID fields and the decline-reason field.
 4. Campaign and keyword-tier drill-down on the performance table, and the CSV
    export.
+
+## Scheduling: where it really stands (17 September 2026)
+
+The click ledger is **complete and settled**: 90 of 90 days, 2026-06-20 to
+2026-09-17, every day `succeeded`. Tonight's run was executed by hand before
+pausing, so nothing is outstanding.
+
+**The earlier framing in this file was wrong and is corrected here.** It said
+holes start appearing the moment a night is missed. They do not. The backfill
+re-pulls a trailing 90-day window and the ledger claims whatever is pending, so
+a missed night is picked up by the next run. A day is lost permanently only if
+it ages past the 90-day `click_view` window without ever having been fetched —
+which now requires the schedule to be dead for months, not for one night. The
+urgency was real while the window was uncaptured; it is not any more.
+
+`crontab scripts-crontab.example` is installed and `cron` is running. It was
+proved to work rather than assumed: a temporary one-minute entry fired and
+executed the job, then was removed.
+
+**It will not fire tonight, and nothing installed on this machine can.** This
+Codespace has `idle_timeout_minutes: 30`, so the container suspends half an hour
+after the last interaction and a suspended container runs no cron. Verify with:
+
+```bash
+gh api "/user/codespaces/$CODESPACE_NAME" --jq .idle_timeout_minutes
+```
+
+So the crontab is real and correct and will run whenever the Codespace happens
+to be awake at the hour — which is a convenience, not a schedule. The only
+unattended schedule is the Inngest one, and it needs the app deployed and
+registered. Until then: run `pnpm --filter @zeeraa/jobs run-scheduled nightly`
+by hand at the end of any working session, which takes about eight seconds.
 
 ## The nightly fan-out was a silent no-op until 17 September 2026
 
