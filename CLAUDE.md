@@ -17,6 +17,15 @@
   requests.
 - **Crossing tenants is explicit.** `withMaintenance()` is the only way, it
   needs a role the application does not have, and it greps.
+- **Ingestion uses `withJobTenant()`**, never `withMaintenance()`. A sync writes
+  on nobody's behalf, so it is scoped to a tenant without a user — and a
+  connector bug must not be able to reach a second client.
+- **A computed stage is not an observed one.** MQL has no timestamp in
+  Salesforce and is derived from the qualification bar; it carries
+  `origin = 'computed'` and must render as such.
+- **Tests must not assume they own the database.** Packages test concurrently
+  against one Postgres, and a maintenance read crosses tenants by design —
+  scope assertions to the fixture's own tenants.
 - **A Zeeraa admin needs a membership row per tenant.** No blanket grant by
   role: access has to be answerable from `memberships`, and revocable there.
 - **Never expose a blob URL that is not signed and authorization-checked.**

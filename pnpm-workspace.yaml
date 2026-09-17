@@ -1,12 +1,9 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+# Postinstall scripts are denied by default; these two are approved explicitly.
+# esbuild ships a prebuilt binary that vitest, drizzle-kit and Next all need.
+# protobufjs arrives via inngest and generates its runtime bundles.
 allowBuilds:
-  esbuild: set this to true or false
-
-# esbuild ships a prebuilt binary via a postinstall script; vitest, drizzle-kit
-# and Next all need it. Approved explicitly rather than by disabling the default.
-onlyBuiltDependencies:
-  - esbuild
-  - '@tailwindcss/oxide'
-  - sharp
+  esbuild: true
+  protobufjs: true

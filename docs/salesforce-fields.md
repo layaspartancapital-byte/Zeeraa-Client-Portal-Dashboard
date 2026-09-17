@@ -115,42 +115,48 @@ not populated on Lead, the funnel view loses its two most useful slices.
 Field history is not being used. The mapping below is what the connector writes
 into `stage_events`.
 
-| Funnel stage | Opportunity field | Confidence |
-| --- | --- | --- |
-| Lead | `CreatedDate` (standard) | certain |
-| MQL | **none** | **no field exists** |
-| SQL | `csbs__Underwriting_Date_Time__c` | **an interpretation — please confirm** |
-| UW approved | `csbs__Approved_Date_Time__c` | certain |
-| Offer | `Offer_Received_Date_Time__c` | certain |
-| Funded | `csbs__Funded_Date_Time__c` | certain |
+| Funnel stage | Source |
+| --- | --- |
+| Lead | `CreatedDate` (standard) |
+| MQL | computed from the qualification bar at lead creation |
+| SQL | `csbs__Underwriting_Date_Time__c` — submission to underwriting |
+| UW approved | `csbs__Approved_Date_Time__c` |
+| Offer | `Offer_Received_Date_Time__c` |
+| Funded | `csbs__Funded_Date_Time__c` |
 
-### MQL has no field
+### MQL is computed, not observed
 
-It is the one stage with nothing behind it. Two ways forward:
+There is no MQL timestamp in the org, and there does not need to be. MQL is
+Spartan's marketing-qualification bar, and both of its conditions are lead
+attributes known at creation:
 
-- **Derive it.** MQL is already defined for this tenant as a lead meeting the
-  configured minimums — monthly revenue ≥ $10,000 and time in business ≥ 12
-  months. Those are lead attributes known at creation, so the MQL timestamp can
-  be the lead's creation time for any lead that meets them. This needs no new
-  field and no admin work. It is a *computed* stage rather than an observed one,
-  and the connector marks it as such so the funnel view can say so.
-- **Add a field.** If MQL means something a human decides rather than something
-  the form data implies, it needs its own datetime field and nothing else will do.
+- time in business ≥ 12 months, **and**
+- revenue ≥ $10,000 monthly gross — equivalently ≥ $120,000 annual gross
 
-Derivation is the recommendation, on the condition that MQL really does mean
-"meets the minimums". If it means "a rep qualified it", the derived figure would
-be wrong in a way nobody would notice.
+So a qualifying lead reached MQL when it was created. The stage is written with
+`origin = 'computed'` and marked as such everywhere it renders, so it can never
+be presented as something the CRM recorded.
 
-### `csbs__Underwriting_Date_Time__c` as SQL
+The two revenue figures are **one threshold at two periods**, not two tests.
+Records may carry a monthly figure, an annual figure, or both, so everything is
+normalised to a monthly basis before comparison: an annual-only figure is
+divided by twelve, and where both are present the monthly one wins. A record
+whose two figures disagree by more than the configured tolerance is flagged
+rather than silently reconciled — that is nearly always a monthly figure typed
+into the annual field, and it is correctable.
 
-This is the one mapping I am guessing at. The reasoning: a deal that reached
-underwriting was necessarily sales-qualified first, so the underwriting
-timestamp is an upper bound on when SQL happened. That makes the SQL count
-correct and the Lead→SQL velocity slightly overstated.
+The bar lives in `tenant_config.mql_bar`: minimum months in business, minimum
+monthly revenue, and the disagreement tolerance. Which Salesforce fields carry
+each lives in `connections.config.fieldMapping.lead`, with the rest of the field
+mapping — the thresholds are a fact about Spartan's business and the field names
+are a fact about their Salesforce org, and the two move independently.
 
-If there is a closer field, or if deals reach underwriting without being
-sales-qualified, say so — this is the kind of assumption that survives quietly
-into a QBR and then loses an argument.
+### SQL is submission to underwriting
+
+`csbs__Underwriting_Date_Time__c`. Submission to underwriting is the
+sales-qualification event at Spartan, which also matches the proposal's
+definition of the SQL stage as submissions carrying duplicate and resubmission
+rates.
 
 ### Two fields that are not funnel stages
 

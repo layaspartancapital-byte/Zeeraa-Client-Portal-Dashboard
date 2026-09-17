@@ -26,6 +26,7 @@ click ID → opportunity → stage timestamps → funded amount     (Salesforce)
 | --- | --- | --- |
 | 1 | Foundation — schema, migrations, RLS, leak test, auth, roles, tenant switcher, app shell | **Done** |
 | 2 | Salesforce — JWT connection, incremental sync, both attribution models | **Partial** — attribution blocked |
+| — | Ingestion: Inngest jobs, Postgres writer, click-ID backfill | Done |
 | 3 | The join and the executive view — Google Ads, metric definitions, provenance | Not started |
 | 4 | Monthly performance and funnel | Not started |
 | 5 | Content and approval workspace | Not started |
@@ -58,8 +59,31 @@ Against Spartan's org:
 | Deletions and merges visible | yes — both handled |
 
 **Attribution is not built**, and will not be until the click-ID mapping is
-confirmed. Everything else is: leads, opportunities, stage events, the derived
-MQL stage, decline reasons, and delete/merge reconciliation.
+confirmed with `validateMapping`. Everything else is: leads, opportunities,
+stage events, the derived MQL stage, decline reasons, delete/merge
+reconciliation, and the converted-Lead backfill.
+
+### Ingestion
+
+Runs on Inngest (§7). Three functions: an hourly incremental sync keyed on
+`SystemModstamp`, the cron that fans it out per tenant, and the click-ID
+backfill on demand. Concurrency is keyed on the tenant, so two runs for one
+client cannot fight over the same watermark while different clients still sync
+in parallel.
+
+Ingestion connects as **`zeeraa_jobs_runner`**, a fifth role. A sync writes on
+nobody's behalf, so it cannot use the user-scoped policies — but giving it the
+maintenance connection would let one connector bug reach every tenant at once.
+Instead its policies scope it to a tenant without a user, and grant it only the
+tables ingestion writes: no assets, no comments, no notifications, no
+memberships, no identity tables, and no maintenance door.
+
+The converted-Lead backfill is a first-class, re-runnable sync step rather than
+a script. It recovers click IDs for opportunities that converted before the
+field mapping existed, writing with `source = 'lead_conversion'` — a different
+key from the mapped field's `opportunity_field`, so the two routes can never
+overwrite each other and a disagreement between them exposes a gap in the
+mapping.
 
 `docs/salesforce-fields.md` is the specification for what the admin needs to
 create, including the three ways that work can silently fail.

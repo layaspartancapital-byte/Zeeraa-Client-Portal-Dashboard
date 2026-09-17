@@ -1,4 +1,4 @@
-import { qualifyLead, type QualificationMinimums } from '@zeeraa/core';
+import { qualifyLead, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
 
@@ -24,6 +24,7 @@ export type LeadRow = {
   utmTerm: string | null;
   landingPage: string | null;
   selfReportedRevenue: number | null;
+  selfReportedAnnualRevenue: number | null;
   selfReportedTimeInBusiness: number | null;
   industry: string | null;
   state: string | null;
@@ -127,6 +128,7 @@ export function normalizeLead(
     utmTerm: str(record, mapping.lead.utmTerm),
     landingPage: str(record, mapping.lead.landingPage),
     selfReportedRevenue: num(record, mapping.lead.selfReportedRevenue),
+    selfReportedAnnualRevenue: num(record, mapping.lead.selfReportedAnnualRevenue),
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),
     industry: str(record, mapping.lead.industry),
     state: str(record, mapping.lead.state),
@@ -203,14 +205,17 @@ export function deriveQualificationStageEvent(
   lead: LeadRow,
   opportunityExternalId: string,
   stage: string,
-  minimums: QualificationMinimums,
+  bar: QualificationBar,
 ): StageEventRow | null {
   const result = qualifyLead(
     {
-      selfReportedRevenue: lead.selfReportedRevenue,
-      selfReportedTimeInBusinessMonths: lead.selfReportedTimeInBusiness,
+      revenue: {
+        monthly: lead.selfReportedRevenue,
+        annual: lead.selfReportedAnnualRevenue,
+      },
+      timeInBusinessMonths: lead.selfReportedTimeInBusiness,
     },
-    minimums,
+    bar,
   );
   if (result.qualified !== true) return null;
   return { opportunityExternalId, stage, occurredAt: lead.createdAt, origin: 'computed' };

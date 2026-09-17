@@ -19,6 +19,7 @@ const SPARTAN: SalesforceFieldMapping = {
     utmSource: 'UTM_Source__c',
     selfReportedRevenue: 'Monthly_Revenue__c',
     selfReportedTimeInBusinessMonths: 'Time_In_Business__c',
+    selfReportedAnnualRevenue: 'Annual_Revenue__c',
     state: 'State',
   },
   opportunity: {
@@ -158,7 +159,11 @@ describe('stage events', () => {
 });
 
 describe('the derived MQL event', () => {
-  const minimums = { monthlyRevenueMin: 10_000, timeInBusinessMonthsMin: 12 };
+  const bar = {
+    minMonthsInBusiness: 12,
+    minMonthlyRevenue: 10_000,
+    revenueDisagreementTolerance: 0.1,
+  };
   const base = normalizeLead(
     {
       Id: '00Q1',
@@ -170,14 +175,30 @@ describe('the derived MQL event', () => {
   );
 
   it('dates MQL to the lead’s creation and marks it computed', () => {
-    const event = deriveQualificationStageEvent(base, '0061', 'mql', minimums);
+    const event = deriveQualificationStageEvent(base, '0061', 'mql', bar);
     expect(event).toMatchObject({ stage: 'mql', origin: 'computed' });
     expect(event?.occurredAt.toISOString()).toBe('2026-08-01T14:30:00.000Z');
   });
 
+  it('qualifies on an annual figure alone', () => {
+    const annualOnly = normalizeLead(
+      {
+        Id: '00Q2',
+        CreatedDate: '2026-08-01T14:30:00.000+0000',
+        Annual_Revenue__c: 240_000,
+        Time_In_Business__c: 30,
+      },
+      SPARTAN,
+    );
+    expect(deriveQualificationStageEvent(annualOnly, '0062', 'mql', bar)).toMatchObject({
+      stage: 'mql',
+      origin: 'computed',
+    });
+  });
+
   it('emits nothing for a lead that fails the minimums', () => {
     expect(
-      deriveQualificationStageEvent({ ...base, selfReportedRevenue: 500 }, '0061', 'mql', minimums),
+      deriveQualificationStageEvent({ ...base, selfReportedRevenue: 500 }, '0061', 'mql', bar),
     ).toBeNull();
   });
 
@@ -188,7 +209,7 @@ describe('the derived MQL event', () => {
         { ...base, selfReportedRevenue: null },
         '0061',
         'mql',
-        minimums,
+        bar,
       ),
     ).toBeNull();
   });
@@ -307,7 +328,10 @@ describe('mapping validation', () => {
     ]);
   });
 
-  it('treats a missing UTM field as non-blocking', async () => {
+  it('treats missing UTM and secondary revenue fields as non-blocking', async () => {
+    // A missing UTM field costs one slice of the channel breakdown; a missing
+    // annual-revenue field costs nothing while the monthly one is present.
+    // Neither is the same severity as a missing click ID or stage timestamp.
     const result = await validateMapping(
       describeStub(['GCLID__c', 'MSCLKID__c', 'Monthly_Revenue__c', 'Time_In_Business__c', 'State'], [
         'Amount',
@@ -325,6 +349,9 @@ describe('mapping validation', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.blocking).toEqual([]);
-    expect(result.issues.map((i) => i.field)).toEqual(['UTM_Source__c']);
+    expect(result.issues.map((i) => i.field).sort()).toEqual([
+      'Annual_Revenue__c',
+      'UTM_Source__c',
+    ]);
   });
 });

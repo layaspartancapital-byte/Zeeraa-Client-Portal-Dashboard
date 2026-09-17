@@ -71,3 +71,12 @@ export const dataSourceKindEnum = pgEnum('data_source_kind', [
   'manual',
   'derived_from_assets',
 ]);
+
+export const stageOriginEnum = pgEnum('stage_origin', ['observed', 'computed']);
+
+export const clickIdSourceEnum = pgEnum('click_id_source', [
+  /** Read from the mapped field on Opportunity. */
+  'opportunity_field',
+  /** Recovered through Lead.ConvertedOpportunityId by the backfill. */
+  'lead_conversion',
+]);

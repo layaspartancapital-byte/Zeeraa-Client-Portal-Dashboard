@@ -130,9 +130,17 @@ describe('a client admin in tenant A', () => {
     expect(error.code).toBe('42501');
 
     const stillInA = await asOwner(owner.db, (tx) =>
-      tx.select().from(schema.opportunities).where(eq(schema.opportunities.externalId, 'A-OPP-1')),
+      tx
+        .select()
+        .from(schema.opportunities)
+        .where(
+          and(
+            eq(schema.opportunities.externalId, 'A-OPP-1'),
+            eq(schema.opportunities.tenantId, fx.tenantA),
+          ),
+        ),
     );
-    expect(stillInA[0]?.tenantId).toBe(fx.tenantA);
+    expect(stillInA).toHaveLength(1);
   });
 
   it('cannot delete another tenant’s rows', async () => {

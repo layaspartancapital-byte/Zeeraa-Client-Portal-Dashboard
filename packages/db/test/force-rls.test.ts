@@ -13,7 +13,7 @@
  * would pass for a reason that does not hold in production.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import * as schema from '../src/schema';
 import { withMaintenance, withTenant } from '../src/tenant-context';
 import {
@@ -86,8 +86,14 @@ describe('the role that owns the tables', () => {
   });
 
   it('reads everything once the door is explicitly open', async () => {
+    // Scoped to this suite's own fixtures: other suites share the database, and
+    // a maintenance read deliberately crosses tenants, so an unscoped assertion
+    // would be asserting that nothing else is running.
     const rows = await withMaintenance(owner.db, (tx) =>
-      tx.select().from(schema.opportunities),
+      tx
+        .select()
+        .from(schema.opportunities)
+        .where(inArray(schema.opportunities.tenantId, [fx.tenantA, fx.tenantB])),
     );
     expect(rows.map((r) => r.externalId).sort()).toEqual(['A-OPP-1', 'B-OPP-1']);
   });
@@ -95,6 +101,8 @@ describe('the role that owns the tables', () => {
   it('closes the door again at the end of the transaction', async () => {
     await withMaintenance(owner.db, (tx) => tx.select().from(schema.opportunities));
     const after = await owner.db.select().from(schema.opportunities);
+    // Zero regardless of what else is in the database: with the door shut the
+    // owner sees nothing at all, not merely nothing of its own.
     expect(after).toHaveLength(0);
   });
 });
@@ -106,7 +114,12 @@ describe('the maintenance login role', () => {
   });
 
   it('sees everything inside a transaction that says so', async () => {
-    const rows = await withMaintenance(maint.db, (tx) => tx.select().from(schema.opportunities));
+    const rows = await withMaintenance(maint.db, (tx) =>
+      tx
+        .select()
+        .from(schema.opportunities)
+        .where(inArray(schema.opportunities.tenantId, [fx.tenantA, fx.tenantB])),
+    );
     expect(rows).toHaveLength(2);
   });
 });

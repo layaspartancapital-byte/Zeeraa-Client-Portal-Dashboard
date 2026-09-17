@@ -116,6 +116,23 @@ const MUTATIONS: Mutation[] = [
             $x$`,
   },
   {
+    name: 'job-role-unscoped',
+    description: 'Let the ingestion role reach every tenant instead of one',
+    sql: `drop policy job_tenant_isolation on public.opportunities;
+          create policy job_tenant_isolation on public.opportunities
+            as permissive for all to zeeraa_jobs using (true) with check (true)`,
+  },
+  {
+    name: 'job-role-gets-maintenance-door',
+    // Role membership cannot be granted by the schema owner, which is itself a
+    // useful boundary. The equivalent reachable mutation is to hand the jobs
+    // role a maintenance-gated policy of its own.
+    description: 'Give the ingestion role a maintenance door of its own',
+    sql: `create policy job_maintenance ON public.opportunities
+            AS PERMISSIVE FOR ALL TO zeeraa_jobs
+            USING (app.is_maintenance()) WITH CHECK (app.is_maintenance())`,
+  },
+  {
     name: 'activity-log-rewritable',
     description: 'Drop the append-only restriction on the audit trail',
     sql: `drop policy activity_log_append_only on public.activity_log;
@@ -187,7 +204,7 @@ function failingTests(): string[] {
   }
 }
 
-const results: { mutation: Mutation; killedBy: string[] }[] = [];
+const results: { mutation: Mutation; killedBy: string[]; applied: boolean }[] = [];
 
 for (const mutation of MUTATIONS) {
   process.stderr.write(`\n▸ ${mutation.name}\n`);
@@ -201,12 +218,22 @@ for (const mutation of MUTATIONS) {
     }
     writeFileSync(mutation.edit.file, original.replace(mutation.edit.from, mutation.edit.to));
   }
-  if (mutation.sql) applySql(mutation.sql);
+  let applied = true;
+  if (mutation.sql) {
+    try {
+      applySql(mutation.sql);
+    } catch (error) {
+      // A mutation that cannot be applied proves nothing either way, and it
+      // must not take the rest of the run down with it.
+      applied = false;
+      process.stderr.write(`  could not apply: ${String(error).slice(0, 200)}\n`);
+    }
+  }
 
-  const killedBy = failingTests();
+  const killedBy = applied ? failingTests() : ['<mutation could not be applied>'];
   if (mutation.edit && original) writeFileSync(mutation.edit.file, original);
 
-  results.push({ mutation, killedBy });
+  results.push({ mutation, killedBy, applied });
   process.stderr.write(`  ${killedBy.length} test(s) failed\n`);
 }
 
@@ -214,15 +241,21 @@ rebuild();
 
 console.log('\n\n=== Mutation results ===\n');
 let survivors = 0;
-for (const { mutation, killedBy } of results) {
-  if (killedBy.length === 0) survivors += 1;
-  console.log(`${killedBy.length === 0 ? 'SURVIVED' : 'killed  '}  ${mutation.name}`);
+let inapplicable = 0;
+for (const { mutation, killedBy, applied } of results) {
+  if (!applied) inapplicable += 1;
+  else if (killedBy.length === 0) survivors += 1;
+  const label = !applied ? 'SKIPPED ' : killedBy.length === 0 ? 'SURVIVED' : 'killed  ';
+  console.log(`${label}  ${mutation.name}`);
   console.log(`          ${mutation.description}`);
   for (const name of killedBy.slice(0, 6)) console.log(`          ✗ ${name}`);
   if (killedBy.length > 6) console.log(`          … and ${killedBy.length - 6} more`);
   console.log();
 }
-console.log(`${results.length - survivors}/${results.length} mutations killed.`);
+console.log(
+  `${results.length - survivors - inapplicable}/${results.length - inapplicable} mutations killed` +
+    (inapplicable > 0 ? `, ${inapplicable} could not be applied.` : '.'),
+);
 if (survivors > 0) {
   console.log(`${survivors} survived — those controls are not covered by a test.`);
   process.exitCode = 1;

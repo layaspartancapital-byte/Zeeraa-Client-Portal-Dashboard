@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Role } from '@zeeraa/core';
-import { getDb, type Database } from './client';
+import { getDb, getJobsDb, type Database } from './client';
 
 export type TenantContext = {
   tenantId: string;
@@ -48,6 +48,29 @@ export async function withTenant<T>(
         set_config('app.current_user_id', ${ctx.userId}, true),
         set_config('app.current_user_role', ${ctx.role}, true)
     `);
+    return fn(tx as unknown as Database);
+  });
+}
+
+/**
+ * Runs an ingestion job inside one tenant.
+ *
+ * Sets a tenant but no user, which is the honest description of what a sync is:
+ * scoped work that nobody requested. The `zeeraa_jobs` policies ask only which
+ * tenant is current, so this cannot touch two tenants in one transaction — a
+ * bug in a connector can corrupt one client's numbers, never two clients'.
+ *
+ * Deliberately not `withMaintenance`: a job that could cross tenants would make
+ * the connector the weakest point in the isolation model, and connectors are
+ * the code most likely to be written in a hurry against a vendor's API.
+ */
+export async function withJobTenant<T>(
+  tenantId: string,
+  fn: (tx: Database) => Promise<T>,
+  db: Database = getJobsDb(),
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.current_tenant_id', ${tenantId}, true)`);
     return fn(tx as unknown as Database);
   });
 }

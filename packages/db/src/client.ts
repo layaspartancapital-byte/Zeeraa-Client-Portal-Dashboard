@@ -80,12 +80,40 @@ export function getAuthDb(): Database {
   return authDb;
 }
 
+/**
+ * The ingestion connection.
+ *
+ * Connects as `zeeraa_jobs_runner`, whose policies scope it to a tenant but not
+ * to a user — a sync writes on nobody's behalf. It reaches only the tables
+ * ingestion writes: no assets, no comments, no notifications, no memberships,
+ * no identity tables, and no maintenance door.
+ */
+let jobsSql: ReturnType<typeof postgres> | undefined;
+let jobsDb: Database | undefined;
+
+export function getJobsDb(): Database {
+  if (!jobsDb) {
+    const url = process.env.DATABASE_URL_JOBS;
+    if (!url) {
+      throw new Error(
+        'DATABASE_URL_JOBS is not set. Ingestion runs as zeeraa_jobs_runner, not ' +
+          'as the application or maintenance role.',
+      );
+    }
+    jobsSql = connect(url, 4);
+    jobsDb = drizzle(jobsSql, { schema });
+  }
+  return jobsDb;
+}
+
 export async function closeConnections(): Promise<void> {
-  await Promise.all([appSql?.end(), authSql?.end()]);
+  await Promise.all([appSql?.end(), authSql?.end(), jobsSql?.end()]);
   appSql = undefined;
   appDb = undefined;
   authSql = undefined;
   authDb = undefined;
+  jobsSql = undefined;
+  jobsDb = undefined;
 }
 
 export { schema };

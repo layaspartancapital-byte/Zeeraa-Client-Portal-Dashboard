@@ -17,7 +17,10 @@ export type SalesforceFieldMapping = {
     utmContent?: string;
     utmTerm?: string;
     landingPage?: string;
+    /** Monthly gross. */
     selfReportedRevenue?: string;
+    /** Annual gross. Either may be present; both are read, monthly wins. */
+    selfReportedAnnualRevenue?: string;
     selfReportedTimeInBusinessMonths?: string;
     industry?: string;
     state?: string;

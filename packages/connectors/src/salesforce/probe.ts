@@ -452,7 +452,200 @@ export async function runAllProbes(client: SalesforceClient): Promise<Finding[]>
   return [
     await probeClickIdSurvival(client),
     await probeStageHistory(client),
+    await probeQualificationInputs(client),
+    await probeUnderwritingTimestamp(client),
     await probeDeclineReason(client),
     await probeDeletesAndMerges(client),
   ];
+}
+
+const REVENUE_PATTERNS = [/revenue/i, /gross/i, /sales/i, /volume/i];
+const TIME_IN_BUSINESS_PATTERNS = [/time.?in.?business/i, /years.?in.?business/i, /tib/i, /inception/i, /established/i];
+
+/**
+ * Q5. Which fields carry revenue and time in business, and how often are they
+ * empty?
+ *
+ * The MQL stage is derived from these two, so a large share of leads missing
+ * both does not produce a smaller MQL count — it produces an MQL count that is
+ * quietly wrong, because an unanswered form is not an unqualified lead. The
+ * share has to be known before the number appears on a screen.
+ */
+export async function probeQualificationInputs(client: SalesforceClient): Promise<Finding> {
+  const question = 'Which Lead fields carry revenue and time in business, and how complete are they?';
+  const detail: string[] = [];
+
+  const lead = await client.describe('Lead');
+  const numeric = lead.fields.filter((f) =>
+    ['currency', 'double', 'int', 'percent', 'number'].includes(f.type),
+  );
+  const dateish = lead.fields.filter((f) => ['date', 'datetime'].includes(f.type));
+
+  const revenueFields = matching(numeric, REVENUE_PATTERNS);
+  const tibFields = [...matching(numeric, TIME_IN_BUSINESS_PATTERNS), ...matching(dateish, TIME_IN_BUSINESS_PATTERNS)];
+
+  detail.push(
+    `Revenue candidates: ${revenueFields.map((f) => `${f.name} (${f.type})`).join(', ') || 'none'}`,
+    `Time-in-business candidates: ${tibFields.map((f) => `${f.name} (${f.type})`).join(', ') || 'none'}`,
+  );
+
+  if (revenueFields.length === 0 || tibFields.length === 0) {
+    return {
+      question,
+      status: 'blocked',
+      summary: 'Cannot find a field for revenue, time in business, or both.',
+      detail,
+      remedy:
+        'MQL is derived from these two. Without them the stage cannot be computed ' +
+        'at all, and the funnel loses its second step. Confirm the exact API ' +
+        'names with the admin — they may not match the naming this probe looks for.',
+    };
+  }
+
+  const revenue = revenueFields[0]!.name;
+  const tib = tibFields[0]!.name;
+
+  const rows = await client.query<Record<string, unknown>>(
+    `SELECT Id, ${revenue}, ${tib} FROM Lead ORDER BY CreatedDate DESC LIMIT 2000`,
+  );
+
+  const hasRevenue = rows.filter((r) => r[revenue] != null).length;
+  const hasTib = rows.filter((r) => r[tib] != null).length;
+  const hasBoth = rows.filter((r) => r[revenue] != null && r[tib] != null).length;
+  const hasNeither = rows.filter((r) => r[revenue] == null && r[tib] == null).length;
+
+  detail.push(
+    `Leads sampled: ${rows.length}`,
+    `${revenue} populated: ${pct(hasRevenue, rows.length)}`,
+    `${tib} populated: ${pct(hasTib, rows.length)}`,
+    `Both populated (MQL is computable): ${pct(hasBoth, rows.length)}`,
+    `Neither populated: ${pct(hasNeither, rows.length)}`,
+  );
+
+  if (rows.length === 0) {
+    return { question, status: 'degraded', summary: 'No leads to sample.', detail };
+  }
+
+  const computable = hasBoth / rows.length;
+
+  if (computable < 0.5) {
+    return {
+      question,
+      status: 'blocked',
+      summary: `MQL is computable for only ${pct(hasBoth, rows.length)} of leads.`,
+      detail,
+      remedy:
+        'The MQL count would understate by roughly the missing share, and it would ' +
+        'do so silently. Either the forms start capturing both attributes, or the ' +
+        'funnel shows MQL with an explicit "not determined" share beside it rather ' +
+        'than a bare count.',
+    };
+  }
+
+  if (computable < 0.9) {
+    return {
+      question,
+      status: 'degraded',
+      summary: `MQL is computable for ${pct(hasBoth, rows.length)} of leads.`,
+      detail,
+      remedy:
+        'The remainder renders as "not determined" rather than being counted as ' +
+        'unqualified — an unanswered form is not a failed test.',
+    };
+  }
+
+  return {
+    question,
+    status: 'ok',
+    summary: `Revenue from ${revenue}, time in business from ${tib}; both present on ${pct(hasBoth, rows.length)} of leads.`,
+    detail,
+  };
+}
+
+/**
+ * Q6. Does the underwriting timestamp mark submission, or pickup?
+ *
+ * SQL is defined as submission to underwriting. If a queue sits between the two
+ * and `csbs__Application_In_Date_Time__c` is the real submission moment, then
+ * using the underwriting timestamp overstates Lead→SQL velocity by the length
+ * of the queue — invisibly, and in a direction that flatters nobody.
+ */
+export async function probeUnderwritingTimestamp(
+  client: SalesforceClient,
+  submissionField = 'csbs__Application_In_Date_Time__c',
+  underwritingField = 'csbs__Underwriting_Date_Time__c',
+): Promise<Finding> {
+  const question = 'Does the underwriting timestamp mark submission or pickup?';
+  const detail: string[] = [];
+
+  const opportunity = await client.describe('Opportunity');
+  const names = new Set(opportunity.fields.map((f) => f.name.toLowerCase()));
+
+  if (!names.has(submissionField.toLowerCase())) {
+    return {
+      question,
+      status: 'ok',
+      summary: `${submissionField} does not exist, so ${underwritingField} is the only submission signal.`,
+      detail: [`Opportunity has no ${submissionField}.`],
+    };
+  }
+
+  const rows = await client.query<Record<string, unknown>>(
+    `SELECT Id, ${submissionField}, ${underwritingField} FROM Opportunity ` +
+      `WHERE ${submissionField} != null AND ${underwritingField} != null ` +
+      `ORDER BY CreatedDate DESC LIMIT 1000`,
+  );
+
+  if (rows.length === 0) {
+    return {
+      question,
+      status: 'degraded',
+      summary: 'Both fields exist but no record carries both, so they cannot be compared.',
+      detail,
+    };
+  }
+
+  const gapsHours = rows
+    .map((r) => {
+      const submitted = new Date(String(r[submissionField])).getTime();
+      const underwritten = new Date(String(r[underwritingField])).getTime();
+      return (underwritten - submitted) / 3_600_000;
+    })
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+
+  const median = gapsHours[Math.floor(gapsHours.length / 2)] ?? 0;
+  const p90 = gapsHours[Math.floor(gapsHours.length * 0.9)] ?? 0;
+  const sameDay = gapsHours.filter((h) => Math.abs(h) < 24).length;
+
+  detail.push(
+    `Opportunities carrying both: ${rows.length}`,
+    `Median gap: ${median.toFixed(1)} hours`,
+    `90th percentile gap: ${p90.toFixed(1)} hours`,
+    `Within the same day: ${pct(sameDay, gapsHours.length)}`,
+  );
+
+  // Same-day on nearly everything means the queue, if any, is shorter than the
+  // reporting grain and the simpler field is the right one.
+  if (sameDay / gapsHours.length >= 0.9) {
+    return {
+      question,
+      status: 'ok',
+      summary: `The two land on the same day for ${pct(sameDay, gapsHours.length)} of deals. Stay with ${underwritingField}.`,
+      detail,
+    };
+  }
+
+  return {
+    question,
+    status: 'degraded',
+    summary:
+      `A queue sits between submission and underwriting: median ${median.toFixed(1)} hours, ` +
+      `90th percentile ${p90.toFixed(1)}.`,
+    detail,
+    remedy:
+      `${submissionField} is the better SQL timestamp. Using ${underwritingField} would ` +
+      'overstate Lead→SQL velocity by the length of the queue, and understate the ' +
+      'time deals spend waiting to be picked up — which is itself worth reporting.',
+  };
 }

@@ -155,9 +155,22 @@ export const spartan: TenantSeed = {
 
   config: [
     {
-      key: 'qualification_minimums',
-      description: 'Drives qualified_rate. A lead must meet every minimum listed.',
-      value: { monthlyRevenueMin: 10000, timeInBusinessMonthsMin: 12 },
+      key: 'mql_bar',
+      description:
+        'Spartan\u2019s marketing-qualification bar. Both conditions together. Also ' +
+        'derives the MQL stage, which has no timestamp field in Salesforce: a ' +
+        'qualifying lead reached MQL when it was created. The two revenue ' +
+        'figures are one threshold at two periods \u2014 $10,000 monthly is ' +
+        '$120,000 annual \u2014 so records are normalised to a monthly basis before ' +
+        'comparison, preferring the monthly figure where both are present.',
+      value: {
+        minMonthsInBusiness: 12,
+        minMonthlyRevenue: 10000,
+        // Past this spread between the monthly and annual figures, the record is
+        // flagged: it is almost always a data-entry error rather than a real
+        // difference, most often a monthly figure typed into the annual field.
+        revenueDisagreementTolerance: 0.1,
+      },
     },
     {
       key: 'duplicate_cooloff_days',

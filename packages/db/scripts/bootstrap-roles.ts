@@ -30,6 +30,7 @@ const passwords = {
   zeeraa_app: process.env.APP_ROLE_PASSWORD ?? 'zeeraa_app',
   zeeraa_auth: process.env.AUTH_ROLE_PASSWORD ?? 'zeeraa_auth',
   zeeraa_maint: process.env.MAINT_ROLE_PASSWORD ?? 'zeeraa_maint',
+  zeeraa_jobs_runner: process.env.JOBS_ROLE_PASSWORD ?? 'zeeraa_jobs_runner',
 };
 
 const sql = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
@@ -44,24 +45,32 @@ async function ensureLoginRole(name: keyof typeof passwords) {
 try {
   console.log('Bootstrapping database roles');
 
-  const [maintenance] = await sql`select 1 from pg_roles where rolname = 'zeeraa_maintenance'`;
-  if (!maintenance) await sql.unsafe('create role zeeraa_maintenance nologin');
-  console.log(`  zeeraa_maintenance: ${maintenance ? 'present' : 'created'}`);
+  for (const group of ['zeeraa_maintenance', 'zeeraa_jobs']) {
+    const [existing] = await sql`select 1 from pg_roles where rolname = ${group}`;
+    if (!existing) await sql.unsafe(`create role ${group} nologin`);
+    console.log(`  ${group}: ${existing ? 'present' : 'created'}`);
+  }
 
   await ensureLoginRole('zeeraa_owner');
   await ensureLoginRole('zeeraa_app');
   await ensureLoginRole('zeeraa_auth');
   await ensureLoginRole('zeeraa_maint');
+  await ensureLoginRole('zeeraa_jobs_runner');
 
   // Membership of zeeraa_maintenance is necessary but not sufficient: the
   // policies also require app.maintenance to be set on for the transaction.
   await sql.unsafe('grant zeeraa_maintenance to zeeraa_owner, zeeraa_maint');
+  // Ingestion connects as zeeraa_jobs_runner. Scoped to a tenant, never to a
+  // user, and deliberately not a member of zeeraa_maintenance.
+  await sql.unsafe('grant zeeraa_jobs to zeeraa_jobs_runner');
   // Deliberately NOT granted to zeeraa_app or zeeraa_auth. If it ever is, the
   // maintenance policies become reachable from a web request.
 
   const [row] = await sql<{ current_database: string }[]>`select current_database()`;
   const db = row!.current_database;
-  await sql.unsafe(`grant connect on database "${db}" to zeeraa_owner, zeeraa_app, zeeraa_auth, zeeraa_maint`);
+  await sql.unsafe(
+    `grant connect on database "${db}" to zeeraa_owner, zeeraa_app, zeeraa_auth, zeeraa_maint, zeeraa_jobs_runner`,
+  );
   await sql.unsafe(`grant create on database "${db}" to zeeraa_owner`);
 
   // The SECURITY DEFINER helpers carry `SET app.maintenance = 'on'` so they can
@@ -73,7 +82,9 @@ try {
   // The owner must own the schema in order to create tables in it, and to own
   // the SECURITY DEFINER helper functions.
   await sql.unsafe('alter schema public owner to zeeraa_owner');
-  await sql.unsafe('grant usage on schema public to zeeraa_app, zeeraa_auth, zeeraa_maint');
+  await sql.unsafe(
+    'grant usage on schema public to zeeraa_app, zeeraa_auth, zeeraa_maint, zeeraa_jobs_runner',
+  );
 
   console.log('Done.');
   console.log('  Migrations and seeds run as zeeraa_owner (DATABASE_URL_OWNER).');

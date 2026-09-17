@@ -3,3 +3,5 @@ export * from './registry';
 export * from './salesforce/jwt';
 export * from './salesforce/client';
 export * from './salesforce/probe';
+export * from './salesforce/mapping';
+export * from './salesforce/sync';
