@@ -76,10 +76,26 @@ broader name.
 
 ## Blocked
 
-- **Opportunity-side click-ID fields still do not exist.** The converted-Lead
-  route covers deals whose lead converted, which is why there is a number at
-  all, but it cannot cover an opportunity created directly. See
-  `docs/salesforce-fields.md` and `docs/salesforce-setup-checklist.md`.
+- **Click-ID fields now exist on both objects; three of six are mapped.**
+  As of 17 September 2026, Lead and Opportunity both carry `gclid__c`,
+  `Gbraid__c`, `Wbraid__c`, `Li_Fat_ID__c`, `acq_fbclid__c` and `msclkid__c`,
+  all Text(255), all readable by the integration user. The Lead → Opportunity
+  conversion mapping carries `gclid__c`, `acq_fbclid__c` and `msclkid__c`.
+  **Not yet mapped: `Gbraid__c`, `Wbraid__c`, `Li_Fat_ID__c`.** Nothing about
+  those three prevents it — every mapping-relevant describe attribute is
+  identical to `gclid__c`'s. They are simply listed on the Map Lead Fields
+  screen under their *labels* ("Google iOS Click ID", "Google Web App Click ID",
+  "LinkedIn Click ID") rather than their API names, which is why they look
+  absent. Re-run `pnpm --filter @zeeraa/connectors probe-click-ids` after
+  mapping them.
+- **`TTCLID__c` exists on Lead with no Opportunity counterpart.** TikTok is not
+  in the engagement; either create the Opportunity field or leave it unmapped
+  deliberately.
+- **The connector's `fieldMapping.opportunity.clickIds` is still `{}`.** Now
+  that three fields are mapped, the mapped-field route can be turned on — it
+  covers opportunities created directly, which the converted-Lead backfill
+  cannot reach. Casing is load-bearing: the API names above are the canonical
+  casing the REST response uses.
 - **`Opportunity.csbs__Decline_Reason__c` does not exist in the org.** The sync
   drops it from the query and reports it; decline reasons are unavailable until
   it is created. This is why the Salesforce sync reports `partial`.
