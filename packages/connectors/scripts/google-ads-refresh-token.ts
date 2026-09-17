@@ -194,6 +194,14 @@ authUrl.search = new URLSearchParams({
   state,
 }).toString();
 
+console.log('Before you start: check the OAuth consent screen\u2019s publishing status');
+console.log('in Cloud Console (APIs & Services \u2192 OAuth consent screen).\n');
+console.log('  If it says "Testing" and the user type is External, the refresh token');
+console.log('  you are about to generate EXPIRES IN SEVEN DAYS. Publishing the app');
+console.log('  ("In production") or setting the user type to Internal removes that');
+console.log('  limit. Generating a token first and publishing afterwards does not');
+console.log('  extend the token already issued \u2014 you would have to run this again.\n');
+
 console.log('Step 1. Open this in a browser, signed in as a user with access to');
 console.log('the manager account:\n');
 console.log(`  ${authUrl}\n`);
@@ -270,6 +278,10 @@ console.log(
     'the connector mints its own.',
 );
 console.log('\nPut the refresh token in the GOOGLE_ADS_REFRESH_TOKEN secret.');
-console.log('It does not expire on a schedule, but it is revoked if the granting');
-console.log('user loses access to the account, if their password changes, or if');
-console.log('the app is removed from their Google account permissions.');
+console.log('\nIf the consent screen is published ("In production") it does not expire');
+console.log('on a schedule, but it is revoked if the granting user loses access to the');
+console.log('account, if their password changes, if the app is removed from their');
+console.log('Google account permissions, or if it goes unused for about six months.');
+console.log('\nIf the consent screen is still in "Testing" with an External user type,');
+console.log('this token expires seven days from now. Publish the app and run this');
+console.log('again \u2014 publishing does not extend a token already issued.');

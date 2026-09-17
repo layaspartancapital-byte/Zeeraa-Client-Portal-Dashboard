@@ -74,6 +74,23 @@ run — 90 requests against a 15,000 ceiling.
 A second account under the same manager would be a second connection row, not a
 second value here: one connection reports on one account.
 
+### Check the consent screen's publishing status first
+
+Cloud Console → APIs & Services → **OAuth consent screen**.
+
+If the publishing status is **Testing** and the user type is **External**, every
+refresh token it issues **expires seven days after consent**. The integration
+then dies a week after it starts working, with an `invalid_grant` that looks
+exactly like a revoked grant and arrives long after anyone connects it to this
+setting.
+
+Set the app to **In production**, or to **Internal** if the granting Google
+account is in the Workspace organisation that owns the project. Internal also
+lifts the 100-test-user cap.
+
+Publishing afterwards does **not** extend a token already issued — the token has
+to be generated again. So this is a pre-flight check, not a cleanup task.
+
 ### The OAuth client must be a **Desktop app**
 
 Cloud Console → APIs & Services → Credentials → Create credentials → OAuth
@@ -129,3 +146,5 @@ Pick someone who will still have access in a year.
 - [Cloud-managed access levels](https://developers.google.com/google-ads/api/docs/concepts/no-developer-token)
 - [Access levels and permissible use](https://developers.google.com/google-ads/api/docs/api-policy/access-levels)
 - [Authorization and HTTP headers](https://developers.google.com/google-ads/api/rest/auth)
+- [Using OAuth 2.0 to access Google APIs — refresh token expiration](https://developers.google.com/identity/protocols/oauth2)
+- [OAuth app state overview](https://developers.google.com/identity/protocols/oauth2/production-readiness/overview)
