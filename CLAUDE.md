@@ -39,6 +39,13 @@ Where the implementation departs from the brief, the departure is recorded in
 `docs/brief-amendments.md` with its reason. Add to it rather than letting the
 code and the specification drift apart silently.
 
+## State
+
+`docs/state.md` is the running state of the build — current phase, what is done,
+what is blocked, what is next. Read it first; update it at the end of every
+session. It exists so a fresh session does not reconstruct the position from
+commit history and get it wrong.
+
 ## Conventions
 
 - Metrics are named, unit-tested functions in `packages/core`. Never recompute a
