@@ -40,7 +40,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
   return (
     <Panel
       title="Connections"
-      description="One row per platform. Nothing here is configured yet — credentials are added per client and never by redeploy."
+      description="One row per platform. Credentials are added per client and never by redeploy."
     >
       <div className="table-scroll overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-[13px]">
