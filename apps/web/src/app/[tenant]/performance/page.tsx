@@ -1,8 +1,16 @@
+import { eq } from 'drizzle-orm';
+import { schema } from '@zeeraa/db';
 import { trailingWindow, tenantDay, type AttributionModel } from '@zeeraa/core';
 import { Panel, EmptyState } from '@/components/Panel';
 import { PerformanceTable } from '@/components/PerformanceTable';
-import { monthlyPerformance } from '@/lib/reporting';
-import { requireTenant } from '@/lib/tenant';
+import {
+  CostPerDealByChannel,
+  MonthOverMonth,
+  SpendAndDealsOverTime,
+  StageComposition,
+} from '@/components/charts/Charts';
+import { monthlyPerformance, monthlySeries } from '@/lib/reporting';
+import { queryTenant, requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Monthly performance' };
 
@@ -36,7 +44,29 @@ export default async function Performance({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const data = await monthlyPerformance(session, range, model);
+  const [data, series, targetRows] = await Promise.all([
+    monthlyPerformance(session, range, model),
+    monthlySeries(session, 12, model),
+    queryTenant(session, (tx) =>
+      tx
+        .select({ targetValue: schema.tenantMetrics.targetValue, needsReconciliation: schema.tenantMetrics.needsReconciliation })
+        .from(schema.tenantMetrics)
+        .where(eq(schema.tenantMetrics.isNorthStar, true))
+        .limit(1),
+    ),
+  ]);
+
+  const channelKeys = data.channels.map((c) => c.platform);
+  const valueLabel = data.stages.find((s) => s.countsValue)?.label ?? 'Funded';
+  // An unreconciled target is not drawn. §13: a target the source material
+  // contradicts is worse than no target, because a brass line on a chart reads
+  // as a commitment somebody made.
+  const northStar = targetRows[0];
+  const target =
+    northStar && !northStar.needsReconciliation && northStar.targetValue
+      ? Number(northStar.targetValue)
+      : null;
+
   const hasAnything =
     data.channels.length > 0 || Object.keys(data.unattributed.stages).length > 0;
 
@@ -96,13 +126,53 @@ export default async function Performance({
       </Panel>
 
       <Panel
-        title="Charts"
-        description="Spend and funded deals over time; cost per funded deal by channel against target; stage composition; month-over-month change."
+        title="Spend and funded deals over time"
+        description="Two plots, one x-axis. Deliberately not one plot with two y-scales: spend is in tens of thousands and deals in tens, so any apparent relationship between the lines would be an artefact of the scaling."
       >
-        <EmptyState
-          heading="Not built yet"
-          body="These four charts read the same query as the table above and refresh on window focus. They are the next thing on this screen."
-          needed="Nothing from the client — this is Zeeraa's build work."
+        {series.length > 0 ? (
+          <SpendAndDealsOverTime
+            series={series}
+            channels={channelKeys}
+            currency={session.tenant.currency}
+            valueLabel={valueLabel}
+          />
+        ) : (
+          <EmptyState
+            heading="No months to plot"
+            body="This chart needs at least one calendar month of ingested spend or funded deals."
+            needed="A completed sync."
+          />
+        )}
+      </Panel>
+
+      <Panel
+        title={`Cost per ${valueLabel.toLowerCase()} deal by channel`}
+        description="Each bar is the range the data supports, not a point. A short bar is a well-covered figure."
+      >
+        <CostPerDealByChannel
+          rows={data.channels.map((c) => ({
+            label: c.label,
+            platform: c.platform,
+            cost: c.costPerDeal,
+          }))}
+          currency={session.tenant.currency}
+          target={target}
+        />
+      </Panel>
+
+      <Panel
+        title="Funnel-stage composition by channel"
+        description="Unattributed is its own segment. Blocked stages are absent rather than drawn at zero."
+      >
+        <StageComposition data={data} />
+      </Panel>
+
+      <Panel title="Month-over-month change" description="Every figure carries its sign.">
+        <MonthOverMonth
+          series={series}
+          channels={channelKeys}
+          currency={session.tenant.currency}
+          improvementDirection="up"
         />
       </Panel>
     </div>

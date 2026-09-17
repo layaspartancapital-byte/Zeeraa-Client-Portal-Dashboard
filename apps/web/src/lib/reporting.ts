@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@zeeraa/db';
 import {
   channelCostPerDeal,
+  previousMonth,
   type AttributionModel,
   type ChannelCostPerDeal,
   type DateRange,
@@ -181,6 +182,47 @@ export async function monthlyPerformance(
       originRows.filter((r) => r.origin === 'computed').map((r) => r.stage),
     );
 
+    /**
+     * Stages measured at lead grain, counted from `leads` rather than from
+     * stage events.
+     *
+     * A lead that never became an opportunity has no opportunity to attribute
+     * through, so the channel comes from `leads.click_id_type` directly. The
+     * population is already inbound — cold outreach is excluded at ingest — so
+     * nothing here re-filters it.
+     */
+    const leadStages = stages.filter((s) => s.source === 'leads');
+    const leadCountsByPlatform = new Map<string, number>();
+    let unattributedLeadCount = 0;
+
+    if (leadStages.length > 0) {
+      const leadRows = await tx
+        .select({
+          clickIdType: schema.leads.clickIdType,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.leads)
+        .where(
+          and(
+            eq(schema.leads.tenantId, tenantId),
+            gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
+            lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+          ),
+        )
+        .groupBy(schema.leads.clickIdType);
+
+      for (const row of leadRows) {
+        if (row.clickIdType) {
+          leadCountsByPlatform.set(
+            row.clickIdType,
+            (leadCountsByPlatform.get(row.clickIdType) ?? 0) + Number(row.count),
+          );
+        } else {
+          unattributedLeadCount += Number(row.count);
+        }
+      }
+    }
+
     const spendRows = await tx
       .select({
         platform: schema.dailyMetrics.platform,
@@ -283,12 +325,24 @@ export async function monthlyPerformance(
       }
     }
 
+    for (const stage of leadStages) {
+      for (const [platform, count] of leadCountsByPlatform) {
+        const target = byPlatform.get(platform) ?? byPlatform.set(platform, {}).get(platform)!;
+        target[stage.key] = count;
+      }
+      unattributedStages[stage.key] = unattributedLeadCount;
+    }
+
     const sumAmounts = (ids: Iterable<string>) =>
       [...ids].reduce((sum, id) => sum + (amounts.get(id) ?? 0), 0);
 
     // Every platform that has either spend or attributed deals in the window.
     const platforms = [
-      ...new Set([...spendRows.map((r) => r.platform), ...byPlatform.keys()]),
+      ...new Set([
+        ...spendRows.map((r) => r.platform),
+        ...byPlatform.keys(),
+        ...leadCountsByPlatform.keys(),
+      ]),
     ].sort((a, b) => platformLabel(a).localeCompare(platformLabel(b)));
 
     const unattributedDealCount = unattributedValueDeals.size;
@@ -343,6 +397,7 @@ export async function monthlyPerformance(
         position: s.position,
         isOptimizationTarget: s.isOptimizationTarget,
         countsValue: s.countsValue,
+        source: s.source,
       })),
       stageStatus: Object.fromEntries(
         stages.map((stage) => {
@@ -389,5 +444,146 @@ export async function monthlyPerformance(
       },
       dataThrough: latestSync?.finishedAt ?? null,
     };
+  });
+}
+
+/**
+ * One point per calendar month, per channel, for the trend charts.
+ *
+ * Spend and deals are kept as separate measures on the same month rather than
+ * combined into a ratio here: a cost per deal for a month with one funded deal
+ * is a number the chart should not draw as though it were comparable to a month
+ * with twenty, and the decision about how to present that belongs to the chart,
+ * not to the query.
+ *
+ * `unattributedDeals` travels per month for the same reason it travels in the
+ * table — it is a separate population, and a trend line that quietly absorbed
+ * it would drift for reasons that have nothing to do with the channel.
+ */
+export type MonthPoint = {
+  month: string;
+  label: string;
+  /** Per platform: spend and deals attributed to it that month. */
+  byPlatform: Record<string, { spend: number; deals: number }>;
+  unattributedDeals: number;
+  totalDeals: number;
+  totalSpend: number;
+  /**
+   * Whether this month is inside the ingested record at all.
+   *
+   * A month before the first sync has no spend and no deals, but it does not
+   * have zero of either — nobody looked. Charts plot null for these rather than
+   * 0, because a line dropping to the axis says the spend stopped, which is a
+   * measurement and in this case a false one.
+   */
+  ingested: boolean;
+};
+
+export async function monthlySeries(
+  session: TenantSession,
+  months: number,
+  model: AttributionModel = 'last_touch',
+  today = new Date(),
+): Promise<MonthPoint[]> {
+  return queryTenant(session, async (tx) => {
+    const tenantId = session.tenant.id;
+
+    const [valueStageRow] = await tx
+      .select({ key: schema.funnelStages.key })
+      .from(schema.funnelStages)
+      .where(
+        and(eq(schema.funnelStages.tenantId, tenantId), eq(schema.funnelStages.countsValue, true)),
+      )
+      .limit(1);
+    const valueStage = valueStageRow?.key ?? null;
+
+    const end = today.toISOString().slice(0, 7);
+    const keys: string[] = [];
+    let cursor = end;
+    for (let i = 0; i < months; i += 1) {
+      keys.unshift(cursor);
+      cursor = previousMonth(cursor);
+    }
+    const from = `${keys[0]}-01`;
+
+    const spendRows = await tx
+      .select({
+        month: sql<string>`to_char(${schema.dailyMetrics.date}, 'YYYY-MM')`,
+        platform: schema.dailyMetrics.platform,
+        spend: sql<string>`coalesce(sum(${schema.dailyMetrics.spend}), 0)`,
+      })
+      .from(schema.dailyMetrics)
+      .where(and(eq(schema.dailyMetrics.tenantId, tenantId), gte(schema.dailyMetrics.date, from)))
+      .groupBy(sql`1`, schema.dailyMetrics.platform);
+
+    const dealRows = valueStage
+      ? await tx
+          .selectDistinct({
+            month: sql<string>`to_char(${schema.stageEvents.occurredAt}, 'YYYY-MM')`,
+            platform: schema.attribution.platform,
+            opportunityExternalId: schema.stageEvents.opportunityExternalId,
+          })
+          .from(schema.stageEvents)
+          .leftJoin(
+            schema.attribution,
+            and(
+              eq(schema.attribution.tenantId, schema.stageEvents.tenantId),
+              eq(
+                schema.attribution.opportunityExternalId,
+                schema.stageEvents.opportunityExternalId,
+              ),
+              eq(schema.attribution.model, model),
+            ),
+          )
+          .where(
+            and(
+              eq(schema.stageEvents.tenantId, tenantId),
+              eq(schema.stageEvents.stage, valueStage),
+              gte(schema.stageEvents.occurredAt, new Date(`${from}T00:00:00.000Z`)),
+            ),
+          )
+      : [];
+
+    // The earliest month anything was actually ingested for. Everything before
+    // it is absent from the record rather than zero in it.
+    const observedMonths = new Set([
+      ...spendRows.map((r) => r.month),
+      ...dealRows.map((r) => r.month),
+    ]);
+    const firstObserved = [...observedMonths].sort()[0];
+
+    return keys.map((month) => {
+      const byPlatform: Record<string, { spend: number; deals: number }> = {};
+      for (const row of spendRows.filter((r) => r.month === month)) {
+        const entry = (byPlatform[row.platform] ??= { spend: 0, deals: 0 });
+        entry.spend += Number(row.spend);
+      }
+
+      const inMonth = dealRows.filter((r) => r.month === month);
+      let unattributedDeals = 0;
+      for (const row of inMonth) {
+        if (row.platform) {
+          const entry = (byPlatform[row.platform] ??= { spend: 0, deals: 0 });
+          entry.deals += 1;
+        } else {
+          unattributedDeals += 1;
+        }
+      }
+
+      const [year, m] = month.split('-');
+      return {
+        month,
+        label: new Date(Date.UTC(Number(year), Number(m) - 1, 1)).toLocaleDateString('en-US', {
+          month: 'short',
+          year: '2-digit',
+          timeZone: 'UTC',
+        }),
+        byPlatform,
+        unattributedDeals,
+        totalDeals: inMonth.length,
+        totalSpend: Object.values(byPlatform).reduce((sum, p) => sum + p.spend, 0),
+        ingested: firstObserved !== undefined && month >= firstObserved,
+      };
+    });
   });
 }

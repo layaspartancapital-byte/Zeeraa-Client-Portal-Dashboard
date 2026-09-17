@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 import type { Database } from '../src/client';
 import * as schema from '../src/schema/index';
 import type { TenantSeed } from './types';
@@ -28,6 +28,16 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
   if (!tenant) throw new Error('tenant upsert returned nothing');
   const tenantId = tenant.id;
 
+  // Positions are unique per tenant, so re-ordering a funnel by upserting each
+  // stage in turn collides with itself: the row moving into position 1 hits the
+  // row that has not moved out of it yet. Parking every existing stage in a
+  // range the seed never uses clears the whole positive range in one statement,
+  // and the upserts below then land wherever they like.
+  await db
+    .update(schema.funnelStages)
+    .set({ position: sql`-1000 - ${schema.funnelStages.position}` })
+    .where(eq(schema.funnelStages.tenantId, tenantId));
+
   for (const stage of seed.funnelStages) {
     await db
       .insert(schema.funnelStages)
@@ -38,6 +48,7 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         label: stage.label,
         isOptimizationTarget: stage.isOptimizationTarget ?? false,
         countsValue: stage.countsValue ?? false,
+        source: stage.source ?? 'stage_events',
       })
       .onConflictDoUpdate({
         target: [schema.funnelStages.tenantId, schema.funnelStages.key],
@@ -46,8 +57,25 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
           label: stage.label,
           isOptimizationTarget: stage.isOptimizationTarget ?? false,
           countsValue: stage.countsValue ?? false,
+          source: stage.source ?? 'stage_events',
         },
       });
+  }
+
+  // A stage the seed no longer defines is still sitting in the parking range.
+  // Left in place rather than deleted — its stage events are real history and
+  // dropping the row would orphan them — but named loudly, because a stage
+  // nobody configured will not render and its absence should not be a surprise.
+  const orphaned = await db
+    .select({ key: schema.funnelStages.key })
+    .from(schema.funnelStages)
+    .where(and(eq(schema.funnelStages.tenantId, tenantId), lt(schema.funnelStages.position, 0)));
+  if (orphaned.length > 0) {
+    console.warn(
+      `  ${orphaned.length} funnel stage(s) not in the seed and left unpositioned: ` +
+        `${orphaned.map((s) => s.key).join(', ')}. ` +
+        'Rename them with `pnpm --filter @zeeraa/db rename-stage` or remove them deliberately.',
+    );
   }
 
   for (const metric of seed.metrics) {

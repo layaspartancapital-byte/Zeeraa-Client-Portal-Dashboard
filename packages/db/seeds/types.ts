@@ -12,6 +12,8 @@ export type TenantSeed = {
     label: string;
     isOptimizationTarget?: boolean;
     countsValue?: boolean;
+    /** Where the stage is counted from. Defaults to opportunity stage events. */
+    source?: 'stage_events' | 'leads';
   }[];
   metrics: {
     key: string;

@@ -1,0 +1,24 @@
+# Zeeraa ingestion schedule, without Inngest.
+#
+# The Inngest functions in packages/jobs/src/inngest/functions.ts are the real
+# schedule. Until the app is deployed and registered with Inngest, nothing runs
+# — and for click_view that is not a delay, it is permanent loss: Google serves
+# ninety days and then stops, so every night nobody syncs is a day of
+# attribution no later run recovers.
+#
+# Install on any box that can reach the database and the ad platforms:
+#
+#   crontab -l > /tmp/c; cat scripts-crontab.example >> /tmp/c; crontab /tmp/c
+#
+# The environment has to carry DATABASE_URL_JOBS, DATABASE_URL_OWNER,
+# ENCRYPTION_KEY and the platform credentials. cron does not read your shell
+# profile, so source an env file explicitly as below.
+
+ZEERAA=/workspaces/Zeeraa-Client-Portal-Dashboard
+
+# Ads, nightly at 03:00 New York. Ads run first: the click window is the only
+# thing in the pipeline with an expiry on it.
+0 3 * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled nightly >> /var/log/zeeraa-nightly.log 2>&1
+
+# Salesforce incremental, hourly.
+0 * * * * cd $ZEERAA && set -a && . ./.env && set +a && pnpm --filter @zeeraa/jobs run-scheduled hourly >> /var/log/zeeraa-hourly.log 2>&1

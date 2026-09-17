@@ -37,6 +37,19 @@ export const funnelStages = pgTable(
     isOptimizationTarget: boolean('is_optimization_target').notNull().default(false),
     /** Whether reaching this stage contributes to funded volume. */
     countsValue: boolean('counts_value').notNull().default(false),
+    /**
+     * Where this stage is counted from.
+     *
+     * `stage_events` is the default and is keyed by opportunity. `leads` counts
+     * rows in `leads` — the inbound population, since cold outreach is excluded
+     * at ingest — and attributes them by `leads.click_id_type`, because a lead
+     * that never converted has no opportunity to attribute through.
+     *
+     * Configuration rather than a special case for the word "lead": a funnel
+     * whose first stage is genuinely an opportunity keeps the default, and one
+     * that starts further up the pipe says so here.
+     */
+    source: text('source').notNull().default('stage_events').$type<'stage_events' | 'leads'>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -10,3 +10,7 @@ dist/
 coverage/
 apps/web/.env.local
 scripts/.mutation-apply.mts
+
+# Written by `next dev`; disabled via agentRules in next.config.ts.
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

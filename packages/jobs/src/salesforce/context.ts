@@ -7,7 +7,13 @@ import {
   type SalesforceFieldMapping,
 } from '@zeeraa/connectors';
 import { DEFAULT_REVENUE_TOLERANCE, type QualificationBar } from '@zeeraa/core';
-import { decryptCredentials, getJobsDb, schema, withJobTenant } from '@zeeraa/db';
+import {
+  decryptCredentials,
+  getMaintenanceDb,
+  schema,
+  withJobTenant,
+  withMaintenance,
+} from '@zeeraa/db';
 import type { SyncContext } from './sync';
 
 /**
@@ -108,13 +114,17 @@ export async function resolveSalesforceContext(
 export async function listSalesforceConnections(): Promise<
   { tenantId: string; connectionId: string }[]
 > {
-  // Deliberately the maintenance-free path: this crosses tenants by design, so
-  // it reads only the two identifiers it needs and nothing about any tenant's
-  // data. Each resulting sync then runs scoped to its own tenant.
-  const db = getJobsDb();
-  const rows = await db
-    .select({ tenantId: schema.connections.tenantId, connectionId: schema.connections.id })
-    .from(schema.connections)
-    .where(eq(schema.connections.platform, 'salesforce'));
-  return rows;
+  // Crosses tenants, so it says so. This cannot run on the jobs role:
+  // `job_read_connections` is `tenant_id = app.current_tenant_id()` and the
+  // scheduler has no tenant yet — that is the question it is asking — so the
+  // jobs role reads zero rows and the fan-out dispatches nothing at all.
+  //
+  // Two uuids per connection, and nothing else. Each resulting sync then runs
+  // through `withJobTenant`, scoped to its own tenant.
+  return withMaintenance(getMaintenanceDb(), (tx) =>
+    tx
+      .select({ tenantId: schema.connections.tenantId, connectionId: schema.connections.id })
+      .from(schema.connections)
+      .where(eq(schema.connections.platform, 'salesforce')),
+  );
 }

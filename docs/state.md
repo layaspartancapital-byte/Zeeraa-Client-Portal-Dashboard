@@ -109,28 +109,54 @@ Done:
   Blocked stages render their dependency, never a zero; computed stages are
   marked computed.
 
+- **The schedule runs.** `pnpm --filter @zeeraa/jobs run-scheduled nightly|hourly`
+  drives the same sync functions the Inngest handlers call, so cron can run the
+  pipeline on any box from tonight without waiting for a deployment.
+  `scripts-crontab.example` has the entries. Verified end to end.
+- **A real Lead stage.** The funnel now runs Lead → MQL → Application → SQL →
+  UW approved → Offer → Funded. Lead counts the inbound `leads` table; what used
+  to be called Lead is Application, which is what `opportunity_created` actually
+  stamps. A stage declares its grain in `funnel_stages.source`.
+- **Funnel view** with a population selector — all sources, each channel, or
+  unattributed — where both halves of every rate come from the selected
+  population. It also shows the transitions that *can* be measured across a
+  blocked stage, rather than leaving the funnel looking severed.
+- **Four charts** on the performance screen.
+
 Next, in order:
 
-1. **Funnel view.** Still a phase-1 stub for everything but the stage flow. It
-   needs the channel filter built on `channelReach`, so a channel's offer rate
-   is offers attributed to it over leads attributed to it.
-2. **Charts on the performance screen.** Four, reading the same query as the
-   table. Cost per funded deal by channel must carry its range as an interval,
-   not a bar.
-3. **Delivery view**, then the workspace.
-4. **Schedule the nightly syncs.** Everything so far has been run by hand; the
-   click ledger starts developing holes from 2026-09-18 if this is left. This is
-   now the most time-sensitive item on the list.
-5. Chase the Opportunity click-ID fields and the decline-reason field.
+1. **Delivery view**, then the workspace.
+2. **Deploy, and register with Inngest.** The cron fallback above is running the
+   pipeline; the durable-step version is what should run it in the end.
+3. Chase the Opportunity click-ID fields and the decline-reason field.
+4. Campaign and keyword-tier drill-down on the performance table, and the CSV
+   export.
 
-## Open question, raised 17 September 2026
+## The nightly fan-out was a silent no-op until 17 September 2026
 
-The funnel's `lead` stage is configured as `opportunity_created`, so the Lead
-column counts 436 opportunities rather than the 7,202 inbound leads Salesforce
-holds. It renders marked "computed", which helps, but a client reading
-"Lead: 436" beside a lead-generation engagement will read it as lead volume.
-Either the stage wants renaming, or the funnel wants a real lead stage beneath
-it. A configuration decision, not a code one.
+`listGoogleAdsConnections` and `listSalesforceConnections` ran on the ingestion
+role with no tenant context. `job_read_connections` is
+`tenant_id = app.current_tenant_id()`, so they read zero rows: every scheduled
+run would have dispatched nothing, reported success, and let the `click_view`
+window age out uningested. Failing closed was correct; asking on the wrong
+connection was the bug. They now go through `withMaintenance` on
+`getMaintenanceDb()` — orchestration, reading two uuids, with every byte of
+actual sync work still scoped by `withJobTenant`. Two tests in
+`packages/db/test/job-role.test.ts` hold the line.
+
+## Lead-to-application, now that the two are separate stages
+
+The rate that was hidden while one stage did both jobs, over the trailing 90
+days:
+
+| Population | Leads | Applications | Rate |
+| --- | ---: | ---: | ---: |
+| All sources | 3,748 | 436 | 11.6% |
+| Google Ads | 1,091 | 193 | **17.7%** |
+| Unattributed | 2,657 | 243 | 9.1% |
+
+Google Ads leads become applications at roughly twice the rate of leads nobody
+can attribute. Both halves of each rate come from the same population.
 
 ## Operational notes
 

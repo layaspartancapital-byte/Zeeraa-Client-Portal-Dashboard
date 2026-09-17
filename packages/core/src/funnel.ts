@@ -13,6 +13,16 @@ export type StageDefinition = {
   position: number;
   isOptimizationTarget: boolean;
   countsValue: boolean;
+  /**
+   * Where the stage is counted from. `stage_events` is keyed by opportunity;
+   * `leads` counts the inbound lead population, which is a different grain and
+   * usually a much larger number.
+   *
+   * It matters to a reader, not only to the query: a conversion rate that
+   * crosses a grain boundary — leads into applications — is a different kind of
+   * statement from one inside a grain, and the funnel says so where it happens.
+   */
+  source?: 'stage_events' | 'leads';
 };
 
 export type StageEvent = {

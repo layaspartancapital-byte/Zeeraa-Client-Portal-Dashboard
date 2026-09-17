@@ -24,12 +24,29 @@ export const spartan: TenantSeed = {
   },
 
   funnelStages: [
-    { position: 1, key: 'lead', label: 'Lead' },
+    /**
+     * Counted from the `leads` table, not from stage events.
+     *
+     * Until 17 September 2026 the first stage was the opportunity-created
+     * timestamp wearing the label "Lead", which put 436 in a column beside a
+     * CRM holding 7,202 inbound leads. The two are genuinely different things —
+     * most leads never become an opportunity, and the ratio between them is the
+     * single most useful rate in this funnel — so they are two stages.
+     *
+     * `leads` is already the inbound population: cold outreach is excluded at
+     * ingest, so nothing here needs to re-filter it.
+     */
+    { position: 1, key: 'lead', label: 'Lead', source: 'leads' },
     { position: 2, key: 'mql', label: 'MQL' },
-    { position: 3, key: 'sql', label: 'SQL' },
-    { position: 4, key: 'uw_approved', label: 'UW approved', isOptimizationTarget: true },
-    { position: 5, key: 'offer', label: 'Offer', isOptimizationTarget: true },
-    { position: 6, key: 'funded', label: 'Funded', isOptimizationTarget: true, countsValue: true },
+    /**
+     * What used to be called Lead. An application is an opportunity record
+     * existing at all, which is what `opportunity_created` actually stamps.
+     */
+    { position: 3, key: 'application', label: 'Application' },
+    { position: 4, key: 'sql', label: 'SQL' },
+    { position: 5, key: 'uw_approved', label: 'UW approved', isOptimizationTarget: true },
+    { position: 6, key: 'offer', label: 'Offer', isOptimizationTarget: true },
+    { position: 7, key: 'funded', label: 'Funded', isOptimizationTarget: true, countsValue: true },
   ],
 
   metrics: [
@@ -371,7 +388,10 @@ export const spartan: TenantSeed = {
             contract_requested: 'Contract_Requested_Date_Time__c',
           },
           derivedStages: {
-            lead: 'opportunity_created',
+            // Renamed from `lead` on 17 September 2026. This rule stamps the
+            // moment an Opportunity record exists, which is an application —
+            // the Lead stage above it counts the `leads` table instead.
+            application: 'opportunity_created',
             // No MQL timestamp exists in the org. Derived from the
             // qualification minimums and marked computed wherever it renders.
             mql: 'qualification_minimums',

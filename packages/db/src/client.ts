@@ -106,14 +106,50 @@ export function getJobsDb(): Database {
   return jobsDb;
 }
 
+/**
+ * The maintenance connection.
+ *
+ * `zeeraa_maint` is a member of `zeeraa_maintenance`, so a transaction that
+ * opens the gate with `withMaintenance` can cross tenants. It is not the owner
+ * — §5 forbids the application the owner connection, and the Inngest handler
+ * runs inside the application.
+ *
+ * There is exactly one legitimate use of this from a running application: the
+ * scheduler deciding which tenants to sync tonight. That is orchestration, not
+ * ingestion, and it reads two uuids per connection and nothing else. Every byte
+ * of actual sync work goes through `withJobTenant` on the jobs role, which
+ * cannot reach a second tenant however badly a connector behaves.
+ */
+let maintSql: ReturnType<typeof postgres> | undefined;
+let maintDb: Database | undefined;
+
+export function getMaintenanceDb(): Database {
+  if (!maintDb) {
+    const url = process.env.DATABASE_URL_MAINT;
+    if (!url) {
+      throw new Error(
+        'DATABASE_URL_MAINT is not set. The scheduler needs it to list which ' +
+          'tenants to sync; the jobs role is scoped to one tenant at a time and ' +
+          'reads nothing without a tenant context, which is what makes the ' +
+          'connector safe rather than an oversight.',
+      );
+    }
+    maintSql = connect(url, 2);
+    maintDb = drizzle(maintSql, { schema });
+  }
+  return maintDb;
+}
+
 export async function closeConnections(): Promise<void> {
-  await Promise.all([appSql?.end(), authSql?.end(), jobsSql?.end()]);
+  await Promise.all([appSql?.end(), authSql?.end(), jobsSql?.end(), maintSql?.end()]);
   appSql = undefined;
   appDb = undefined;
   authSql = undefined;
   authDb = undefined;
   jobsSql = undefined;
   jobsDb = undefined;
+  maintSql = undefined;
+  maintDb = undefined;
 }
 
 export { schema };

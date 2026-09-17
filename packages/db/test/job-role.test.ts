@@ -148,6 +148,35 @@ describe('the ingestion role', () => {
     expect(error.code).toBe('42501');
   });
 
+  /**
+   * The scheduler asks which tenants to sync before it has a tenant, so it
+   * cannot ask on this connection — `job_read_connections` is
+   * `tenant_id = app.current_tenant_id()` and there is no current tenant yet.
+   *
+   * Failing closed is correct. What made it a bug is that the fan-out asked
+   * here anyway and got an empty list, so the nightly schedule dispatched
+   * nothing and said nothing. Every sync would silently stop, and for
+   * `click_view` the ninety-day window would age out uningested while the cron
+   * reported success.
+   */
+  it('reads no connection at all without a tenant context, which is why the scheduler cannot fan out on it', async () => {
+    const rows = await jobs
+      .select({ id: schema.connections.id })
+      .from(schema.connections);
+    expect(rows).toEqual([]);
+  });
+
+  it('reads only its own tenant’s connections once scoped', async () => {
+    const [a, b] = await Promise.all([
+      withJobTenant(fx.tenantA, (tx) => tx.select().from(schema.connections), jobs),
+      withJobTenant(fx.tenantB, (tx) => tx.select().from(schema.connections), jobs),
+    ]);
+    // Scoped to the fixture's own tenants: other suites run against this same
+    // database concurrently.
+    expect(a.every((r) => r.tenantId === fx.tenantA)).toBe(true);
+    expect(b.every((r) => r.tenantId === fx.tenantB)).toBe(true);
+  });
+
   it('leaves its tenant context behind when the transaction ends', async () => {
     await withJobTenant(fx.tenantA, (tx) => tx.select().from(schema.opportunities), jobs);
     const after = await jobs.execute<{ v: string }>(

@@ -1,6 +1,9 @@
 import { asc, eq } from 'drizzle-orm';
 import { schema } from '@zeeraa/db';
+import { tenantDay, trailingWindow, type AttributionModel } from '@zeeraa/core';
 import { Panel, EmptyState } from '@/components/Panel';
+import { FunnelFlow } from '@/components/FunnelFlow';
+import { monthlyPerformance } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Funnel' };
@@ -19,9 +22,32 @@ export const metadata = { title: 'Funnel' };
  * measured. The reasons are rows in `blocked_dependencies`, so unblocking one
  * is a delete rather than a deploy.
  */
-export default async function Funnel({ params }: { params: Promise<{ tenant: string }> }) {
+export default async function Funnel({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ tenant: string }>;
+  searchParams: Promise<{ channel?: string; model?: string; days?: string }>;
+}) {
   const { tenant: slug } = await params;
+  const { channel: channelParam, model: modelParam, days: daysParam } = await searchParams;
   const session = await requireTenant(slug);
+
+  const model: AttributionModel = modelParam === 'first_touch' ? 'first_touch' : 'last_touch';
+  const days = Number(daysParam) > 0 ? Math.min(Number(daysParam), 365) : 90;
+  const today = tenantDay(new Date(), session.tenant.timezone);
+  const range = trailingWindow(today, days);
+  const data = await monthlyPerformance(session, range, model);
+
+  // Which population the flow describes. Every rate on the screen takes both
+  // halves from this one — a channel's rate is never its own numerator over
+  // everybody's denominator.
+  const populations = [
+    { key: 'all', label: 'All sources', counts: data.total.stages },
+    ...data.channels.map((c) => ({ key: c.platform, label: c.label, counts: c.stages })),
+    { key: 'unattributed', label: 'Unattributed', counts: data.unattributed.stages },
+  ];
+  const population = populations.find((p) => p.key === channelParam) ?? populations[0]!;
 
   const [stages, blocked] = await Promise.all([
     queryTenant(session, (tx) =>
@@ -50,53 +76,70 @@ export default async function Funnel({ params }: { params: Promise<{ tenant: str
     <div className="space-y-6">
       <Panel
         title="Stage flow"
-        description="Configured for this client. Conversion rates render in the gaps once opportunities are ingested."
+        description={`${range.start} to ${range.end} · ${population.label} · ${
+          model === 'last_touch' ? 'last touch' : 'first touch'
+        }`}
         aside={
           blockedStages.size > 0
             ? `${blockedStages.size} of ${stages.length} stages blocked`
             : undefined
         }
       >
-        <div className="table-scroll overflow-x-auto">
-          <div className="flex min-w-max items-stretch px-5 py-6">
-            {stages.map((stage, i) => {
-              const block = blockedStages.get(stage.key);
-              const nextBlocked = stages[i + 1] && blockedStages.has(stages[i + 1]!.key);
-              return (
-                <div key={stage.key} className="flex items-stretch">
-                  <div className="min-w-[128px] max-w-[168px]">
-                    <p
-                      className={`pb-1 text-[13px] ${block ? 'text-graphite' : 'text-ink'} ${
-                        stage.isOptimizationTarget && !block ? 'border-b-2 border-brass' : ''
-                      }`}
-                    >
-                      {stage.label}
-                    </p>
-                    {block ? (
-                      <p className="mt-2 text-[13px] text-provisional">Not measured</p>
-                    ) : (
-                      <p className="mt-2 text-[13px] text-graphite tabular-nums">No data</p>
-                    )}
-                    {stage.isOptimizationTarget && (
-                      <p className="mt-1 text-[11px] text-graphite">Optimization target</p>
-                    )}
-                  </div>
-                  {i < stages.length - 1 && (
-                    <div className="flex w-20 shrink-0 flex-col items-center justify-start pt-0.5 text-graphite">
-                      {/* A rate into or out of an unmeasured stage is not a low
-                          rate, it is no rate. Rendering a dash keeps the gap
-                          visible without implying a number could go there. */}
-                      <span className="text-[11px]">{block || nextBlocked ? '·' : '—'}</span>
-                      <span className="mt-1 text-[10px]">
-                        {block || nextBlocked ? 'n/a' : 'rate'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+        {/*
+          The population selector. "Unattributed" is one of the options rather
+          than a hidden remainder: those deals are a real population with a real
+          funnel, and leaving them out of the picker would make every channel
+          look like the whole business.
+        */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-rule px-5 py-3 text-[12px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-graphite">Population</span>
+            {populations.map((p) => (
+              <a
+                key={p.key}
+                href={`?channel=${p.key}&model=${model}&days=${days}`}
+                aria-current={p.key === population.key ? 'true' : undefined}
+                className={`rounded-[4px] px-2 py-1 ${
+                  p.key === population.key ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
+                }`}
+              >
+                {p.label}
+              </a>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-graphite">Model</span>
+            {(['last_touch', 'first_touch'] as const).map((m) => (
+              <a
+                key={m}
+                href={`?channel=${population.key}&model=${m}&days=${days}`}
+                aria-current={m === model ? 'true' : undefined}
+                className={`rounded-[4px] px-2 py-1 ${
+                  m === model ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
+                }`}
+              >
+                {m === 'last_touch' ? 'Last touch' : 'First touch'}
+              </a>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-graphite">Window</span>
+            {[30, 90, 365].map((d) => (
+              <a
+                key={d}
+                href={`?channel=${population.key}&model=${model}&days=${d}`}
+                aria-current={d === days ? 'true' : undefined}
+                className={`rounded-[4px] px-2 py-1 tabular-nums ${
+                  d === days ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
+                }`}
+              >
+                {d} days
+              </a>
+            ))}
           </div>
         </div>
+
+        <FunnelFlow data={data} counts={population.counts} populationLabel={population.label} />
 
         {blockedStages.size > 0 && (
           <div className="border-t border-rule">
