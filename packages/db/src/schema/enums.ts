@@ -74,6 +74,21 @@ export const dataSourceKindEnum = pgEnum('data_source_kind', [
 
 export const stageOriginEnum = pgEnum('stage_origin', ['observed', 'computed']);
 
+/**
+ * The state of one day of click ingestion.
+ *
+ * `expired` is not a kind of failure and must not be retried: `click_view`
+ * serves only the last 90 days, so a day past that edge is a hole in the record
+ * rather than a job that went wrong. Conflating the two would leave the
+ * backfill retrying impossible requests every night and would hide the hole.
+ */
+export const clickIngestStatusEnum = pgEnum('click_ingest_status', [
+  'pending',
+  'succeeded',
+  'failed',
+  'expired',
+]);
+
 export const clickIdSourceEnum = pgEnum('click_id_source', [
   /** Read from the mapped field on Opportunity. */
   'opportunity_field',

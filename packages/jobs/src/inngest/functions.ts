@@ -4,6 +4,8 @@ import { inngest, RETRIES, type BackfillRequested, type SyncRequested } from './
 import { listSalesforceConnections, resolveSalesforceContext } from '../salesforce/context';
 import { runSalesforceSync } from '../salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from '../salesforce/backfill';
+import { listGoogleAdsConnections, resolveGoogleAdsContext } from '../google-ads/context';
+import { runGoogleAdsSync } from '../google-ads/sync';
 
 /**
  * Hourly incremental sync on SystemModstamp (§7).
@@ -86,4 +88,53 @@ export const salesforceBackfill = inngest.createFunction(
   },
 );
 
-export const functions = [salesforceSync, salesforceSyncSchedule, salesforceBackfill];
+
+/**
+ * The nightly Google Ads sync (§7).
+ *
+ * `concurrency` is keyed on the tenant so two runs for one client cannot
+ * overlap and fight over the same click-day ledger, while different clients
+ * still sync in parallel.
+ */
+export const googleAdsSync = inngest.createFunction(
+  {
+    id: 'google-ads-sync',
+    retries: RETRIES,
+    concurrency: { key: 'event.data.tenantId', limit: 1 },
+    triggers: [{ event: 'google-ads/sync.requested' }],
+  },
+  async ({ event, step }) => {
+    const data = event.data as { tenantId: string; connectionId: string; trigger?: string };
+
+    return step.run('sync', async () => {
+      const context = await resolveGoogleAdsContext(data.tenantId, data.connectionId);
+      return runGoogleAdsSync(context, { trigger: data.trigger ?? 'nightly' });
+    });
+  },
+);
+
+export const googleAdsSyncSchedule = inngest.createFunction(
+  {
+    id: 'google-ads-sync-schedule',
+    triggers: [{ cron: 'TZ=America/New_York 0 3 * * *' }],
+  },
+  async ({ step }) => {
+    const connections = await step.run('list-connections', () => listGoogleAdsConnections());
+
+    for (const connection of connections) {
+      await step.sendEvent(`google-ads-${connection.tenantId}`, {
+        name: 'google-ads/sync.requested',
+        data: { ...connection, trigger: 'nightly' },
+      });
+    }
+    return { dispatched: connections.length };
+  },
+);
+
+export const functions = [
+  salesforceSync,
+  salesforceSyncSchedule,
+  salesforceBackfill,
+  googleAdsSync,
+  googleAdsSyncSchedule,
+];

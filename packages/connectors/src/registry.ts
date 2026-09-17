@@ -1,19 +1,24 @@
 import type { Connector } from './types';
+import { googleAdsConnector } from './google-ads/connector';
 
 /**
  * Platform registry.
  *
- * Empty by design in phase 1: the interface exists and the sync machinery can
- * be written against it, but no connector is implemented yet. GA4 and Search
- * Console come first in phase 7 because they are the lowest-risk way to prove
- * the pipeline end to end; Meta comes last because its submit-then-poll
- * Insights jobs are the hardest.
+ * Google Ads is the first entry, in phase 3. GA4 and Search Console come in
+ * phase 7 because they are the lowest-risk way to prove the rest of the
+ * pipeline end to end; Meta comes last because its submit-then-poll Insights
+ * jobs are the hardest.
  */
 const registry = new Map<string, Connector>();
 
 export function register(connector: Connector): void {
   registry.set(connector.key, connector);
 }
+
+// Phase 3. Registered here rather than at a call site so that `listConnectors`
+// is the single answer to "what can this platform ingest", and a connector
+// cannot be built and then quietly left unwired.
+register(googleAdsConnector());
 
 export function getConnector(key: string): Connector | undefined {
   return registry.get(key);

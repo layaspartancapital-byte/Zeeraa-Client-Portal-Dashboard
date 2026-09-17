@@ -54,4 +54,30 @@ export interface Connector {
   testConnection(conn: Connection): Promise<ConnectionHealth>;
   fetchDailyMetrics(conn: Connection, range: DateRange): Promise<DailyMetricRow[]>;
   fetchEntities?(conn: Connection): Promise<CampaignRow[]>;
+  /**
+   * One day of clicks, keyed by the platform's click id.
+   *
+   * Optional because not every platform exposes clicks at this grain, and
+   * single-day because the two that do — Google's `click_view`, Microsoft's
+   * click-performance report — both refuse a range. That is the shape of the
+   * upstream constraint rather than a choice made here, so it is in the
+   * interface: a caller cannot accidentally ask for a window.
+   */
+  fetchClicks?(conn: Connection, day: string): Promise<ClickRow[]>;
 }
+
+/**
+ * A click the platform charged for.
+ *
+ * `reportedDate` is the *ad account's* calendar day. It is deliberately not
+ * renamed to `date`: unlike a CRM record there is no instant underneath it to
+ * re-bucket into the tenant's zone, so the caller has to know whose day it is.
+ */
+export type ClickRow = {
+  clickId: string;
+  reportedDate: string;
+  externalCampaignId: string | null;
+  externalAdGroupId: string | null;
+  adNetworkType: string | null;
+  device: string | null;
+};

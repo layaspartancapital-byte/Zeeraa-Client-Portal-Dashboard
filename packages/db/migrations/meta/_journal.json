@@ -43,6 +43,13 @@
       "when": 1789665167608,
       "tag": "0005_lead_exclusion_and_blocked_dependencies",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789666921377,
+      "tag": "0006_ad_clicks_and_ingest_ledger",
+      "breakpoints": true
     }
   ]
 }

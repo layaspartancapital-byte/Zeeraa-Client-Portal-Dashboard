@@ -261,3 +261,85 @@ help when the population is not homogeneous. `probeLeadFieldInventory` now takes
 a scope and every rate it reports is a rate within that scope. An unscoped
 inventory is still available and still exact; it is simply not the answer of
 record for an org running two kinds of lead.
+
+---
+
+## §6 and §7 — `click_view` is the exception to "never loop per day", and its history expires
+
+**Added 17 September 2026**, before the Google Ads connector was built rather
+than after, because the constraint has a clock on it.
+
+§6 says of Google Ads: "GAQL. Requires a developer token and an MCC/manager
+account. Quota-limited: batch by date range, never loop per day." §7 sets the
+ad-platform sync to a nightly trailing 90-day window.
+
+Both hold for campaign-level spend, which is what `daily_metrics` stores, and
+the connector batches those exactly as instructed. Neither holds for the
+resource that makes the spend-to-funded join possible.
+
+### The constraint
+
+`click_view` is the only Google Ads resource that exposes a `gclid`. Without it
+there is no row anywhere that connects a click Google charged for to the
+opportunity it became — campaign-level spend can be divided by funded deals in
+aggregate, but no individual funded deal can be attributed to a campaign, and
+cost per funded deal cannot be broken down by anything.
+
+It carries two limits that no other resource does:
+
+1. **One day per query.** `segments.date` must resolve to a single day. A
+   90-day pull is 90 requests, not one. This directly contradicts §6's
+   instruction, and the instruction is right about every other resource.
+2. **A 90-day lookback.** Data is available only for the 90 days before the
+   query date. Not 90 days from a fixed point — a rolling window.
+
+### Why this is urgent rather than merely notable
+
+The lookback is rolling, so **attribution history is expiring while the
+engagement is being built**. Every day that passes without a click pull is a day
+of click-to-campaign mapping that becomes permanently unrecoverable. There is no
+backfill for it later and no support request that restores it; the data is
+simply not served.
+
+Concretely, as of 17 September 2026 the reachable window opens around
+**19 June 2026**. Clicks before that are already gone. The Salesforce side is
+unaffected — converted leads still hold their `gclid` indefinitely, and 244 of
+them do — but a `gclid` with no `click_view` row behind it identifies a click
+whose campaign, ad group and cost Google will no longer disclose. The join has a
+CRM half and an ads half, and only the ads half expires.
+
+This is a reason to run the first click backfill as soon as the developer token
+clears Basic Access, ahead of the rest of the connector and ahead of the
+Opportunity click-ID fields. Those can be caught up later; this cannot.
+
+### What the implementation does about it
+
+- **Per-day resumability is a first-class concern, not a retry policy.** A
+  90-day backfill is 90 sequential requests against a quota-limited API and it
+  will fail partway. `click_ingest_days` holds one row per tenant, platform and
+  day, with its status and the count written. The backfill claims pending days,
+  and a re-run resumes rather than restarts.
+- **Each day is idempotent.** Clicks upsert on `(tenant_id, platform, click_id)`,
+  so re-running a day that half-succeeded converges instead of duplicating. This
+  is the same rule as `daily_metrics` (§16) and for the same reason.
+- **A day that has aged out of the window is recorded as `expired`, not
+  `failed`.** The two are different facts: one is a job to retry, the other is a
+  hole in the record that no retry will fill. Conflating them would leave the
+  backfill retrying 90 impossible requests every night, and would hide the hole.
+- **The gap is visible.** Days outside the reachable window render as a blocked
+  dependency rather than as zero clicks, on the same mechanism as the funnel's
+  cut stages.
+
+### What it costs
+
+90 requests for the first backfill and one per night thereafter. Against a
+Basic-level Cloud project (15,000 operations a day) that is not a quota problem
+at all; against an Explorer-level one (2,880 a day against production accounts)
+the backfill spreads over several nights, which the ledger absorbs without
+intervention. Either way it is a duration and failure-mode problem rather than a
+quota one, and that is what the resumability is for.
+
+A note on where that limit now lives: Google sunset developer tokens on
+9 September 2026, and the API access level is a property of the Google Cloud
+project behind the OAuth client rather than of a token. See
+`docs/google-ads-credentials.md`.

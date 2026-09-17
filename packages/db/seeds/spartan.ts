@@ -379,7 +379,28 @@ export const spartan: TenantSeed = {
         },
       },
     },
-    { platform: 'google_ads', accountIdentifier: 'pending', status: 'not_configured' },
+    {
+      platform: 'google_ads',
+      accountIdentifier: '696-268-5494',
+      status: 'waiting_on_client',
+      blockedReason:
+        'Awaiting OAuth credentials. Every Google Ads credential for this tenant ' +
+        'belongs to Spartan rather than to Zeeraa: the manager account is theirs, ' +
+        'the OAuth consent is theirs, and since Google sunset developer tokens on ' +
+        '9 September 2026 the API access level belongs to the Google Cloud project ' +
+        'behind their OAuth client. Needed: a Desktop-app client id and secret, and ' +
+        'a refresh token from `pnpm --filter @zeeraa/connectors google-ads-token`. ' +
+        'A developer token is not required.',
+      config: {
+        // The client's own manager account, not a Zeeraa MCC. Another tenant may
+        // arrive under a different arrangement entirely; nothing in the connector
+        // assumes one agency-level account covers every client.
+        loginCustomerId: '6962685494',
+        // customerId is the account being reported on, and is set once the client
+        // confirms which of the accounts under that manager is in scope.
+        customerId: 'pending',
+      },
+    },
     { platform: 'microsoft_ads', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'meta', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'linkedin_ads', accountIdentifier: 'pending', status: 'not_configured' },

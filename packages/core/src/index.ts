@@ -5,3 +5,4 @@ export * from './dates';
 export * from './decline-reasons';
 export * from './qualification';
 export * from './funnel';
+export * from './attribution';

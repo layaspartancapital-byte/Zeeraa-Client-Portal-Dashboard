@@ -11,7 +11,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "probe": "tsx scripts/probe-salesforce.ts"
+    "probe": "tsx scripts/probe-salesforce.ts",
+    "google-ads-token": "tsx scripts/google-ads-refresh-token.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*"
