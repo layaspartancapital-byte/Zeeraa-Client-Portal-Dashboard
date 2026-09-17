@@ -10,9 +10,10 @@ blocked, what is next. Updated at the end of every session.
 
 ## Phase
 
-Phase 3 — connectors and ingestion. Google Ads and Salesforce are both live.
-The platform produces a real cost per funded deal; the number is thin, and why
-is recorded below rather than hidden behind it.
+Phase 4 — screens. Phase 3 (connectors and ingestion) is complete: Google Ads
+and Salesforce are both live and the platform produces a real cost per funded
+deal. The executive view and the monthly performance table now render it from
+live data. The funnel, delivery and workspace screens are still phase-1 stubs.
 
 ## Done
 
@@ -88,14 +89,48 @@ broader name.
 - **Call tracking.** Vendor not selected.
 - Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
 
-## Next
+## Phase 4 progress
 
-1. Schedule the nightly syncs. Everything so far has been run by hand; the
-   click ledger starts developing holes from 2026-09-18 if it is left.
-2. Chase the Opportunity click-ID fields and the decline-reason field. Both are
-   client-side and both are in the checklist.
-3. Build the delivery view on top of this. The numbers exist now; what does not
-   exist is the screen that renders coverage beside every one of them.
+Done:
+
+- **The separation rule is in the UI, not only the arithmetic.** Channel and
+  unattributed figures are different TypeScript shapes, so a component cannot
+  put them on one row by iterating a list. `UnattributedRow` has no `spend` and
+  no `costPerDeal` fields at all. See `docs/brief-amendments.md`, "§9.2 and §12".
+- **`CostPerDealFigure` takes a `ChannelCostPerDeal` and has no prop that
+  accepts a number**, so a bare cost-per-deal figure is not something a
+  developer can render by forgetting something. Coverage and range are on the
+  same ground as the value, above the fold.
+- **Executive view** renders one channel's cost per funded deal, named as one
+  channel's, and states on the band itself that the blended figure is absent and
+  why.
+- **Monthly performance table** — channels, an explicit unattributed row that is
+  not a channel, and a totals row whose cost-per-deal cell is a stated absence.
+  Blocked stages render their dependency, never a zero; computed stages are
+  marked computed.
+
+Next, in order:
+
+1. **Funnel view.** Still a phase-1 stub for everything but the stage flow. It
+   needs the channel filter built on `channelReach`, so a channel's offer rate
+   is offers attributed to it over leads attributed to it.
+2. **Charts on the performance screen.** Four, reading the same query as the
+   table. Cost per funded deal by channel must carry its range as an interval,
+   not a bar.
+3. **Delivery view**, then the workspace.
+4. **Schedule the nightly syncs.** Everything so far has been run by hand; the
+   click ledger starts developing holes from 2026-09-18 if this is left. This is
+   now the most time-sensitive item on the list.
+5. Chase the Opportunity click-ID fields and the decline-reason field.
+
+## Open question, raised 17 September 2026
+
+The funnel's `lead` stage is configured as `opportunity_created`, so the Lead
+column counts 436 opportunities rather than the 7,202 inbound leads Salesforce
+holds. It renders marked "computed", which helps, but a client reading
+"Lead: 436" beside a lead-generation engagement will read it as lead volume.
+Either the stage wants renaming, or the funnel wants a real lead stage beneath
+it. A configuration decision, not a code one.
 
 ## Operational notes
 

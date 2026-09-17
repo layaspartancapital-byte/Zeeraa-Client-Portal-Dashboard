@@ -93,6 +93,23 @@ Read §12 of the build brief before touching the UI. The short version:
 - Sentence case. No tracked-out all-caps eyebrows. No emoji, no per-metric icon.
 - No celebration states anywhere. The delivery view is a compliance record.
 
+**Attribution on screen.** The separation rule is not only arithmetic; it
+governs layout, because a table puts two numbers on one line and the reader
+assumes they are comparable.
+
+- **Channel-attributed and unattributed figures never share a row.** The monthly
+  table carries an explicit unattributed row which is not a channel: it has
+  deals but no spend and no cost per deal, and those cells render as an em dash
+  with a reason, never as zero.
+- **No total mixes them.** A totals row sums what is summable — spend across
+  channels, deals across every source — and renders nothing where the sum would
+  be a category error. Blended cost per deal is one of those until every channel
+  is ingested.
+- **A cost-per-deal figure carries its coverage and its range as part of the
+  metric.** Not a footnote, not a tooltip, not a caption below the fold. A bare
+  cost-per-deal number never renders; `CostPerDealFigure` takes a
+  `ChannelCostPerDeal` and there is no prop that accepts a plain number.
+
 ## Commands
 
 ```bash

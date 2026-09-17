@@ -432,3 +432,49 @@ ingested.
 This means the brief's north-star metric (§9.1, the dark band at the top of the
 executive view) cannot render as a single blended number today. Per channel it
 can, with its range.
+
+---
+
+## §9.2 and §12 — the separation rule is a layout rule too
+
+**Added 17 September 2026. Extends the §8 amendment above.**
+
+The §8 amendment fixed the arithmetic: a channel's cost per deal divides that
+channel's spend by that channel's deals, and deals nobody can claim are their
+own count. That is not sufficient on its own, because a table puts two numbers
+on one line and a reader takes them to be comparable whatever the arithmetic
+behind them said.
+
+So the same rule governs the screens.
+
+**Channel-attributed and unattributed figures never share a row.** §9.2's table
+is one row per platform, and it now carries an explicit **unattributed row**
+that is not a platform. It has deals and funded volume; it has no spend and no
+cost per deal, because no channel bought them and assigning them to one would be
+the exact error the §8 amendment removed. Those cells render as an em dash with
+a reason on hover and in the CSV export, never as zero — a zero in a spend
+column is a measurement, and it would say Zeeraa acquired fifteen funded deals
+for nothing.
+
+**No total mixes the two.** The brief already said the totals row is "computed,
+not summed naively across attribution models". The rule is sharper than that: a
+total renders only where the sum is meaningful. Spend sums across channels.
+Deals sum across every source, attributed or not, because that is the business's
+real total. Cost per deal does **not** sum, and does not divide one total by the
+other either — that is blended cost per funded deal, which has its own
+denominator and is not computed until every channel is ingested. The cell
+renders an em dash and says why.
+
+**Coverage and range are part of the metric, not a footnote.** Every
+cost-per-deal figure on screen renders with the deals it is over, the deals it
+could not speak for, and its plausible range. Enforced in the type system rather
+than by review: `CostPerDealFigure` accepts a `ChannelCostPerDeal` and there is
+no prop that takes a plain number, so a bare figure is not something a developer
+can render by forgetting something. This is the same mechanism as `Sourced<T>`
+in §12 and for the same reason — a number whose limits are not visible is read
+as a number that has none.
+
+The executive view's north-star band (§9.1) consequently shows one channel's
+cost per funded deal, named as one channel's, with its coverage and range. It
+does not show a blended figure, and it says so rather than leaving the absence
+to be inferred.
