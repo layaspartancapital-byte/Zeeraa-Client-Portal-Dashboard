@@ -68,6 +68,27 @@ export class SalesforceClient {
   }
 
   /**
+   * A read-only Tooling API query.
+   *
+   * Lead-to-Opportunity field mappings are not in the data API — they are
+   * metadata — and `ObjectMapping` / `ObjectMappingField` in the Tooling API are
+   * the only way to read them without the Metadata API. A GET, so it cannot
+   * write anything to the org whatever it is handed.
+   */
+  async toolingQuery<T>(soql: string): Promise<T[]> {
+    const v = await this.version();
+    let path = `/services/data/v${v}/tooling/query?q=${encodeURIComponent(soql)}`;
+    const records: T[] = [];
+    for (;;) {
+      const page = await this.call<{ records: T[]; done: boolean; nextRecordsUrl?: string }>(path);
+      records.push(...page.records);
+      if (page.done || !page.nextRecordsUrl) break;
+      path = page.nextRecordsUrl;
+    }
+    return records;
+  }
+
+  /**
    * Records hard-deleted in a window.
    *
    * `SystemModstamp` cannot see a deletion — the row is simply gone, and an
@@ -105,6 +126,23 @@ export type DescribeField = {
   type: string;
   custom: boolean;
   length?: number;
+  /** Bytes, not characters. Differs from `length` on multi-byte text fields. */
+  byteLength?: number;
+  precision?: number;
+  scale?: number;
+  nillable?: boolean;
+  /**
+   * Field-level security, as the *calling* user sees it.
+   *
+   * A describe reflects the running user's permissions, so a field hidden from
+   * the integration user by FLS is absent here in exactly the way a field that
+   * was never created is absent. `permissionable` says the field can have FLS
+   * set on it at all, which distinguishes "somebody could have hidden this"
+   * from a system field nobody can.
+   */
+  createable?: boolean;
+  updateable?: boolean;
+  permissionable?: boolean;
 };
 
 export type DescribeResult = {
