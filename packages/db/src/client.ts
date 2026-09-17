@@ -41,10 +41,16 @@ export function getDb(): Database {
   return appDb;
 }
 
-/** Owner connection. Migrations, role bootstrap and seeds only. */
+/**
+ * Owner connection. Migrations and seeds only.
+ *
+ * `zeeraa_owner` is NOSUPERUSER and NOBYPASSRLS, and FORCE ROW LEVEL SECURITY
+ * binds it, so this handle reads nothing on its own — every statement against a
+ * tenant table has to go through `withMaintenance`.
+ */
 export function getOwnerDb(): { db: Database; close: () => Promise<void> } {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL is not set.');
+  const url = process.env.DATABASE_URL_OWNER;
+  if (!url) throw new Error('DATABASE_URL_OWNER is not set. Run bootstrap first.');
   const sql = connect(url, 1);
   return { db: drizzle(sql, { schema }), close: () => sql.end() };
 }

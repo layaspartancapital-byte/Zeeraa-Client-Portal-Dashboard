@@ -55,12 +55,17 @@ pnpm db:up                                   # local Postgres on 5433
 cp .env.example apps/web/.env.local          # then fill in the blanks
 
 export DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa
-pnpm --filter @zeeraa/db bootstrap           # creates the two runtime roles
-pnpm db:migrate
+export DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa
+
+pnpm --filter @zeeraa/db bootstrap           # creates the roles. Run first.
+pnpm db:migrate                              # runs as zeeraa_owner
 SEED_USERS=yes pnpm db:seed                  # Spartan config + two dev users
 
 pnpm dev
 ```
+
+Order matters: `bootstrap` creates the roles the migrations grant to, and makes
+`zeeraa_owner` own the schema.
 
 Sign-in needs a Resend key or Google credentials. To work without either:
 
@@ -72,31 +77,67 @@ npx tsx scripts/dev-session.ts admin@zeeraa.com
 
 ## Tenant isolation
 
-Three roles connect to the database and none of them is the one the application
-uses for tenant data by accident:
+Every tenant-scoped table carries `ENABLE` **and** `FORCE ROW LEVEL SECURITY`,
+so the policies bind the role that owns the tables as well as the one the
+application uses. Five roles, each with the least it needs:
 
-- **owner** — migrations and seeds only. Never used by the application.
-- **`zeeraa_app`** — the runtime role. `NOBYPASSRLS`, owns nothing, and every
-  statement it issues is filtered by a row level security policy.
-- **`zeeraa_auth`** — the Auth.js adapter. Reaches `users`, `accounts`,
-  `sessions` and `verification_tokens`, and no tenant-scoped table at all.
+- **administrative** (`postgres`, or your provider's superuser) — creates roles.
+  Used by `bootstrap` and `reset`, nothing else.
+- **`zeeraa_owner`** — owns the schema. Migrations and seeds. `NOSUPERUSER` and
+  `NOBYPASSRLS`, so FORCE genuinely binds it. This is why migrations do not run
+  as `postgres`: a superuser bypasses row level security whatever is set, and
+  local development would then be exercising a weaker rule than production.
+- **`zeeraa_app`** — the runtime role. Owns nothing, and every statement it
+  issues is filtered by a policy.
+- **`zeeraa_auth`** — the Auth.js adapter. Identity tables only.
+- **`zeeraa_maint`** — backfill scripts and psql sessions. Member of
+  `zeeraa_maintenance`.
 
 Tenant context arrives as transaction-local settings set by `withTenant()`.
 Outside that wrapper there is no context, every policy evaluates to false, and
 every tenant-scoped query returns zero rows — so the cost of forgetting the
 wrapper is an empty screen, never another client's data.
 
-`assertRlsEnforced()` runs on the first database-backed request and refuses to
-serve if the runtime role could bypass RLS.
+A Zeeraa admin can work in any tenant they hold a **membership row** for, and no
+others. There is no blanket cross-tenant grant by role: "who can read this
+client?" is always answerable by querying `memberships`.
 
-`packages/db/test/tenant-isolation.test.ts` runs against a real Postgres and
-deliberately writes the queries a developer writes on a bad day — no tenant
-filter, the wrong tenant id supplied on purpose, a role claim escalated in the
-session — and asserts the database returns nothing.
+### The maintenance gate
+
+Because FORCE binds the owner too, work that genuinely crosses tenants — seeding
+a client, repairing a bad import — goes through `withMaintenance()`, which sets
+`app.maintenance` for one transaction. Membership of `zeeraa_maintenance` is
+necessary but not sufficient, so an idle psql session as the owner still reads
+nothing. `zeeraa_app` is not a member, so setting the flag from a web request
+buys nothing at all.
+
+### Pooling
+
+`set_config(..., true)` is transaction-scoped, which is safe on a direct
+connection and behind a pooler in **transaction** mode — Neon's pooled endpoint,
+PgBouncer `pool_mode = transaction`. It would not be safe in `statement` mode,
+where one transaction's statements can be spread across backends. `prepare:
+false` on the client is part of the same requirement.
+
+### Tests
+
+`packages/db/test/` runs against a real Postgres and deliberately writes the
+queries a developer writes on a bad day — no tenant filter, the wrong tenant id
+supplied on purpose, a role claim escalated in the session — and asserts the
+database returns nothing.
 
 ```bash
 pnpm db:up
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa pnpm test
+DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa pnpm test
+```
+
+Those tests are themselves verified by mutation testing. `mutation-test.ts`
+breaks one control at a time — drops a policy, reverts the cardinality trigger
+to invoker rights, makes tenant context session-scoped — and reports which tests
+noticed. A mutation that survives is a control with no test behind it.
+
+```bash
+cd packages/db && npx tsx scripts/mutation-test.ts
 ```
 
 ## Adding a table

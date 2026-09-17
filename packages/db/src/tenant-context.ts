@@ -24,6 +24,17 @@ export type TenantContext = {
  *    `app.current_tenant_id()` is null, every policy evaluates to false and
  *    every tenant-scoped query returns zero rows. The failure mode of
  *    forgetting the wrapper is an empty screen, never another client's data.
+ *
+ * Pooling. This is safe in direct connections and behind a pooler in
+ * **transaction** mode (PgBouncer's `transaction`, which is what Neon's pooled
+ * endpoint runs): a transaction is pinned to one server connection for its
+ * whole life, so BEGIN, the set_config, the queries and COMMIT all land on the
+ * same backend, and the setting is discarded with the transaction.
+ *
+ * It would NOT be safe behind a pooler in `statement` mode, where individual
+ * statements of one transaction can be spread across backends. Do not put this
+ * application behind one. `prepare: false` on the client is part of the same
+ * requirement — named prepared statements do not survive transaction pooling.
  */
 export async function withTenant<T>(
   ctx: TenantContext,
@@ -37,6 +48,30 @@ export async function withTenant<T>(
         set_config('app.current_user_id', ${ctx.userId}, true),
         set_config('app.current_user_role', ${ctx.role}, true)
     `);
+    return fn(tx as unknown as Database);
+  });
+}
+
+/**
+ * Opens the maintenance door, for one transaction.
+ *
+ * Every tenant-scoped table carries FORCE ROW LEVEL SECURITY, so the role that
+ * owns them is bound by the same policies as the application. That is what
+ * makes a stray psql session or a half-written backfill script safe by default:
+ * it sees nothing. Work that genuinely needs to cross tenants — seeding a new
+ * client, repairing a bad import — says so here, explicitly, per transaction,
+ * in a call that greps.
+ *
+ * Only members of `zeeraa_maintenance` can use it. The runtime role is not a
+ * member, so calling this from a web request does nothing at all: the policy it
+ * enables does not apply to `zeeraa_app`.
+ */
+export async function withMaintenance<T>(
+  db: Database,
+  fn: (tx: Database) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.maintenance', 'on', true)`);
     return fn(tx as unknown as Database);
   });
 }

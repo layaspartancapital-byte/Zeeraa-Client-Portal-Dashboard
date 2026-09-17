@@ -13,6 +13,7 @@ try {
   await sql.unsafe('drop schema if exists app cascade');
   await sql.unsafe('drop schema if exists drizzle cascade');
   await sql.unsafe('create schema public');
+  // Re-granted by bootstrap, which must run next.
   console.log('Schema reset.');
 } finally {
   await sql.end();

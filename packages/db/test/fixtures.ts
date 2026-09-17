@@ -2,18 +2,40 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../src/schema/index';
+import { withMaintenance } from '../src/tenant-context';
+import type { Database } from '../src/client';
 
 export const OWNER_URL =
+  process.env.DATABASE_URL_OWNER ?? 'postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa';
+export const ADMIN_URL =
   process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5433/zeeraa';
 export const APP_URL =
   process.env.DATABASE_URL_APP ?? 'postgres://zeeraa_app:zeeraa_app@localhost:5433/zeeraa';
+/** The role a backfill script or a psql session should use. */
+export const MAINT_URL =
+  process.env.DATABASE_URL_MAINT ?? 'postgres://zeeraa_maint:zeeraa_maint@localhost:5433/zeeraa';
 
-export function ownerClient() {
+export function ownerClient(): { client: postgres.Sql; db: Database } {
   const client = postgres(OWNER_URL, { max: 1, onnotice: () => {} });
   return { client, db: drizzle(client, { schema }) };
 }
 
-export function appClient() {
+/**
+ * The administrative superuser connection. Used only to prove that the startup
+ * guard rejects a connection that can bypass row level security — `zeeraa_owner`
+ * no longer can, which is the point of it.
+ */
+export function adminClient(): { client: postgres.Sql; db: Database } {
+  const client = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
+  return { client, db: drizzle(client, { schema }) };
+}
+
+export function maintClient(): { client: postgres.Sql; db: Database } {
+  const client = postgres(MAINT_URL, { max: 1, onnotice: () => {} });
+  return { client, db: drizzle(client, { schema }) };
+}
+
+export function appClient(): { client: postgres.Sql; db: Database } {
   const client = postgres(APP_URL, { max: 2, prepare: false, onnotice: () => {} });
   return { client, db: drizzle(client, { schema }) };
 }
@@ -22,6 +44,8 @@ export type Fixture = {
   tenantA: string;
   tenantB: string;
   zeeraaAdmin: string;
+  /** A Zeeraa admin with a membership row in tenant A only. */
+  zeeraaAdminAOnly: string;
   clientAdminA: string;
   clientViewerB: string;
 };
@@ -31,7 +55,11 @@ export type Fixture = {
  * them. Written with the owner connection so that the seeding itself is not the
  * thing under test.
  */
-export async function seedTwoTenants(db: ReturnType<typeof ownerClient>['db']): Promise<Fixture> {
+export async function seedTwoTenants(db: Database): Promise<Fixture> {
+  return withMaintenance(db, (tx) => seedTwoTenantsInner(tx));
+}
+
+async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
   const stamp = Date.now() + Math.floor(Math.random() * 100000);
 
   const [a] = await db
@@ -48,6 +76,10 @@ export async function seedTwoTenants(db: ReturnType<typeof ownerClient>['db']): 
     .insert(schema.users)
     .values({ email: `zeeraa-${stamp}@example.test`, name: 'Zeeraa Admin' })
     .returning();
+  const [adminAOnly] = await db
+    .insert(schema.users)
+    .values({ email: `zeeraa-a-${stamp}@example.test`, name: 'Zeeraa Admin (tenant A only)' })
+    .returning();
   const [clientA] = await db
     .insert(schema.users)
     .values({ email: `a-admin-${stamp}@example.test`, name: 'Client A Admin' })
@@ -56,11 +88,13 @@ export async function seedTwoTenants(db: ReturnType<typeof ownerClient>['db']): 
     .insert(schema.users)
     .values({ email: `b-viewer-${stamp}@example.test`, name: 'Client B Viewer' })
     .returning();
-  if (!admin || !clientA || !clientB) throw new Error('user insert failed');
+  if (!admin || !adminAOnly || !clientA || !clientB) throw new Error('user insert failed');
 
   await db.insert(schema.memberships).values([
     { userId: admin.id, tenantId: a.id, role: 'zeeraa_admin' },
     { userId: admin.id, tenantId: b.id, role: 'zeeraa_admin' },
+    // Deliberately no membership in tenant B.
+    { userId: adminAOnly.id, tenantId: a.id, role: 'zeeraa_admin' },
     { userId: clientA.id, tenantId: a.id, role: 'client_admin' },
     { userId: clientB.id, tenantId: b.id, role: 'client_viewer' },
   ]);
@@ -92,16 +126,27 @@ export async function seedTwoTenants(db: ReturnType<typeof ownerClient>['db']): 
     tenantA: a.id,
     tenantB: b.id,
     zeeraaAdmin: admin.id,
+    zeeraaAdminAOnly: adminAOnly.id,
     clientAdminA: clientA.id,
     clientViewerB: clientB.id,
   };
 }
 
-export async function cleanup(db: ReturnType<typeof ownerClient>['db'], fx: Fixture) {
-  await db.execute(sql`delete from tenants where id in (${fx.tenantA}, ${fx.tenantB})`);
-  await db.execute(
-    sql`delete from users where id in (${fx.zeeraaAdmin}, ${fx.clientAdminA}, ${fx.clientViewerB})`,
-  );
+export async function cleanup(db: Database, fx: Fixture) {
+  await withMaintenance(db, async (tx) => {
+    await tx.execute(sql`delete from tenants where id in (${fx.tenantA}, ${fx.tenantB})`);
+    await tx.execute(
+      sql`delete from users where id in (${fx.zeeraaAdmin}, ${fx.zeeraaAdminAOnly}, ${fx.clientAdminA}, ${fx.clientViewerB})`,
+    );
+  });
+}
+
+/** Owner-side verification reads. Explicit about crossing the tenant boundary. */
+export function asOwner<T>(
+  db: Database,
+  fn: (tx: Database) => Promise<T>,
+): Promise<T> {
+  return withMaintenance(db, fn);
 }
 
 type PgFailure = { code?: string; message: string };

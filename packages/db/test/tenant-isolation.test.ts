@@ -12,6 +12,7 @@ import { withTenant, withUserOnly } from '../src/tenant-context';
 import * as schema from '../src/schema/index';
 import {
   appClient,
+  asOwner,
   cleanup,
   failure,
   ownerClient,
@@ -128,10 +129,9 @@ describe('a client admin in tenant A', () => {
     );
     expect(error.code).toBe('42501');
 
-    const stillInA = await owner.db
-      .select()
-      .from(schema.opportunities)
-      .where(eq(schema.opportunities.externalId, 'A-OPP-1'));
+    const stillInA = await asOwner(owner.db, (tx) =>
+      tx.select().from(schema.opportunities).where(eq(schema.opportunities.externalId, 'A-OPP-1')),
+    );
     expect(stillInA[0]?.tenantId).toBe(fx.tenantA);
   });
 
@@ -142,10 +142,9 @@ describe('a client admin in tenant A', () => {
       app.db,
     );
     expect(deleted.every((r) => r.tenantId === fx.tenantA)).toBe(true);
-    const survivors = await owner.db
-      .select()
-      .from(schema.dailyMetrics)
-      .where(eq(schema.dailyMetrics.tenantId, fx.tenantB));
+    const survivors = await asOwner(owner.db, (tx) =>
+      tx.select().from(schema.dailyMetrics).where(eq(schema.dailyMetrics.tenantId, fx.tenantB)),
+    );
     expect(survivors).toHaveLength(1);
   });
 });
@@ -161,7 +160,9 @@ describe('the mention picker boundary', () => {
           .innerJoin(schema.memberships, eq(schema.memberships.userId, schema.users.id)),
       app.db,
     );
-    expect(visible.map((u) => u.id).sort()).toEqual([fx.clientAdminA, fx.zeeraaAdmin].sort());
+    expect(visible.map((u) => u.id).sort()).toEqual(
+      [fx.clientAdminA, fx.zeeraaAdmin, fx.zeeraaAdminAOnly].sort(),
+    );
     expect(visible.some((u) => u.id === fx.clientViewerB)).toBe(false);
   });
 
@@ -172,6 +173,84 @@ describe('the mention picker boundary', () => {
       app.db,
     );
     expect(rows).toHaveLength(0);
+  });
+});
+
+/**
+ * The Zeeraa admin cross-tenant path.
+ *
+ * This used to be a second policy path: `has_tenant_access()` returned true for
+ * anyone holding `zeeraa_admin` in any tenant at all, so one admin membership
+ * anywhere granted every client in the system. It left no row to audit and
+ * nothing to revoke — you could not answer "who can read this client?" from the
+ * database. Access now requires a membership row per tenant, so the answer is
+ * always a query against `memberships`.
+ */
+describe('a Zeeraa admin holding one membership', () => {
+  const ctxFor = (tenantId: string) => ({
+    tenantId,
+    userId: fx.zeeraaAdminAOnly,
+    role: 'zeeraa_admin' as const,
+  });
+
+  it('reads the tenant it is a member of', async () => {
+    const rows = await withTenant(ctxFor(fx.tenantA), (tx) =>
+      tx.select().from(schema.opportunities), app.db);
+    expect(rows.map((r) => r.externalId)).toEqual(['A-OPP-1']);
+  });
+
+  it('reads nothing in a tenant it has no membership row for', async () => {
+    const rows = await withTenant(ctxFor(fx.tenantB), (tx) =>
+      tx.select().from(schema.opportunities), app.db);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('cannot write into a tenant it has no membership row for', async () => {
+    const error = await failure(() =>
+      withTenant(
+        ctxFor(fx.tenantB),
+        (tx) =>
+          tx.insert(schema.opportunities).values({
+            tenantId: fx.tenantB,
+            externalId: 'ADMIN-SNEAK',
+            createdAt: new Date(),
+            currentStage: 'lead',
+          }),
+        app.db,
+      ),
+    );
+    expect(error.code).toBe('42501');
+  });
+
+  it('cannot grant itself one, because the write policy asks the same question', async () => {
+    const error = await failure(() =>
+      withTenant(
+        ctxFor(fx.tenantB),
+        (tx) =>
+          tx.insert(schema.memberships).values({
+            userId: fx.zeeraaAdminAOnly,
+            tenantId: fx.tenantB,
+            role: 'zeeraa_admin',
+          }),
+        app.db,
+      ),
+    );
+    expect(error.code).toBe('42501');
+  });
+
+  it('holds no effective role in a tenant it is not a member of', async () => {
+    const rows = await withTenant(ctxFor(fx.tenantB), (tx) =>
+      tx.execute<{ role: string | null }>(sql`select app.effective_role() as role`), app.db);
+    expect(rows[0]?.role).toBeNull();
+  });
+
+  it('is not offered that tenant in the switcher', async () => {
+    const rows = await withUserOnly(
+      fx.zeeraaAdminAOnly,
+      (tx) => tx.select({ id: schema.tenants.id }).from(schema.tenants),
+      app.db,
+    );
+    expect(rows.map((r) => r.id)).toEqual([fx.tenantA]);
   });
 });
 
@@ -271,46 +350,84 @@ describe('the audit trail', () => {
 describe('membership cardinality', () => {
   it('refuses to attach a client-role user to a second tenant', async () => {
     const error = await failure(() =>
-      owner.db
-        .insert(schema.memberships)
-        .values({ userId: fx.clientAdminA, tenantId: fx.tenantB, role: 'client_viewer' }),
+      asOwner(owner.db, (tx) =>
+        tx
+          .insert(schema.memberships)
+          .values({ userId: fx.clientAdminA, tenantId: fx.tenantB, role: 'client_viewer' }),
+      ),
     );
     expect(error.code).toBe('23514');
     expect(error.message).toMatch(/exactly one tenant/i);
   });
 
   it('allows a role change in place, so a re-run of the seed is not a violation', async () => {
-    await owner.db
-      .insert(schema.memberships)
-      .values({ userId: fx.clientAdminA, tenantId: fx.tenantA, role: 'client_admin' })
-      .onConflictDoUpdate({
-        target: [schema.memberships.userId, schema.memberships.tenantId],
-        set: { role: 'client_viewer' },
-      });
-    const [row] = await owner.db
-      .select()
-      .from(schema.memberships)
-      .where(
-        and(
-          eq(schema.memberships.userId, fx.clientAdminA),
-          eq(schema.memberships.tenantId, fx.tenantA),
-        ),
-      );
+    const row = await asOwner(owner.db, async (tx) => {
+      await tx
+        .insert(schema.memberships)
+        .values({ userId: fx.clientAdminA, tenantId: fx.tenantA, role: 'client_admin' })
+        .onConflictDoUpdate({
+          target: [schema.memberships.userId, schema.memberships.tenantId],
+          set: { role: 'client_viewer' },
+        });
+      const [found] = await tx
+        .select()
+        .from(schema.memberships)
+        .where(
+          and(
+            eq(schema.memberships.userId, fx.clientAdminA),
+            eq(schema.memberships.tenantId, fx.tenantA),
+          ),
+        );
+      return found;
+    });
     expect(row?.role).toBe('client_viewer');
-    await owner.db
-      .update(schema.memberships)
-      .set({ role: 'client_admin' })
-      .where(eq(schema.memberships.id, row!.id));
+    await asOwner(owner.db, (tx) =>
+      tx
+        .update(schema.memberships)
+        .set({ role: 'client_admin' })
+        .where(eq(schema.memberships.id, row!.id)),
+    );
   });
 
   it('refuses to give a client-role user a Zeeraa role elsewhere', async () => {
     const error = await failure(() =>
-      owner.db
-        .insert(schema.memberships)
-        .values({ userId: fx.clientAdminA, tenantId: fx.tenantB, role: 'zeeraa_member' }),
+      asOwner(owner.db, (tx) =>
+        tx
+          .insert(schema.memberships)
+          .values({ userId: fx.clientAdminA, tenantId: fx.tenantB, role: 'zeeraa_member' }),
+      ),
     );
     expect(error.code).toBe('23514');
     expect(error.message).toMatch(/already holds a client role/i);
+  });
+});
+
+describe('membership cardinality, through the application', () => {
+  it('refuses to attach another tenant\u2019s client user, though that row is invisible here', async () => {
+    // The trigger has to see a membership in tenant B while the caller is
+    // scoped to tenant A. As an invoker-rights function it could not, and this
+    // insert succeeded — handing the tenant B user a second membership and a
+    // read on tenant A. It is SECURITY DEFINER now.
+    const error = await failure(() =>
+      withTenant(
+        { tenantId: fx.tenantA, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' },
+        (tx) =>
+          tx.insert(schema.memberships).values({
+            userId: fx.clientViewerB,
+            tenantId: fx.tenantA,
+            role: 'client_viewer',
+          }),
+        app.db,
+      ),
+    );
+    expect(error.code).toBe('23514');
+    expect(error.message).toMatch(/exactly one tenant/i);
+
+    const held = await asOwner(owner.db, (tx) =>
+      tx.select().from(schema.memberships).where(eq(schema.memberships.userId, fx.clientViewerB)),
+    );
+    expect(held).toHaveLength(1);
+    expect(held[0]?.tenantId).toBe(fx.tenantB);
   });
 });
 

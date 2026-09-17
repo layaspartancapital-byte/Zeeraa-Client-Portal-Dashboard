@@ -12,7 +12,13 @@
   empty state instead. `Sourced<T>` in `packages/core` makes this a type error
   rather than a code review note.
 - **Never rely on application-level tenant filtering alone.** Every tenant
-  query goes through `withTenant()`.
+  query goes through `withTenant()`, which must stay transaction-scoped —
+  `set_config(..., true)`. A session-level SET would leak across pooled
+  requests.
+- **Crossing tenants is explicit.** `withMaintenance()` is the only way, it
+  needs a role the application does not have, and it greps.
+- **A Zeeraa admin needs a membership row per tenant.** No blanket grant by
+  role: access has to be answerable from `memberships`, and revocable there.
 - **Never expose a blob URL that is not signed and authorization-checked.**
   Blob keys are prefixed `tenant/{tenant_id}/`. No public objects.
 - **The mention picker may never surface a user outside the current tenant.**
@@ -32,6 +38,14 @@
   (Turbopack does not map `.js` specifiers onto `.ts` sources).
 - Migrations are checked in. RLS policies are hand-written so the exact
   `USING`/`WITH CHECK` clauses are reviewable in the diff.
+- A new tenant-scoped table must, in its own migration, grant to `zeeraa_app`,
+  `enable` and `force` row level security, and create both its
+  `tenant_isolation` and `maintenance_access` policies.
+- Functions that read `memberships` from inside a policy must be SECURITY
+  DEFINER with `SET app.maintenance = 'on'`. As invoker-rights functions they
+  are subject to the very policies they are evaluating, and read nothing.
+- After changing any policy, run `scripts/mutation-test.ts`. If a mutation
+  survives, add the test before shipping.
 
 ## Design
 
