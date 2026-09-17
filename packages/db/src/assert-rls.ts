@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { getDb, type Database } from './client';
+import { assertTransactionLocalContext } from './assert-context';
 
 let verified = false;
 
@@ -57,4 +58,14 @@ export async function assertRlsEnforced(database?: Database): Promise<void> {
   }
 
   if (!database) verified = true;
+}
+
+/**
+ * Every precondition the isolation model depends on, checked against the live
+ * connection before anything is served. Both checks are cheap and run once per
+ * process; both refuse rather than degrade.
+ */
+export async function assertDatabaseSafe(): Promise<void> {
+  await assertRlsEnforced();
+  await assertTransactionLocalContext();
 }

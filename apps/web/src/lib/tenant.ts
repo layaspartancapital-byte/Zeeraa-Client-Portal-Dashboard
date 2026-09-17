@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { asc, eq } from 'drizzle-orm';
 import type { Role } from '@zeeraa/core';
 import {
-  assertRlsEnforced,
+  assertDatabaseSafe,
   schema,
   withTenant,
   withUserOnly,
@@ -45,9 +45,11 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   const userId = session?.user?.id;
   if (!userId) return null;
 
-  // Refuses to serve if the runtime connection could bypass row level
-  // security. Verified once per process, on the first request that reads.
-  await assertRlsEnforced();
+  // Refuses to serve if the runtime role could bypass row level security, or
+  // if transaction-local settings do not hold on this connection — tenant
+  // context is carried that way, so a statement-mode pooler would disable
+  // isolation silently. Verified once per process, on the first request.
+  await assertDatabaseSafe();
 
   const rows = await withUserOnly(userId, (tx) =>
     tx

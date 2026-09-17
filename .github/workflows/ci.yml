@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  # The administrative connection. Creates roles; used by bootstrap and reset.
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/zeeraa
+  # Owns the schema. NOSUPERUSER, so FORCE ROW LEVEL SECURITY binds it here
+  # exactly as it does in production.
+  DATABASE_URL_OWNER: postgres://zeeraa_owner:zeeraa_owner@localhost:5432/zeeraa
+  DATABASE_URL_APP: postgres://zeeraa_app:zeeraa_app@localhost:5432/zeeraa
+  DATABASE_URL_AUTH: postgres://zeeraa_auth:zeeraa_auth@localhost:5432/zeeraa
+  DATABASE_URL_MAINT: postgres://zeeraa_maint:zeeraa_maint@localhost:5432/zeeraa
+  NEXTAUTH_SECRET: ci-only-not-a-real-secret
+  NEXTAUTH_URL: http://localhost:3000
+
+jobs:
+  verify:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zeeraa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zeeraa"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create database roles
+        run: pnpm --filter @zeeraa/db bootstrap
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - run: pnpm --filter @zeeraa/web build
+
+      - name: Preflight — the checks that gate a deploy
+        run: pnpm --filter @zeeraa/db preflight
+
+  mutation:
+    name: Mutation-test the isolation suite
+    runs-on: ubuntu-latest
+    # Runs on every pull request, not on demand. The isolation tests decayed
+    # into a partly-decorative state once already — several passed as a
+    # superuser, where row level security does not apply, and so proved nothing
+    # about the path the application actually takes. Without this job the same
+    # thing happens again and nobody notices until the next audit.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zeeraa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zeeraa"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zeeraa/db bootstrap
+
+      # Rebuilds the schema between mutations, so it does its own migrating.
+      # Exits non-zero if any mutation survives — a control with no test behind
+      # it fails the pull request.
+      - name: Break one control at a time and check the tests notice
+        run: pnpm --filter @zeeraa/db mutation-test
+
+  pooling:
+    name: Pooling modes
+    runs-on: ubuntu-latest
+    # The startup assertion refuses to serve on a connection where transaction
+    # -local settings do not hold. Both directions are checked against a real
+    # PgBouncer: it must reject statement mode, and it must not false-positive
+    # on transaction mode, which is what Neon's pooled endpoint runs.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zeeraa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zeeraa"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zeeraa/db bootstrap
+      - run: pnpm db:migrate
+
+      - name: Statement mode must be refused
+        run: |
+          docker run -d --name pgbouncer-statement --network host \
+            -e DB_HOST=127.0.0.1 -e DB_PORT=5432 \
+            -e DB_USER=zeeraa_app -e DB_PASSWORD=zeeraa_app -e DB_NAME=zeeraa \
+            -e LISTEN_PORT=6432 -e POOL_MODE=statement -e AUTH_TYPE=scram-sha-256 \
+            edoburu/pgbouncer:latest
+          sleep 5
+          if DATABASE_URL_APP=postgres://zeeraa_app:zeeraa_app@127.0.0.1:6432/zeeraa \
+             pnpm --filter @zeeraa/db preflight; then
+            echo "::error::Preflight passed against a statement-mode pooler. The assertion is not working, and tenant isolation would be silently disabled in production."
+            exit 1
+          fi
+          echo "Refused, as it should be."
+          docker rm -f pgbouncer-statement
+
+      - name: Transaction mode must be accepted
+        run: |
+          docker run -d --name pgbouncer-transaction --network host \
+            -e DB_HOST=127.0.0.1 -e DB_PORT=5432 \
+            -e DB_USER=zeeraa_app -e DB_PASSWORD=zeeraa_app -e DB_NAME=zeeraa \
+            -e LISTEN_PORT=6433 -e POOL_MODE=transaction -e AUTH_TYPE=scram-sha-256 \
+            edoburu/pgbouncer:latest
+          sleep 5
+          DATABASE_URL_APP=postgres://zeeraa_app:zeeraa_app@127.0.0.1:6433/zeeraa \
+            pnpm --filter @zeeraa/db preflight
+          DATABASE_URL_APP=postgres://zeeraa_app:zeeraa_app@127.0.0.1:6433/zeeraa \
+            pnpm --filter @zeeraa/db test
+          docker rm -f pgbouncer-transaction

@@ -143,3 +143,95 @@ describe('the application role', () => {
     expect(rows[0]?.member).toBe(false);
   });
 });
+
+/**
+ * How the SECURITY DEFINER helpers elevate, and how they stop.
+ *
+ * They need the maintenance flag to read `memberships` while FORCE binds their
+ * owner. The mechanism matters: the flag is attached as a function SET clause,
+ * which Postgres reverts when the function exits. Calling `set_config()` in the
+ * body would instead leave the flag set for the remainder of the transaction,
+ * and any statement after the call could ride it — a caller would get one
+ * elevated statement for free simply by touching a policy.
+ */
+describe('the definer helpers', () => {
+  it('carry the flag as a SET clause and never set it in the body', async () => {
+    const rows = await owner.db.execute<{
+      proname: string;
+      hasflag: boolean;
+      bodysets: boolean;
+    }>(sql`
+      select p.proname,
+             coalesce(p.proconfig, '{}') @> array['app.maintenance=on'] as hasflag,
+             p.prosrc ilike '%set_config%' as bodysets
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'app' and p.prosecdef
+    `);
+
+    expect(rows.length).toBeGreaterThan(0);
+    for (const fn of rows) {
+      expect({ name: fn.proname, hasflag: fn.hasflag }).toEqual({
+        name: fn.proname,
+        hasflag: true,
+      });
+      expect({ name: fn.proname, bodysets: fn.bodysets }).toEqual({
+        name: fn.proname,
+        bodysets: false,
+      });
+    }
+  });
+
+  it('leaves the flag off the moment each one returns', async () => {
+    const readings = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      async (tx) => {
+        const out: Record<string, string> = {};
+        for (const call of ['app.has_tenant_access()', 'app.effective_role()']) {
+          await tx.execute(sql.raw(`select ${call}`));
+          const rows = await tx.execute<{ v: string }>(
+            sql`select coalesce(current_setting('app.maintenance', true), '') as v`,
+          );
+          out[call] = rows[0]?.v ?? '';
+        }
+        return out;
+      },
+      app.db,
+    );
+    expect(readings).toEqual({
+      'app.has_tenant_access()': '',
+      'app.effective_role()': '',
+    });
+  });
+
+  it('does not let the owner ride the flag past the call', async () => {
+    // The scenario a body-level set_config would open: touch a helper, then run
+    // an ordinary query in the same transaction and find the door still open.
+    const rows = await owner.db.transaction(async (tx) => {
+      await tx.execute(sql`select app.is_member_of(${fx.tenantA}::uuid)`);
+      const flag = await tx.execute<{ v: string }>(
+        sql`select coalesce(current_setting('app.maintenance', true), '') as v`,
+      );
+      expect(flag[0]?.v).toBe('');
+      return tx.select().from(schema.opportunities);
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it('leaves the flag off after the cardinality trigger has fired', async () => {
+    const flag = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' },
+      async (tx) => {
+        await tx
+          .insert(schema.memberships)
+          .values({ userId: fx.zeeraaAdmin, tenantId: fx.tenantA, role: 'zeeraa_admin' })
+          .onConflictDoNothing();
+        const rows = await tx.execute<{ v: string }>(
+          sql`select coalesce(current_setting('app.maintenance', true), '') as v`,
+        );
+        return rows[0]?.v;
+      },
+      app.db,
+    );
+    expect(flag).toBe('');
+  });
+});

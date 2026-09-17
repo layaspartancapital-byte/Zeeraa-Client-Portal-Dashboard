@@ -101,6 +101,21 @@ const MUTATIONS: Mutation[] = [
             end; $x$`,
   },
   {
+    name: 'definer-elevates-in-body',
+    description: 'Elevate with set_config() in the body instead of a SET clause',
+    sql: `create or replace function app.has_tenant_access() returns boolean
+            language sql volatile security definer
+            set search_path = public, pg_temp
+            as $x$
+              select set_config('app.maintenance', 'on', true) is not null
+                 and exists (
+                   select 1 from public.memberships m
+                   where m.user_id = app.current_user_id()
+                     and m.tenant_id = app.current_tenant_id()
+                 )
+            $x$`,
+  },
+  {
     name: 'activity-log-rewritable',
     description: 'Drop the append-only restriction on the audit trail',
     sql: `drop policy activity_log_append_only on public.activity_log;

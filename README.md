@@ -111,13 +111,32 @@ necessary but not sufficient, so an idle psql session as the owner still reads
 nothing. `zeeraa_app` is not a member, so setting the flag from a web request
 buys nothing at all.
 
-### Pooling
+### Pooling, and the preflight check
 
-`set_config(..., true)` is transaction-scoped, which is safe on a direct
-connection and behind a pooler in **transaction** mode — Neon's pooled endpoint,
-PgBouncer `pool_mode = transaction`. It would not be safe in `statement` mode,
-where one transaction's statements can be spread across backends. `prepare:
-false` on the client is part of the same requirement.
+Tenant context is carried by `set_config(..., true)`, which is transaction
+-scoped. That is safe on a direct connection and behind a pooler in
+**transaction** mode — Neon's pooled endpoint, PgBouncer
+`pool_mode = transaction`. It is not safe in `statement` mode, where one
+transaction's statements can be spread across backends.
+
+This is not left to documentation. `assertTransactionLocalContext()` probes the
+configured connection before anything is served: it sets a value in a
+transaction, reads it back in a second statement, and checks it is gone after
+the commit. If either direction is wrong it refuses to serve, because the
+failure it catches is invisible — a statement-mode pooler does not corrupt data,
+it quietly makes every policy evaluate against a null tenant, which looks like a
+broken product and invites someone to "fix" it by loosening a policy.
+
+Run the same checks in the deploy pipeline so a misconfigured `DATABASE_URL_APP`
+breaks the deploy rather than reaching production:
+
+```bash
+pnpm --filter @zeeraa/db preflight
+```
+
+Both directions are verified against a real PgBouncer in CI — statement mode
+must be refused, transaction mode must be accepted and must pass the full
+isolation suite.
 
 ### Tests
 
@@ -137,8 +156,14 @@ to invoker rights, makes tenant context session-scoped — and reports which tes
 noticed. A mutation that survives is a control with no test behind it.
 
 ```bash
-cd packages/db && npx tsx scripts/mutation-test.ts
+pnpm --filter @zeeraa/db mutation-test
 ```
+
+This runs on every pull request. The isolation suite decayed into a partly
+-decorative state once already — several tests exercised the database as a
+superuser, where row level security does not apply, and so proved nothing about
+the path the application takes. The mutation job is what stops that recurring
+between audits.
 
 ## Adding a table
 

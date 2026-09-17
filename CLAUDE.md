@@ -26,6 +26,10 @@
 - **A missing data dependency is an explicit blocked state in the UI**, not a
   silent gap. A visible dependency is a conversation; a gap looks like failure.
 
+Where the implementation departs from the brief, the departure is recorded in
+`docs/brief-amendments.md` with its reason. Add to it rather than letting the
+code and the specification drift apart silently.
+
 ## Conventions
 
 - Metrics are named, unit-tested functions in `packages/core`. Never recompute a

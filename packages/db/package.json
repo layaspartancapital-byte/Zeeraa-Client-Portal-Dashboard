@@ -16,7 +16,9 @@
     "bootstrap": "tsx scripts/bootstrap-roles.ts",
     "seed": "tsx scripts/seed.ts",
     "reset": "tsx scripts/reset.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preflight": "tsx scripts/preflight.ts",
+    "mutation-test": "tsx scripts/mutation-test.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*",
