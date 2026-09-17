@@ -1,6 +1,7 @@
 import { qualifyLead, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
+import { inboundClause, NO_LEAD_EXCLUSION, type LeadExclusionConfig } from './exclusion';
 
 /**
  * Turning Salesforce records into rows.
@@ -221,13 +222,28 @@ export function deriveQualificationStageEvent(
   return { opportunityExternalId, stage, occurredAt: lead.createdAt, origin: 'computed' };
 }
 
+/**
+ * The incremental pull.
+ *
+ * `exclusion` applies to Lead only, and applies in the WHERE clause rather than
+ * after the fetch: an out-of-scope record is never read, so it cannot reach
+ * Postgres through a later bug. Opportunities are not filtered — an opportunity
+ * exists because somebody worked a deal, whatever the lead's origin, and the
+ * cold-outreach workstream does not create them. If that changes it becomes a
+ * second rule set here rather than a reuse of this one.
+ */
 export function buildIncrementalQuery(
   mapping: SalesforceFieldMapping,
   object: 'Lead' | 'Opportunity',
   since: Date | null,
+  exclusion: LeadExclusionConfig = NO_LEAD_EXCLUSION,
 ): string {
   const fields = selectFields(mapping, object).join(', ');
-  const where = since ? ` WHERE SystemModstamp > ${since.toISOString()}` : '';
+  const clauses = [
+    since ? `SystemModstamp > ${since.toISOString()}` : null,
+    object === 'Lead' ? inboundClause(exclusion) : null,
+  ].filter((c): c is string => c != null);
+  const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
   return `SELECT ${fields} FROM ${object}${where} ORDER BY SystemModstamp ASC`;
 }
 

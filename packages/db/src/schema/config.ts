@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   numeric,
@@ -164,4 +165,46 @@ export const reconciliationItems = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('reconciliation_items_tenant_key_key').on(t.tenantId, t.key)],
+);
+
+/**
+ * A dependency outside Zeeraa's control that is blocking something the UI would
+ * otherwise render (§9.5).
+ *
+ * The brief's rule is that a missing data dependency is an explicit blocked
+ * state, never a silent gap — a visible dependency is a conversation, a gap
+ * looks like the agency failed. The corollary matters just as much: a stage with
+ * no source must not render as a zero, because a zero is a measurement and this
+ * is the absence of one.
+ *
+ * Rows here are configuration, not code. Spartan's MQL stage is blocked because
+ * its two inputs are close to empty in their Salesforce org; another tenant's
+ * MQL is fine, and the difference is a row rather than a branch.
+ */
+export const blockedDependencies = pgTable(
+  'blocked_dependencies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    /** 'funnel_stage' | 'breakdown' | 'metric'. Constrained in the migration. */
+    subjectKind: text('subject_kind').notNull(),
+    /** Resolves against `funnel_stages.key`, a view's slice key, or a metric key. */
+    subjectKey: text('subject_key').notNull(),
+    label: text('label').notNull(),
+    /** Why, in a sentence a client can read without translation. */
+    reason: text('reason').notNull(),
+    /** What would unblock it, and who does it. */
+    needed: text('needed'),
+    /** The measurement behind the decision, so the judgement is checkable. */
+    evidence: text('evidence'),
+    blockedSince: timestamp('blocked_since', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('blocked_dependencies_tenant_key_key').on(t.tenantId, t.key),
+    index('blocked_dependencies_tenant_subject_idx').on(t.tenantId, t.subjectKind, t.subjectKey),
+  ],
 );

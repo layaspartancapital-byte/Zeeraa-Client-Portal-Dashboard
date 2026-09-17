@@ -65,4 +65,17 @@ export type TenantSeed = {
     question: string;
     claims: { value: string; source: string }[];
   }[];
+  /**
+   * Things the UI would otherwise render that have no honest source yet (§9.5).
+   * Each one renders as a named blocked state rather than as a zero.
+   */
+  blockedDependencies: {
+    key: string;
+    subjectKind: 'funnel_stage' | 'breakdown' | 'metric';
+    subjectKey: string;
+    label: string;
+    reason: string;
+    needed?: string;
+    evidence?: string;
+  }[];
 };

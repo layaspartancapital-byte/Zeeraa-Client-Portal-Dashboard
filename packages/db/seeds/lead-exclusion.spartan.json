@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "rules": [
+    {
+      "key": "cold_outreach_owner",
+      "label": "Owned by the cold-outreach holding queue",
+      "ownerNames": ["Cold Outreach Holding"]
+    },
+    {
+      "key": "bulk_load_2026_09_08",
+      "label": "Cold-list bulk load of 8 September 2026, with no lead source",
+      "createdBetween": {
+        "from": "2026-09-08T00:00:00Z",
+        "to": "2026-09-09T00:00:00Z"
+      },
+      "requireNullLeadSource": true
+    }
+  ],
+  "inboundSignalFields": [
+    "LeadSource",
+    "utm_source__c",
+    "utm_medium__c",
+    "utm_campaign__c",
+    "gclid__c",
+    "acq_fbclid__c",
+    "referral_url__c",
+    "Referrer_Source__c",
+    "pi__url__c",
+    "Landing_Page_Variant__c"
+  ]
+}

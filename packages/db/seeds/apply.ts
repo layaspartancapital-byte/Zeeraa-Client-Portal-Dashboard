@@ -238,6 +238,36 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
       });
   }
 
+  for (const b of seed.blockedDependencies) {
+    await db
+      .insert(schema.blockedDependencies)
+      .values({
+        tenantId,
+        key: b.key,
+        subjectKind: b.subjectKind,
+        subjectKey: b.subjectKey,
+        label: b.label,
+        reason: b.reason,
+        needed: b.needed ?? null,
+        evidence: b.evidence ?? null,
+      })
+      // `blockedSince` is deliberately not in the update set: re-seeding must
+      // not reset how long a dependency has been outstanding. "Outstanding
+      // since" is the number that makes a blocked state a conversation rather
+      // than a permanent fixture, and a seed run is not progress.
+      .onConflictDoUpdate({
+        target: [schema.blockedDependencies.tenantId, schema.blockedDependencies.key],
+        set: {
+          subjectKind: b.subjectKind,
+          subjectKey: b.subjectKey,
+          label: b.label,
+          reason: b.reason,
+          needed: b.needed ?? null,
+          evidence: b.evidence ?? null,
+        },
+      });
+  }
+
   return tenantId;
 }
 

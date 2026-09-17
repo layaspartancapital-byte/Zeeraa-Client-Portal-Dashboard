@@ -34,6 +34,16 @@ export const syncRuns = pgTable(
     status: syncStatusEnum('status').notNull().default('running'),
     error: text('error'),
     attempt: numeric('attempt', { precision: 4, scale: 0 }).notNull().default('1'),
+    /**
+     * What this run refused to ingest, and why. Shape: `ExclusionCounts` from
+     * @zeeraa/connectors — a per-rule breakdown plus the unclassified residue.
+     *
+     * Recorded because an exclusion that cannot be audited is indistinguishable
+     * from a connector quietly dropping records. The `unclassified` figure is
+     * the one to watch: a future bulk load will not match today's rules, and it
+     * lands there as a number rather than as unexplained funnel growth.
+     */
+    exclusions: jsonb('exclusions').notNull().default(sql`'{}'::jsonb`),
   },
   (t) => [index('sync_runs_tenant_platform_started_idx').on(t.tenantId, t.platform, t.startedAt)],
 );

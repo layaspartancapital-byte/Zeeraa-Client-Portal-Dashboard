@@ -1,11 +1,15 @@
 import { and, desc, eq } from 'drizzle-orm';
 import {
   buildIncrementalQuery,
+  countLeadClassification,
   extractStageEvents,
   normalizeLead,
   normalizeOpportunity,
   reconcileDeletesAndMerges,
   validateMapping,
+  NO_LEAD_EXCLUSION,
+  type ExclusionCounts,
+  type LeadExclusionConfig,
   type SalesforceClient,
   type SalesforceFieldMapping,
   type SalesforceRecord,
@@ -28,6 +32,11 @@ export type SyncContext = {
   mapping: SalesforceFieldMapping;
   bar: QualificationBar;
   clickIdPriority: readonly string[];
+  /**
+   * Which Lead records this platform may ingest. Applied in the SOQL WHERE
+   * clause, so an out-of-scope record is never read.
+   */
+  leadExclusion?: LeadExclusionConfig;
   /** Which funnel stage MQL corresponds to, if any. */
   mqlStageKey?: string;
 };
@@ -44,6 +53,12 @@ export type SyncResult = {
   revenueDisagreements: number;
   /** Leads where the MQL bar could not be evaluated at all. */
   qualificationUndetermined: number;
+  /**
+   * What this run refused to ingest, per rule, plus the unclassified residue.
+   * Written to the sync run so the exclusion is auditable rather than an
+   * invisible narrowing of the denominator.
+   */
+  exclusions: ExclusionCounts;
   blocked: string[];
   status: 'succeeded' | 'partial' | 'failed';
 };
@@ -79,6 +94,14 @@ export async function runSalesforceSync(
       merged: 0,
       revenueDisagreements: 0,
       qualificationUndetermined: 0,
+      exclusions: {
+        considered: 0,
+        excludedTotal: 0,
+        perRule: [],
+        unclassified: 0,
+        inbound: 0,
+        rulesOverlap: false,
+      },
       blocked: [],
       status: 'succeeded',
     };
@@ -92,10 +115,17 @@ export async function runSalesforceSync(
       if (validation.blocking.length > 0) result.status = 'partial';
 
       const since = await lastSuccessfulWatermark(tx, context.tenantId);
+      const exclusion = context.leadExclusion ?? NO_LEAD_EXCLUSION;
 
       // --- Leads -------------------------------------------------------------
+      // Counted before they are read. The out-of-scope records are never
+      // fetched — the exclusion is in the WHERE clause below — so this is the
+      // only opportunity to know how many there were, and leaving it out would
+      // make the exclusion invisible rather than merely effective.
+      result.exclusions = await countLeadClassification(context.client, exclusion, since);
+
       const leadRecords = await context.client.query<SalesforceRecord>(
-        buildIncrementalQuery(context.mapping, 'Lead', since),
+        buildIncrementalQuery(context.mapping, 'Lead', since, exclusion),
       );
       const leads = leadRecords.map((r) =>
         normalizeLead(r, context.mapping, context.clickIdPriority),
@@ -216,10 +246,24 @@ export async function runSalesforceSync(
         result.merged += counts.merged;
       }
 
-      await closeSyncRun(tx, syncRunId, result.status, totalRows(result), null);
+      await closeSyncRun(
+        tx,
+        syncRunId,
+        result.status,
+        totalRows(result),
+        null,
+        result.exclusions,
+      );
       return result;
     } catch (error) {
-      await closeSyncRun(tx, syncRunId, 'failed', totalRows(result), String(error));
+      await closeSyncRun(
+        tx,
+        syncRunId,
+        'failed',
+        totalRows(result),
+        String(error),
+        result.exclusions,
+      );
       throw error;
     }
   });
@@ -248,10 +292,20 @@ export async function closeSyncRun(
   status: 'succeeded' | 'partial' | 'failed',
   rowsWritten: number,
   error: string | null,
+  exclusions?: ExclusionCounts,
 ): Promise<void> {
   await tx
     .update(schema.syncRuns)
-    .set({ finishedAt: new Date(), status, rowsWritten: String(rowsWritten), error })
+    .set({
+      finishedAt: new Date(),
+      status,
+      rowsWritten: String(rowsWritten),
+      error,
+      // Written on a failed run too. A run that died halfway still refused
+      // records before it died, and the count is the evidence for what the
+      // partial numbers mean.
+      ...(exclusions ? { exclusions } : {}),
+    })
     .where(eq(schema.syncRuns.id, syncRunId));
 }
 

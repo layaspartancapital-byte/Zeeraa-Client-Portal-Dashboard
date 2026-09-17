@@ -11,9 +11,16 @@
  *
  * Exits non-zero if anything is blocked, so it can gate the phase.
  */
+import { readFileSync } from 'node:fs';
 import { SalesforceClient } from '../src/salesforce/client';
 import { runAllProbes } from '../src/salesforce/probe';
 import { formatInventory, safeLeadFieldInventory } from '../src/salesforce/inventory';
+import {
+  countLeadClassification,
+  inboundClause,
+  parseLeadExclusion,
+  NO_LEAD_EXCLUSION,
+} from '../src/salesforce/exclusion';
 import { SalesforceAuthError, type JwtConfig } from '../src/salesforce/jwt';
 
 const required = ['SF_CLIENT_ID', 'SF_USERNAME', 'SF_PRIVATE_KEY_BASE64', 'SF_LOGIN_URL'] as const;
@@ -68,10 +75,57 @@ for (const f of findings) {
   console.log();
 }
 
+// --- Scope -------------------------------------------------------------------
+// Which leads this platform counts at all.
+//
+// The canonical copy of these rules is the `lead_exclusion` row in
+// `tenant_config`; this script takes the same JSON by path or inline so it can
+// be run without a database. Unscoped is still available and still exact, and
+// it is not the answer of record for an org running two kinds of lead.
+const exclusionSource = process.env.LEAD_EXCLUSION_JSON;
+const exclusion = exclusionSource
+  ? parseLeadExclusion(
+      JSON.parse(
+        exclusionSource.trimStart().startsWith('{')
+          ? exclusionSource
+          : readFileSync(exclusionSource, 'utf8'),
+      ),
+    )
+  : NO_LEAD_EXCLUSION;
+
+if (!exclusion.enabled) {
+  console.log('Lead scope: every lead in the org.\n');
+  console.log(
+    'No LEAD_EXCLUSION_JSON supplied. If this org holds more than one kind of\n' +
+      'lead — a cold-outreach list beside inbound web traffic, say — the rates\n' +
+      'below are averages of populations that do not mix, and they describe\n' +
+      'none of them. Supply the tenant\u2019s lead_exclusion config to scope them.\n',
+  );
+} else {
+  const counts = await countLeadClassification(client, exclusion, null);
+  const share = (n: number) =>
+    counts.considered === 0 ? '' : ` (${((n / counts.considered) * 100).toFixed(1)}%)`;
+  console.log('Lead scope\n');
+  console.log(`  considered      ${String(counts.considered).padStart(7)}`);
+  for (const r of counts.perRule) {
+    console.log(`    \u00b7 ${r.key.padEnd(24)} ${String(r.matched).padStart(7)}${share(r.matched)}  ${r.label}`);
+  }
+  console.log(`  excluded        ${String(counts.excludedTotal).padStart(7)}${share(counts.excludedTotal)}`);
+  if (counts.rulesOverlap) {
+    console.log('    rules overlap, so the per-rule figures above do not sum to this.');
+  }
+  console.log(`  unclassified    ${String(counts.unclassified).padStart(7)}${share(counts.unclassified)}  excluded, and counted`);
+  console.log(`  inbound         ${String(counts.inbound).padStart(7)}${share(counts.inbound)}  \u2190 every rate below is within this`);
+  console.log();
+}
+
 // --- Lead field inventory ----------------------------------------------------
 // Which field carries which concept, and how often it is actually filled in.
 console.log('Lead field inventory\n');
-const { inventories, error } = await safeLeadFieldInventory(client);
+const { inventories, error } = await safeLeadFieldInventory(client, {
+  where: inboundClause(exclusion),
+  label: exclusion.enabled ? 'inbound leads' : 'every lead in the org',
+});
 
 if (error) {
   console.error(`Could not read the field inventory: ${error}\n`);

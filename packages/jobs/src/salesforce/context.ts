@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_PLATFORM_PRIORITY,
+  parseLeadExclusion,
   SalesforceClient,
   type JwtConfig,
   type SalesforceFieldMapping,
@@ -79,6 +80,11 @@ export async function resolveSalesforceContext(
 
     const priority = byKey.get('click_id_platform_priority')?.priority as string[] | undefined;
 
+    // Which leads this platform counts at all. A misconfigured rule set throws
+    // here rather than silently ingesting a population the client considers out
+    // of scope, or silently ingesting nothing.
+    const leadExclusion = parseLeadExclusion(byKey.get('lead_exclusion'));
+
     // Which stage key MQL is, read from the mapping's derived stages rather
     // than assumed to be called "mql".
     const mqlStageKey = Object.entries(config.fieldMapping.derivedStages ?? {}).find(
@@ -92,6 +98,7 @@ export async function resolveSalesforceContext(
       mapping: config.fieldMapping,
       bar,
       clickIdPriority: priority ?? DEFAULT_PLATFORM_PRIORITY,
+      leadExclusion,
       mqlStageKey,
     } satisfies SyncContext;
   });

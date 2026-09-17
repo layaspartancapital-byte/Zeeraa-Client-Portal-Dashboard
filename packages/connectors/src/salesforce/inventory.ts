@@ -13,6 +13,17 @@ import { SalesforceApiError, type DescribeField, type SalesforceClient } from '.
  * the org instead of over whichever 2,000 happened to be most recent — and
  * recent leads are exactly the ones most likely to have a newly added field
  * populated, which would flatter every rate.
+ *
+ * Exactness is not enough on its own, which the first run against Spartan's org
+ * proved: 87% of its leads were a cold-outreach list load, a population with
+ * appended firmographics and no attribution, and the exact org-wide rates were
+ * averages of two disjoint groups that described neither. A field read 90%
+ * across the org and 29% across the leads the engagement was about.
+ *
+ * So the inventory takes a `scope` — the same SOQL predicate the sync ingests
+ * by — and every rate it reports is a rate within that population. An unscoped
+ * inventory is still available and still exact, and for an org running one kind
+ * of lead it is the same answer; it is simply not the answer of record here.
  */
 
 export type FieldCandidate = {
@@ -49,6 +60,12 @@ type ConceptSpec = {
   types: string[];
   /** Exact API names to include regardless of pattern — the standard fields. */
   standard?: string[];
+  /**
+   * Exact API names never to consider, however well they match. `PhotoUrl` is
+   * a URL on every Lead and has nothing to do with a landing page; without this
+   * a generous pattern promotes it to the recommendation on population alone.
+   */
+  exclude?: string[];
 };
 
 /**
@@ -123,8 +140,25 @@ const CONCEPTS: ConceptSpec[] = [
   {
     concept: 'landing page',
     usedFor: 'Landing-page performance, and A/B test attribution.',
-    patterns: [/landing.?page/i, /landing.?url/i, /first.?page/i, /entry.?url/i, /page.?url/i],
+    // The first probe of this org recommended `Landing_Page_Variant__c`, whose
+    // values are A/B labels like "lp1" — not a landing page at all — while
+    // missing `referral_url__c`, `Referrer_Source__c` and `pi__url__c`, the last
+    // of which is the best-covered field in the inventory. `referr`, `referral`
+    // and a bare `url` close that gap. A bare `url` is deliberately broad: a
+    // false candidate costs one row in a report a human reads, a missed one
+    // costs a silently absent slice.
+    patterns: [
+      /landing.?page/i,
+      /landing.?url/i,
+      /first.?page/i,
+      /entry.?url/i,
+      /page.?url/i,
+      /referr/i,
+      /referral/i,
+      /url/i,
+    ],
     types: ['string', 'url', 'textarea'],
+    exclude: ['PhotoUrl'],
   },
 ];
 
@@ -132,15 +166,29 @@ const CONCEPTS: ConceptSpec[] = [
 const NOT_AGGREGATABLE = new Set(['textarea', 'longtextarea', 'encryptedstring', 'base64']);
 
 function matches(field: DescribeField, spec: ConceptSpec): boolean {
+  if (spec.exclude?.some((name) => name.toLowerCase() === field.name.toLowerCase())) return false;
   if (spec.standard?.some((name) => name.toLowerCase() === field.name.toLowerCase())) return true;
   if (!spec.types.includes(field.type)) return false;
   return spec.patterns.some((p) => p.test(field.name) || p.test(field.label));
 }
 
+export type InventoryScope = {
+  /**
+   * SOQL predicate every count is taken within — normally `inboundClause()` of
+   * the tenant's lead exclusion, so the rates match what the sync ingests.
+   */
+  where?: string | null;
+  /** Human name for that population, carried into the rendered report. */
+  label?: string;
+  threshold?: number;
+};
+
 export async function probeLeadFieldInventory(
   client: SalesforceClient,
-  threshold = USABLE_THRESHOLD,
+  scope: InventoryScope = {},
 ): Promise<ConceptInventory[]> {
+  const threshold = scope.threshold ?? USABLE_THRESHOLD;
+  const where = scope.where ? ` WHERE ${scope.where}` : '';
   const lead = await client.describe('Lead');
 
   const byConcept = new Map<string, DescribeField[]>();
@@ -163,14 +211,16 @@ export async function probeLeadFieldInventory(
       const batch = aggregatable.slice(i, i + 20);
       const selects = batch.map((f, n) => `COUNT(${f.name}) c${n}`).join(', ');
       const [row] = await client.query<Record<string, number>>(
-        `SELECT COUNT(Id) total, ${selects} FROM Lead`,
+        `SELECT COUNT(Id) total, ${selects} FROM Lead${where}`,
       );
       if (!row) continue;
       total = Number(row.total ?? 0);
       batch.forEach((f, n) => counts.set(f.name, Number(row[`c${n}`] ?? 0)));
     }
   } else {
-    const [row] = await client.query<Record<string, number>>(`SELECT COUNT(Id) total FROM Lead`);
+    const [row] = await client.query<Record<string, number>>(
+      `SELECT COUNT(Id) total FROM Lead${where}`,
+    );
     total = Number(row?.total ?? 0);
   }
 
@@ -183,7 +233,7 @@ export async function probeLeadFieldInventory(
   let sampleSize = 0;
   if (sampled.length > 0) {
     const rows = await client.query<Record<string, unknown>>(
-      `SELECT Id, ${sampled.map((f) => f.name).join(', ')} FROM Lead ` +
+      `SELECT Id, ${sampled.map((f) => f.name).join(', ')} FROM Lead${where} ` +
         `ORDER BY CreatedDate DESC LIMIT 2000`,
     );
     sampleSize = rows.length;
@@ -270,9 +320,10 @@ export function formatInventory(inventories: readonly ConceptInventory[]): strin
 
 export async function safeLeadFieldInventory(
   client: SalesforceClient,
+  scope: InventoryScope = {},
 ): Promise<{ inventories: ConceptInventory[]; error?: string }> {
   try {
-    return { inventories: await probeLeadFieldInventory(client) };
+    return { inventories: await probeLeadFieldInventory(client, scope) };
   } catch (error) {
     return {
       inventories: [],

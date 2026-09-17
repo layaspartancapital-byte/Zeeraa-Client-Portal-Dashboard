@@ -450,6 +450,72 @@ describe('schema-wide guarantees', () => {
     expect(rows.map((r) => r.relname)).toEqual([]);
   });
 
+  it('isolates blocked_dependencies, which carries client-readable prose', async () => {
+    // A blocked dependency's `reason` and `evidence` quote the client's own
+    // field-population figures, so a leak here is a leak of one lender's
+    // operational detail into another's screen.
+    await asOwner(owner.db, (tx) =>
+      tx.insert(schema.blockedDependencies).values([
+        {
+          tenantId: fx.tenantA,
+          key: 'mql_stage',
+          subjectKind: 'funnel_stage',
+          subjectKey: 'mql',
+          label: 'MQL',
+          reason: 'A-only reason',
+        },
+        {
+          tenantId: fx.tenantB,
+          key: 'mql_stage',
+          subjectKind: 'funnel_stage',
+          subjectKey: 'mql',
+          label: 'MQL',
+          reason: 'B-only reason',
+        },
+      ]),
+    );
+
+    // The query an application developer writes on a bad day: no tenant filter.
+    const seen = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) => tx.select().from(schema.blockedDependencies),
+      app.db,
+    );
+    expect(seen.map((r) => r.reason)).toEqual(['A-only reason']);
+
+    // And naming tenant B explicitly returns nothing rather than erroring,
+    // because the policy is a filter and not a permission check.
+    const crossed = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) =>
+        tx
+          .select()
+          .from(schema.blockedDependencies)
+          .where(eq(schema.blockedDependencies.tenantId, fx.tenantB)),
+      app.db,
+    );
+    expect(crossed).toEqual([]);
+  });
+
+  it('refuses a subject_kind the UI does not know how to render', async () => {
+    // The funnel view switches on this value. An unrecognised one would render
+    // as nothing at all, which is the silent gap the whole mechanism exists to
+    // prevent, so the constraint is in the database rather than in a validator.
+    const error = await failure(() =>
+      asOwner(owner.db, (tx) =>
+        tx.insert(schema.blockedDependencies).values({
+          tenantId: fx.tenantA,
+          key: 'nonsense',
+          subjectKind: 'wall_chart',
+          subjectKey: 'x',
+          label: 'x',
+          reason: 'x',
+        }),
+      ),
+    );
+    expect(error.code).toBe('23514');
+  });
+
   it('gives every tenant-scoped table a policy', async () => {
     const rows = await owner.db.execute<{ relname: string }>(sql`
       select c.relname

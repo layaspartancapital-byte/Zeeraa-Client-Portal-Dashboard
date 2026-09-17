@@ -1,6 +1,10 @@
 # Salesforce fields required for attribution
 
-What the client's Salesforce admin needs to create, and why each one. Written
+What the client's Salesforce admin needs to create, and why each one.
+
+> For the tick-list version to work from in Setup, with exact casing and no
+> reasoning in the way, see **`docs/salesforce-setup-checklist.md`**. This
+> document is the why; that one is the what. Written
 against Spartan's org; the connector reads these names from
 `connections.config.fieldMapping`, so a different org can use different names
 without a code change.
@@ -17,7 +21,7 @@ map fields whose type or length differ, and does so quietly.
 
 | Platform | URL parameter | API name | Type | Status |
 | --- | --- | --- | --- | --- |
-| Google Ads | `gclid` | `GCLID__c` | Text(255) | exists on Lead; **needed on Opportunity** |
+| Google Ads | `gclid` | `gclid__c` | Text(255) | exists on Lead (lowercase — see below); **needed on Opportunity** |
 | Microsoft Ads | `msclkid` | `MSCLKID__c` | Text(255) | **needed on both** |
 | Meta | `fbclid` | `FBCLID__c` | Text(255) | **needed on both** |
 | LinkedIn Ads | `li_fat_id` | `LI_FAT_ID__c` | Text(255) | **needed on both** |
@@ -58,6 +62,17 @@ would corrupt the join rather than break it.
    moment of conversion. Every opportunity that converted before the mapping
    exists keeps a null, permanently, unless it is backfilled.
 
+4. **Casing.** Salesforce treats API names case-insensitively in SOQL and in
+   Setup, so `GCLID__c` and `gclid__c` look interchangeable and both queries
+   succeed. They are not interchangeable to the connector: `normalizeLead` reads
+   `record[field]` off the REST response, a case-sensitive property lookup, and
+   the response uses the field's canonical casing. The existing Lead field in
+   this org is lowercase **`gclid__c`**, and the mapping said `GCLID__c` — which
+   validated cleanly (`validateMapping` compares case-insensitively, by design,
+   because Setup does) and would have read `undefined` on every record. Fixed in
+   the seed on 17 September 2026. Whatever casing the new Opportunity fields get,
+   the mapping has to match it exactly.
+
 ### Backfilling the history
 
 The historical values are not lost. Every converted Lead still holds its click
@@ -75,8 +90,8 @@ one-off write, and it is worth doing before the first report — without it the
 baseline period has no attribution and every trend starts from an artificial
 step change on the day the mapping went in.
 
-Tell me when the fields exist and I will produce the backfill file, or run it
-through the connector.
+Tell me when the fields exist and I will run `validateMapping` first, then
+produce the backfill file or run it through the connector.
 
 ### A note for later, not a reason to change course
 
@@ -95,37 +110,116 @@ These are not blocking — the connector validates them at sync time and reports
 any that are missing as a connection dependency rather than writing nulls. But
 confirming them now avoids a second round trip.
 
-The probe now inventories these rather than assuming them. Running it prints,
-per concept, every candidate field with its **exact** population rate across the
-whole org, marks the one it would pick, and flags anything under 50%:
+The probe inventories these rather than assuming them, and it was run against
+the production org on **17 September 2026**. What follows is the result, not an
+illustration.
+
+### Scope: inbound leads only
+
+Every rate below is within the **inbound** population — 7,196 leads — defined by
+`tenant_config.lead_exclusion`. Cold-outreach records are excluded at the SOQL
+query and never ingested; see `docs/brief-amendments.md` §6 for the rules and
+the reasoning. Org-wide rates are not quoted anywhere here, because the object
+holds two populations that do not mix and an average of them describes neither.
+
+Running the probe scoped:
+
+```bash
+LEAD_EXCLUSION_JSON=$PWD/packages/db/seeds/lead-exclusion.spartan.json \
+  pnpm --filter @zeeraa/connectors probe
+```
+
+It prints the classification before the inventory:
 
 ```
-ok       monthly revenue
-           The MQL bar, and qualified_rate. Compared against $10,000/month.
-         → Monthly_Revenue__c (currency) — 88.0% (8800 of 10000)
+Lead scope
 
-LOW      utm source
-           Channel attribution where no click ID is present.
-         → UTM_Source__c (string) — 31.0% (3100 of 10000)
-           Below 50%. Anything built on this would be a slice of the funnel
-           that looks like a measurement and is not one — cut it, or show
-           the unpopulated share explicitly beside it.
+  considered        53908
+    · cold_outreach_owner        46580 (86.4%)  Owned by the cold-outreach holding queue
+    · bulk_load_2026_09_08       46580 (86.4%)  Cold-list bulk load of 8 September 2026, with no lead source
+  excluded          46580 (86.4%)
+    rules overlap, so the per-rule figures above do not sum to this.
+  unclassified        132 (0.2%)  excluded, and counted
+  inbound            7196 (13.3%)  ← every rate below is within this
 ```
 
-*(Shape only — those figures are fabricated. The real ones come from running it.)*
+Without `LEAD_EXCLUSION_JSON` the probe runs unscoped and says so, loudly. The
+canonical copy of the rules is the `lead_exclusion` config row; the JSON file is
+what seeds it.
 
-Concepts covered: monthly revenue, annual revenue, time in business, industry,
-state, UTM source / medium / campaign / content / term, landing page.
+### The inventory
 
-Rates are counted with SOQL's `COUNT(field)`, which excludes nulls, so they are
-exact over every lead in the org rather than sampled over the most recent few
-thousand — and recent leads are precisely the ones most likely to have a newly
-added field populated, which would flatter every rate. Long text areas cannot be
-aggregated in SOQL, so those fall back to a sample and are labelled as sampled.
+| Concept | Field | Type | Inbound | Verdict |
+| --- | --- | --- | --- | --- |
+| monthly revenue | `csbs__Estimated_Monthly_Revenue__c` | currency | **8.8%** (635) | ⚠️ under 50% — cut |
+| | `Monthly_Avg_Credit_Card_Volume__c` | currency | 0.0% (1) | ⚠️ empty |
+| | `Average_Monthly_Bank_Deposits__c` | currency | 0.0% (0) | ⚠️ empty |
+| annual revenue | `AnnualRevenue` (standard) | currency | **6.7%** (482) | ⚠️ under 50% — cut |
+| time in business | `Time_in_Business_Months__c` | double | **0.4%** (32) | ⚠️ under 50% — cut, and invalid |
+| | `csbs__Business_Start_Date_Current_Ownership__c` | date | 0.0% (0) | ⚠️ empty |
+| industry | `Industry` (standard) | picklist | **34.5%** (2,482) | ⚠️ under 50% — keep with share |
+| | `Business_Type__c` | picklist | 0.4% (29) | ⚠️ empty |
+| | `NAICS_Code_Text__c` | string | 0.0% (1) | ⚠️ empty |
+| | `csbs__Application_Industry__c` | string | 0.0% (0) | ⚠️ empty |
+| state | `State` (standard) | string | **29.3%** (2,111) | ⚠️ under 50% — keep with share |
+| | `State_Owner1__c` | string | 19.9% (1,435) | ⚠️ a principal's state, not the business's |
+| | `csbs__State_of_Incorporation__c` | picklist | 0.0% (0) | ⚠️ empty |
+| utm source | `LeadSource` (standard) | picklist | **94.2%** (6,778) | ✅ keep — coarse, best covered |
+| | `utm_source__c` | string | **58.4%** (4,200) | ✅ keep — the precise one |
+| | `csbs__UTM_Source__c`, `pi__utm_source__c` | string | 0.0% (0) | ⚠️ empty |
+| utm medium | `utm_medium__c` | string | **49.1%** (3,533) | ⚠️ under 50% by a whisker — keep with share |
+| | `csbs__UTM_Medium__c`, `pi__utm_medium__c` | string | 0.0% (0) | ⚠️ empty |
+| utm campaign | `utm_campaign__c` | string | **59.2%** (4,261) | ✅ keep |
+| | `UTM_Campaign_ID__c` | string | 8.8% (634) | ⚠️ sparse |
+| | `csbs__UTM_Campaign__c` | string | 8.4% (607) | ⚠️ sparse |
+| utm content | `utm_content__c` | string | **46.4%** (3,341) | ⚠️ under 50% — keep with share |
+| utm term | `utm_term__c` | string | **46.1%** (3,319) | ⚠️ under 50% — keep with share |
+| landing page | `pi__url__c` | url | **79.6%** (5,730) | ✅ **keep — the pick** |
+| | `referral_url__c` | string | 52.4% (3,770) | ✅ usable alternative |
+| | `Referrer_Source__c` | string | 46.8% (3,365) | ⚠️ under 50% |
+| | `Landing_Page_Variant__c` | string | 34.1% (2,452) | ⚠️ an A/B label, not a page |
+| | `Web_Capture_URL__c` | string | 4.0% (285) | ⚠️ near-empty |
+| | `Consent_Source_URL__c` | url | 0.0% (0) | ⚠️ empty |
+| | `pi__first_touch_url__c` | textarea | 0 of 2,000 sampled | ⚠️ empty |
 
-Industry and state matter more here than they look: approval rates vary sharply
-by both, and that variance is the engagement's central diagnosis. If they are
-not populated on Lead, the funnel view loses its two most useful slices.
+Click IDs, for completeness — read by the attribution path rather than the lead
+sync, and not covered by the inventory:
+
+| Field | Inbound | Converted leads |
+| --- | --- | --- |
+| `gclid__c` | **33.6%** | **37.4%** (244 of 652) |
+| `acq_fbclid__c` | 13.4% | — |
+| `Epik__c`, `Gbraid__c`, `Li_Fat_ID__c`, `ScCid__c`, `TTCLID__c`, `Twclid__c`, `Wbraid__c`, `TikTok_Click_ID__c`, `Twitter_Click_ID__c`, `Pinterest_Click_ID__c`, `Snapchat_Click_ID__c` | **0.0% (0)** | 0 |
+
+Eleven click-ID fields exist on Lead and have never held a value. They are
+present, not missing — a different problem from the Opportunity side, and one
+the forms have to fix rather than the admin.
+
+### The landing-page patterns were wrong, and are fixed
+
+The first run recommended `Landing_Page_Variant__c`, whose sampled values are
+`"lp1"` — an A/B variant label, not a page — while missing `referral_url__c`,
+`Referrer_Source__c` and `pi__url__c`, the last of which is the best-covered
+field in the whole inventory. The concept's patterns looked only for `landing`,
+`entry`, `page.?url` and `first.?page`.
+
+`referr`, `referral` and a bare `url` have been added. A bare `url` is
+deliberately broad — the module's own standard is that a false candidate costs
+one row in a report a human reads while a missed one costs a silently absent
+slice — with `PhotoUrl` excluded by name, since it is a URL on every Lead and
+has nothing to do with a landing page.
+
+`pi__url__c` is now the recommendation and is wired as `lead.landingPage`.
+
+### Industry and state
+
+Both matter more than their rates suggest — approval rates vary sharply by each,
+and that variance is the engagement's central diagnosis. Both are kept, below
+the 50% bar, with the unpopulated share shown beside them rather than
+renormalised away.
+
+`State_Owner1__c` is a trap worth naming: it is a principal's home state, not
+the business's, and the two are not interchangeable for an approval-rate slice.
 
 ---
 
@@ -134,14 +228,41 @@ not populated on Lead, the funnel view loses its two most useful slices.
 Field history is not being used. The mapping below is what the connector writes
 into `stage_events`.
 
-| Funnel stage | Source |
+| Funnel stage | Source | Populated (of 712 opportunities) |
+| --- | --- | --- |
+| Lead | `CreatedDate` (standard) | 100% |
+| MQL | computed from the qualification bar at lead creation | **~0% computable** — see below |
+| SQL | `csbs__Underwriting_Date_Time__c` — submission to underwriting | 62.1% (442) |
+| UW approved | `csbs__Approved_Date_Time__c` | **0.0% (0)** |
+| Offer | `Offer_Received_Date_Time__c` | 9.7% (69) |
+| Funded | `csbs__Funded_Date_Time__c` | 2.9% (21) |
+
+Non-stage timestamps, for reference:
+
+| Field | Populated |
 | --- | --- |
-| Lead | `CreatedDate` (standard) |
-| MQL | computed from the qualification bar at lead creation |
-| SQL | `csbs__Underwriting_Date_Time__c` — submission to underwriting |
-| UW approved | `csbs__Approved_Date_Time__c` |
-| Offer | `Offer_Received_Date_Time__c` |
-| Funded | `csbs__Funded_Date_Time__c` |
+| `csbs__Application_In_Date_Time__c` | 65.3% (465) |
+| `csbs__Declined_Date_Time__c` | 68.4% (487) |
+| `Contract_Requested_Date_Time__c` | 3.7% (26) |
+| `csbs__Contracts_In_Date_Time__c` | 2.5% (18) |
+| `csbs__Closed_Lost_Date_Time__c` | 4.8% (34) |
+| `csbs__Contracts_Out_Date_Time__c` | **0.0% (0)** |
+| `csbs__Application_Out_Date_Time__c` | **0.0% (0)** |
+
+### `csbs__Approved_Date_Time__c` is empty on every opportunity
+
+The UW-approved stage has no source. The field exists, it is the obvious name,
+and it has never been written — 0 of 712. Meanwhile 487 opportunities carry
+`csbs__Declined_Date_Time__c` and only 25 are won, so approvals are happening and
+are simply not being stamped. The funnel therefore has a hole between SQL (442)
+and Offer (69), and `stage_conversion_rate('sql', 'uw_approved')` would return 0
+for every period.
+
+This needs the admin: either the stage is stamped going forward, or the UW-approved
+step comes out of `funnel_stages` and SQL → Offer becomes the measured transition.
+It is a configuration row either way, not a code change. Until it is resolved the
+stage renders as a blocked dependency (§9.5) rather than as a zero.
+
 
 ### MQL is computed, not observed
 
@@ -170,12 +291,28 @@ each lives in `connections.config.fieldMapping.lead`, with the rest of the field
 mapping — the thresholds are a fact about Spartan's business and the field names
 are a fact about their Salesforce org, and the two move independently.
 
-### SQL is submission to underwriting
+### SQL is submission to underwriting — checked, and confirmed
 
 `csbs__Underwriting_Date_Time__c`. Submission to underwriting is the
 sales-qualification event at Spartan, which also matches the proposal's
 definition of the SQL stage as submissions carrying duplicate and resubmission
 rates.
+
+The concern was that a queue might sit between submission
+(`csbs__Application_In_Date_Time__c`) and underwriting pickup, in which case
+using the underwriting stamp would overstate Lead → SQL velocity by the length
+of the queue. Measured over the 405 opportunities carrying both fields:
+
+| | |
+| --- | --- |
+| Median gap | **0.0 hours** |
+| 90th percentile gap | **0.2 hours** |
+| Same day | **98.3%** (398 of 405) |
+
+The agreed rule was: 90% or more same-day, stay with the underwriting field.
+98.3% clears it comfortably, and a 0.2-hour 90th percentile means there is no
+queue to speak of — the two stamps are effectively the same event. **Staying with
+`csbs__Underwriting_Date_Time__c`.** No queue length to report.
 
 ### Two fields that are not funnel stages
 
@@ -193,10 +330,126 @@ data to show whether deals stall there.
 
 ## 4. Decline reason
 
-Present and populated on **16.4%** of closed-lost opportunities.
+The probe reports `Loss_Reason__c` populated on **16.4%** of a 500-record sample
+of closed-lost opportunities (20.4% over all 525). That figure is real and it is
+also the wrong summary, because the coverage is not spread across time — it
+stopped.
 
-That is usable, and it is rendered with the gap shown: the breakdown carries an
-explicit "not recorded" share and is never renormalised over the records that
-happen to have a value. Renormalising 16.4% up to 100% would turn a mostly
-unknown picture into a confident-looking chart, which is worse than saying
-nothing.
+| Close month | Closed-lost | Reason recorded |
+| --- | --- | --- |
+| 2023-07 → 2024-09 | 17 | 100% |
+| 2024-12 | 23 | 100% |
+| 2025-01 | 68 | 100% |
+| 2026-02 | 1 | 0% |
+| 2026-03 | 3 | 0% |
+| 2026-04 | 27 | 0% |
+| 2026-05 | 57 | 0% |
+| 2026-06 | 16 | 0% |
+| 2026-07 | 133 | 0% |
+| 2026-08 | 126 | 0% |
+| 2026-09 | 54 | 0% |
+
+**Every one of the 107 recorded reasons predates February 2026. Coverage in the
+last 180 days is 0 of 414.** Whatever process filled this field in was abandoned
+some time after January 2025.
+
+So the honest reading is not "16.4% coverage, render with the gap shown". It is
+"the field is no longer maintained". A breakdown built on it would describe
+Spartan's 2024 loss mix and label it current.
+
+**Cut.** The decline-reason breakdown is a `blocked_dependencies` row
+(`decline_reason_breakdown`, subject `breakdown` / `decline_reason`) rather than
+a rendered chart, so the funnel view explains the absence and names the date
+coverage stopped. Deleting the row is what restores the slice.
+
+The recorded values, for whoever decides whether to restart the process:
+
+| Reason | Count |
+| --- | --- |
+| Insufficient Revenue | 41 |
+| Ineligibility Due to Legal or Regulatory Issues | 13 |
+| Unacceptable Bank Statements | 9 |
+| Poor Credit History | 9 |
+| Inability to Meet Minimum Requirements | 7 |
+| Lost to Competitor | 6 |
+| Negative Business Performance Trends | 5 |
+| Fraud Concerns | 4 |
+| Price | 3 |
+| No Decision / Non-Responsive | 3 |
+| No Budget / Lost Funding | 2 |
+| Other | 2 |
+| Client Changed Mind, High Existing Debt, Failure to Provide Documentation | 1 each |
+| **(not recorded)** | **418** |
+
+### The mapping points at a field that does not exist
+
+`connections.config.fieldMapping.opportunity.declineReason` is set to
+`csbs__Decline_Reason__c`. **There is no such field in the org.**
+`validateMapping` returns `ok: false` on it today — it is the only issue it
+reports, and it is non-blocking by the current severity rule, so the sync would
+run and write nulls into `decline_reason` forever.
+
+The real picklist is `Loss_Reason__c`. It has been left unchanged in the seed
+rather than repointed, because repointing it at a field that is 0% populated
+since February 2026 swaps a visible failure for an invisible one. The decision
+belongs with the decline-reason question above: restart the process and repoint,
+or drop `declineReason` from the mapping and cut the slice.
+
+Other candidates, none of them usable: `Competitor_Lost_To__c` (0 of 712),
+`Do_Not_Call_Reason__c` (0), `Business_Health_Status__c` (0). The one
+well-covered decline signal in the org is `csbs__Declined_Date_Time__c` at 68.4%
+— which gives *when* a deal was declined, and never *why*.
+
+---
+
+## 5. Fields that are absent rather than empty
+
+Worth doing in the same pass as the click-ID fields, since it is the same trip
+into Setup. "Absent" means no field in the org carries the concept at all;
+"empty" means the field exists and nobody writes to it, which is a forms or
+process problem rather than an admin one.
+
+### Absent — needs creating
+
+| Object | Field | Why |
+| --- | --- | --- |
+| Opportunity | every click-ID field | the whole attribution join; `gclid__c`, `msclkid`, `fbclid`, `li_fat_id`, `gbraid`, `wbraid` — see §1. The Opportunity object has **no** click, UTM or landing-page field of any kind; its only source columns are `LeadSource` and `Opportunity_Source__c`, both picklists |
+| Opportunity | a UW-approved timestamp that is actually stamped | `csbs__Approved_Date_Time__c` exists but is 0 of 712. This may be process rather than a missing field — confirm which before creating anything |
+| Lead | a monthly-revenue question on the web forms | `csbs__Estimated_Monthly_Revenue__c` **already exists**; nothing to create, the forms need to post to it |
+| Lead | a time-in-business question on the web forms | `Time_in_Business_Months__c` **already exists**; same |
+
+Note the shape of that list: **almost nothing needs creating on Lead.** Every
+concept in the inventory has at least one field already present. The gap is that
+the forms do not fill them.
+
+### Present but never written — a forms problem, not an admin one
+
+Creating more fields will not help any of these; they are already there.
+
+- Eleven click-ID fields on Lead at exactly 0: `Epik__c`, `Gbraid__c`,
+  `Li_Fat_ID__c`, `ScCid__c`, `TTCLID__c`, `Twclid__c`, `Wbraid__c`,
+  `TikTok_Click_ID__c`, `Twitter_Click_ID__c`, `Pinterest_Click_ID__c`,
+  `Snapchat_Click_ID__c`. `Gbraid__c` and `Wbraid__c` matter most — §1 explains
+  why, and they are already created, so this is purely a form-capture fix.
+- The entire `csbs__` UTM set: `csbs__UTM_Source__c`, `csbs__UTM_Medium__c`,
+  `csbs__UTM_Content__c`, `csbs__UTM_Term__c` all at 0. The managed package
+  ships them; nothing populates them. Use the bare `utm_*__c` fields.
+- Most of the `pi__` (Account Engagement) set, except `pi__url__c` at 79.6%.
+- `Average_Monthly_Bank_Deposits__c`, `csbs__Application_Industry__c`,
+  `Consent_Source_URL__c`, `Competitor_Lost_To__c`, `Do_Not_Call_Reason__c`,
+  `Business_Health_Status__c`, `csbs__Contracts_Out_Date_Time__c`,
+  `csbs__Application_Out_Date_Time__c` — all 0.
+
+### Present and wrong in the mapping
+
+- `opportunity.declineReason: 'csbs__Decline_Reason__c'` — does not exist. See §4.
+- `lead.clickIds.google_ads: 'GCLID__c'` — wrong casing; the org has `gclid__c`.
+  **Fixed in the seed on 17 September 2026.**
+- `lead.selfReportedRevenue`, `selfReportedAnnualRevenue` and
+  `selfReportedTimeInBusinessMonths` were **not set at all**, so the MQL bar had
+  no inputs regardless of population. Now wired to
+  `csbs__Estimated_Monthly_Revenue__c`, `AnnualRevenue` and
+  `Time_in_Business_Months__c`.
+- `lead.industry`, `lead.state`, the five `utm*` fields and `lead.landingPage`
+  were all unset. Now wired, to `Industry`, `State`, the bare `utm_*__c` fields
+  and `pi__url__c` respectively.
