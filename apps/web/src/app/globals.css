@@ -1,0 +1,182 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   A light, ledger-like workspace.
+
+   The proposal's identity is black, gold and a high-contrast serif. Gold on
+   black fails contrast at data sizes and strains over an hour of reading
+   tables, so gold is a signal here, not a surface: it marks targets, the
+   north-star figure and the active tenant, and nothing else. The brand is
+   carried by the typography and by one dark band on the executive view.
+   =========================================================================== */
+
+@theme {
+  --color-paper: #fafaf9;
+  --color-surface: #ffffff;
+  --color-ink: #14161a;
+  --color-graphite: #5a6169;
+  --color-rule: #e4e3df;
+  --color-night: #101214;
+
+  /* Text-safe against paper and surface. */
+  --color-brass: #8a6b1f;
+  /* Fills and indicators on dark only — never text on light. */
+  --color-brass-bright: #c9a227;
+
+  --color-shortfall: #9e3b2e;
+  --color-ahead: #2f6b4f;
+  --color-provisional: #b8b5ae;
+
+  --font-display: var(--font-newsreader), Georgia, 'Times New Roman', serif;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', monospace;
+
+  /* One radius, on interactive elements only. Panels are made of rules. */
+  --radius-default: 4px;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-rule);
+  }
+
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Sentence case throughout; no tracked-out all-caps eyebrows. */
+  h1, h2, h3, h4 {
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+
+  /* Every numeric cell, no exceptions. */
+  .numeric, td.numeric, th.numeric, .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+    text-align: right;
+  }
+
+  code, .mono {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+
+  /* Visible keyboard focus everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-brass);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-brass) 22%, transparent);
+  }
+}
+
+@layer components {
+  /* A panel is a rule and some space. No shadow: the only elevated surface in
+     the application is a modal. */
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-rule);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .hairline {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .label {
+    color: var(--color-graphite);
+    font-size: 12px;
+  }
+
+  .figure-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Motion marks state changes only: a filter applying, a row expanding, a sync
+   completing, an upload progressing. No entrance animation, no hover lift. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Print. This gets printed for quarterly reviews: drop the chrome, keep the
+   evidence, and make sure the greyscale still separates.
+   --------------------------------------------------------------------------- */
+@media print {
+  @page {
+    margin: 14mm 12mm;
+  }
+
+  html, body {
+    background: #fff;
+    font-size: 10pt;
+  }
+
+  .print-hidden,
+  nav,
+  .tenant-stripe {
+    display: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+    border-bottom: 1px solid #000;
+    margin-bottom: 8mm;
+    padding-bottom: 3mm;
+  }
+
+  .panel {
+    border: 1px solid #999;
+    break-inside: avoid;
+  }
+
+  /* Tables expand: nothing is hidden behind a scroll container on paper. */
+  .table-scroll {
+    overflow: visible !important;
+    max-width: none !important;
+  }
+
+  a[href]::after {
+    content: ' (' attr(href) ')';
+    font-size: 8pt;
+    color: #555;
+  }
+
+  a[href^='#']::after,
+  a[href^='/']::after {
+    content: '';
+  }
+}

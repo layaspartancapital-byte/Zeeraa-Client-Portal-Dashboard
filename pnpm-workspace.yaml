@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+allowBuilds:
+  esbuild: set this to true or false
+
+# esbuild ships a prebuilt binary via a postinstall script; vitest, drizzle-kit
+# and Next all need it. Approved explicitly rather than by disabling the default.
+onlyBuiltDependencies:
+  - esbuild
+  - '@tailwindcss/oxide'
+  - sharp

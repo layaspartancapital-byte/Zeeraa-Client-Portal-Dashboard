@@ -1,0 +1,21 @@
+# Local Postgres for development and for the RLS isolation tests.
+# Production uses Neon (branch-per-PR); the schema and policies are identical.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zeeraa-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zeeraa
+    ports:
+      - '5433:5432'
+    volumes:
+      - zeeraa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d zeeraa']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  zeeraa-pgdata:

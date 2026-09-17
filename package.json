@@ -1,0 +1,20 @@
+{
+  "name": "zeeraa-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @zeeraa/web dev",
+    "build": "pnpm --filter @zeeraa/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @zeeraa/db generate",
+    "db:migrate": "pnpm --filter @zeeraa/db migrate",
+    "db:seed": "pnpm --filter @zeeraa/db seed",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down"
+  }
+}
