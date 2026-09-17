@@ -237,8 +237,10 @@ export function buildIncrementalQuery(
   object: 'Lead' | 'Opportunity',
   since: Date | null,
   exclusion: LeadExclusionConfig = NO_LEAD_EXCLUSION,
+  /** Fields a describe reported absent. See `selectFields`. */
+  omit: Iterable<string> = [],
 ): string {
-  const fields = selectFields(mapping, object).join(', ');
+  const fields = selectFields(mapping, object, omit).join(', ');
   const clauses = [
     since ? `SystemModstamp > ${since.toISOString()}` : null,
     object === 'Lead' ? inboundClause(exclusion) : null,
@@ -246,6 +248,26 @@ export function buildIncrementalQuery(
   const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
   return `SELECT ${fields} FROM ${object}${where} ORDER BY SystemModstamp ASC`;
 }
+
+/**
+ * Ids per `Id IN (...)` lookup.
+ *
+ * A Salesforce id is 18 characters and costs 21 in the encoded URL, so 200 ids
+ * is roughly 4KB of query string — comfortably inside every limit in the path,
+ * and small enough that the margin survives a longer object name.
+ */
+const MERGE_LOOKUP_BATCH = 200;
+
+/**
+ * Which objects Salesforce can merge.
+ *
+ * Merge is defined on Lead, Account, Contact and Case, and `MasterRecordId`
+ * exists only on those — on Opportunity it is not an empty column, it is not a
+ * column, and asking for it fails the whole query. So a deleted opportunity is
+ * simply deleted: there is no second interpretation to rule out, and looking
+ * for one turns a working reconciliation into a 400.
+ */
+const MERGEABLE = new Set(['Lead', 'Account', 'Contact', 'Case']);
 
 export type Reconciliation = {
   /** Hard-deleted; remove the local row. */
@@ -276,15 +298,29 @@ export async function reconcileDeletesAndMerges(
   const deletedIds = deleted.deletedRecords.map((r) => r.id);
 
   if (deletedIds.length === 0) return { deletedIds: [], merges: [] };
+  if (!MERGEABLE.has(object)) return { deletedIds, merges: [] };
 
   // Merged losers keep a row, soft-deleted, pointing at the survivor. Only
   // queryAll can see them, and every merge also shows up in getDeleted — so the
   // deletions have to be filtered against this, or a merge is processed twice.
-  const ids = deletedIds.map((id) => `'${id}'`).join(',');
-  const merged = await client.query<{ Id: string; MasterRecordId: string | null }>(
-    `SELECT Id, MasterRecordId FROM ${object} WHERE Id IN (${ids}) AND MasterRecordId != null`,
-    true,
-  );
+  //
+  // Batched because the query travels in the URL. An org that has been running
+  // for years returns thousands of deleted ids from a first full sync, and one
+  // `Id IN (...)` over all of them is a URI Salesforce refuses with a 414 —
+  // which arrives as a failed sync rather than as anything naming the cause.
+  const merged: { Id: string; MasterRecordId: string | null }[] = [];
+  for (let i = 0; i < deletedIds.length; i += MERGE_LOOKUP_BATCH) {
+    const ids = deletedIds
+      .slice(i, i + MERGE_LOOKUP_BATCH)
+      .map((id) => `'${id}'`)
+      .join(',');
+    merged.push(
+      ...(await client.query<{ Id: string; MasterRecordId: string | null }>(
+        `SELECT Id, MasterRecordId FROM ${object} WHERE Id IN (${ids}) AND MasterRecordId != null`,
+        true,
+      )),
+    );
+  }
 
   const merges = merged
     .filter((row) => row.MasterRecordId)

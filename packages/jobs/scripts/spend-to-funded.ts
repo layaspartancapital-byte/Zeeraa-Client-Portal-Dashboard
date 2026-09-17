@@ -13,7 +13,7 @@
  * funded deals does not cost infinity per deal and does not cost zero; it has
  * no cost per deal, and it renders as an empty state rather than as a number.
  */
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, lte, sql } from 'drizzle-orm';
 import { getOwnerDb, schema, withJobTenant, withMaintenance, type Database } from '@zeeraa/db';
 import { tenantDay, trailingWindow, type AttributionModel } from '@zeeraa/core';
 import { buildAttribution, spendToFunded, valueStageKey } from '../src/google-ads/join';
@@ -98,10 +98,45 @@ try {
   for (const model of ['first_touch', 'last_touch'] as AttributionModel[]) {
     const c = join.coverage[model];
     console.log(`\n  ── ${model} ──`);
-    console.log(`  funded deals considered:     ${c.total}`);
-    console.log(`  carrying a click id → campaign: ${c.attributed}  (${pct(c.rate)})`);
+    // Every opportunity that carries a touch, at any date — not the funded
+    // deals in the window. The two are different populations and conflating
+    // them overstates coverage, so both are printed and neither is called the
+    // other.
+    console.log(`  opportunities with a touch:  ${c.total}`);
+    console.log(`  touch resolves to a campaign: ${c.attributed}  (${pct(c.rate)})`);
     console.log(`  click id, no campaign:       ${c.clickWithoutCampaign}`);
     console.log(`  no click id at all:          ${c.noTouches}`);
+
+    const [funded] = await runInTenant((tx) =>
+      tx
+        .select({
+          deals: sql<number>`count(distinct ${schema.stageEvents.opportunityExternalId})::int`,
+          withClickId: sql<number>`count(distinct ${schema.attribution.opportunityExternalId}) filter (where ${schema.attribution.clickId} is not null)::int`,
+          withCampaign: sql<number>`count(distinct ${schema.attribution.opportunityExternalId}) filter (where ${schema.attribution.campaignId} is not null)::int`,
+        })
+        .from(schema.stageEvents)
+        .leftJoin(
+          schema.attribution,
+          and(
+            eq(schema.attribution.tenantId, schema.stageEvents.tenantId),
+            eq(schema.attribution.opportunityExternalId, schema.stageEvents.opportunityExternalId),
+            eq(schema.attribution.model, model),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.stageEvents.tenantId, tenantId),
+            eq(schema.stageEvents.stage, stage ?? ''),
+            gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00Z`)),
+            lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+          ),
+        ),
+    );
+    console.log(`  ${stage ?? 'value-stage'} deals in window:      ${funded!.deals}`);
+    console.log(`    carrying a click id:       ${funded!.withClickId}`);
+    console.log(`    resolving to a campaign:   ${funded!.withCampaign}`);
+    console.log(`    click id, no campaign:     ${funded!.withClickId - funded!.withCampaign}`);
+    console.log(`    no click id at all:        ${funded!.deals - funded!.withClickId}`);
 
     const result = await runInTenant((tx) =>
       spendToFunded(tx, tenantId, 'google_ads', range, model),
@@ -116,6 +151,19 @@ try {
           ? 'no value — no funded deal in the period to divide by'
           : money(result.value, currency)
       }`,
+    );
+
+    // The same period's spend over every deal that funded in it, attributed or
+    // not. Not the metric — it credits paid spend with deals that may owe it
+    // nothing — but printed beside the metric because the distance between the
+    // two is the size of the attribution gap, stated in the unit the client
+    // thinks in rather than as a percentage.
+    const allDeals = result.fundedDeals + result.unattributedFundedDeals;
+    const allSpend = result.spend + result.unattributedSpend;
+    console.log(
+      `  (all spend ÷ all funded deals: ${
+        allDeals === 0 ? 'no value' : money(allSpend / allDeals, currency)
+      } over ${allDeals} deals — the attribution gap is the distance between these two)`,
     );
   }
 } finally {

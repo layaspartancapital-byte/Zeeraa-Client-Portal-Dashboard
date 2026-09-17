@@ -37,6 +37,19 @@ const PLATFORMS: Record<
   string,
   { required: Record<string, string>; optional?: Record<string, string> }
 > = {
+  salesforce: {
+    required: {
+      clientId: 'SF_CLIENT_ID',
+      // The integration user's Salesforce username — the JWT's `sub` claim.
+      // Not an email address and not necessarily a working mailbox.
+      username: 'SF_USERNAME',
+      // base64 of the whole PEM. PEM newlines do not survive an environment
+      // variable intact, and a mangled key is the usual cause of a JWT flow
+      // that fails with nothing useful in the response.
+      privateKeyBase64: 'SF_PRIVATE_KEY_BASE64',
+    },
+  },
+
   google_ads: {
     required: {
       clientId: 'GOOGLE_ADS_CLIENT_ID',

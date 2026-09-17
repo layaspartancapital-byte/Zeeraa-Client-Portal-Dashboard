@@ -14,7 +14,8 @@
     "test-connection": "tsx scripts/test-connection.ts",
     "backfill-clicks": "tsx scripts/backfill-clicks.ts",
     "sync-google-ads": "tsx scripts/sync-google-ads.ts",
-    "spend-to-funded": "tsx scripts/spend-to-funded.ts"
+    "spend-to-funded": "tsx scripts/spend-to-funded.ts",
+    "sync-salesforce": "tsx scripts/sync-salesforce.ts"
   },
   "dependencies": {
     "@zeeraa/connectors": "workspace:*",

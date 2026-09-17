@@ -7,6 +7,7 @@ import {
   normalizeOpportunity,
   reconcileDeletesAndMerges,
   validateMapping,
+  absentFields,
   NO_LEAD_EXCLUSION,
   type ExclusionCounts,
   type LeadExclusionConfig,
@@ -61,6 +62,12 @@ export type SyncResult = {
    */
   exclusions: ExclusionCounts;
   blocked: string[];
+  /**
+   * Mapped fields the org does not have, or the integration user cannot read —
+   * a describe cannot tell the two apart. Dropped from the query and reported,
+   * because a column of nulls is indistinguishable from no data once it lands.
+   */
+  missingFields: string[];
   status: 'succeeded' | 'partial' | 'failed';
 };
 
@@ -104,6 +111,7 @@ export async function runSalesforceSync(
         rulesOverlap: false,
       },
       blocked: [],
+      missingFields: [],
       status: 'succeeded',
     };
 
@@ -114,6 +122,22 @@ export async function runSalesforceSync(
       const validation = await validateMapping(context.client, context.mapping);
       result.blocked = validation.blocking;
       if (validation.blocking.length > 0) result.status = 'partial';
+
+      // Absent fields are dropped from the SELECT rather than sent and refused.
+      // SOQL rejects the whole query for one unknown field, so a mapping naming
+      // a field the org never created would otherwise cost every lead, every
+      // opportunity and every stage event — not the one slice that field
+      // carries. What is missing is already recorded on the run, and
+      // `validation.blocking` decides whether it is worth stopping for.
+      const omitLead = absentFields(validation, 'Lead');
+      const omitOpportunity = absentFields(validation, 'Opportunity');
+      result.missingFields = [
+        ...omitLead.map((f) => `Lead.${f}`),
+        ...omitOpportunity.map((f) => `Opportunity.${f}`),
+      ];
+      if (result.missingFields.length > 0 && result.status === 'succeeded') {
+        result.status = 'partial';
+      }
 
       const since = await lastSuccessfulWatermark(tx, context.tenantId);
       const exclusion = context.leadExclusion ?? NO_LEAD_EXCLUSION;
@@ -126,7 +150,7 @@ export async function runSalesforceSync(
       result.exclusions = await countLeadClassification(context.client, exclusion, since);
 
       const leadRecords = await context.client.query<SalesforceRecord>(
-        buildIncrementalQuery(context.mapping, 'Lead', since, exclusion),
+        buildIncrementalQuery(context.mapping, 'Lead', since, exclusion, omitLead),
       );
       const leads = leadRecords.map((r) =>
         normalizeLead(r, context.mapping, context.clickIdPriority),
@@ -150,7 +174,7 @@ export async function runSalesforceSync(
 
       // --- Opportunities and stage events ------------------------------------
       const oppRecords = await context.client.query<SalesforceRecord>(
-        buildIncrementalQuery(context.mapping, 'Opportunity', since),
+        buildIncrementalQuery(context.mapping, 'Opportunity', since, undefined, omitOpportunity),
       );
 
       const leadByOpportunity = new Map(

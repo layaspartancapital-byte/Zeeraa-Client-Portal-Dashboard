@@ -136,16 +136,41 @@ export async function validateMapping(
   return { ok: issues.length === 0, issues, blocking };
 }
 
-/** Every Salesforce field this mapping needs, for the SELECT clause. */
+/**
+ * Every Salesforce field this mapping needs, for the SELECT clause.
+ *
+ * `omit` drops fields a describe has already reported absent or unreadable.
+ * SOQL rejects the entire query for one unknown field, so without this a
+ * mapping naming a single field the org never created costs the whole sync —
+ * every lead, every opportunity, every stage event — rather than the one slice
+ * that field carries. `validateMapping` has the describe in hand well before
+ * the query is built, and whether the shortfall is worth stopping for is its
+ * `blocking` list to say, not SOQL's.
+ *
+ * Compared case-insensitively, like the validation that produces it: Salesforce
+ * returns each field under its canonical casing, which a mapping need not match.
+ */
 export function selectFields(
   mapping: SalesforceFieldMapping,
   object: 'Lead' | 'Opportunity',
+  omit: Iterable<string> = [],
 ): string[] {
+  const dropped = new Set([...omit].map((f) => f.toLowerCase()));
   const wanted = collect(mapping);
-  const fields = (object === 'Lead' ? wanted.lead : wanted.opportunity).map(([f]) => f);
+  const fields = (object === 'Lead' ? wanted.lead : wanted.opportunity)
+    .map(([f]) => f)
+    .filter((f) => !dropped.has(f.toLowerCase()));
   const standard =
     object === 'Lead'
       ? ['Id', 'CreatedDate', 'SystemModstamp', 'IsConverted', 'ConvertedOpportunityId', 'MasterRecordId']
       : ['Id', 'CreatedDate', 'SystemModstamp', 'StageName', 'IsClosed', 'IsWon'];
   return [...new Set([...standard, ...fields])];
+}
+
+/** The absent fields from a validation, as `selectFields` wants them. */
+export function absentFields(
+  validation: MappingValidation,
+  object: 'Lead' | 'Opportunity',
+): string[] {
+  return validation.issues.filter((i) => i.object === object).map((i) => i.field);
 }
