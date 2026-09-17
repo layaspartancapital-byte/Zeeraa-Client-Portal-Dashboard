@@ -5,3 +5,4 @@ export * from './salesforce/client';
 export * from './salesforce/probe';
 export * from './salesforce/mapping';
 export * from './salesforce/sync';
+export * from './salesforce/inventory';

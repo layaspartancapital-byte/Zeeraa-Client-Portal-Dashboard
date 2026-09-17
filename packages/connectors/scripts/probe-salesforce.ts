@@ -13,6 +13,7 @@
  */
 import { SalesforceClient } from '../src/salesforce/client';
 import { runAllProbes } from '../src/salesforce/probe';
+import { formatInventory, safeLeadFieldInventory } from '../src/salesforce/inventory';
 import { SalesforceAuthError, type JwtConfig } from '../src/salesforce/jwt';
 
 const required = ['SF_CLIENT_ID', 'SF_USERNAME', 'SF_PRIVATE_KEY_BASE64', 'SF_LOGIN_URL'] as const;
@@ -67,6 +68,29 @@ for (const f of findings) {
   console.log();
 }
 
+// --- Lead field inventory ----------------------------------------------------
+// Which field carries which concept, and how often it is actually filled in.
+console.log('Lead field inventory\n');
+const { inventories, error } = await safeLeadFieldInventory(client);
+
+if (error) {
+  console.error(`Could not read the field inventory: ${error}\n`);
+} else {
+  console.log(formatInventory(inventories));
+}
+
+const unusable = inventories.filter((i) => i.absent || i.belowThreshold);
+if (unusable.length > 0) {
+  console.log('Below 50% populated, or absent entirely:');
+  for (const i of unusable) {
+    console.log(`  \u00b7 ${i.concept}${i.absent ? ' (no field found)' : ''}`);
+  }
+  console.log(
+    '\nEach of these is a slice to cut rather than to ship. A field nobody fills\n' +
+      'in produces a chart that looks like a measurement and is not one.\n',
+  );
+}
+
 if (blocked > 0) {
   console.error(
     `${blocked} of ${findings.length} questions came back blocked. Do not build ` +
@@ -74,4 +98,4 @@ if (blocked > 0) {
   );
   process.exit(1);
 }
-console.log('All four questions answered. Phase 2 can proceed on these foundations.');
+console.log('All six questions answered. Phase 2 can proceed on these foundations.');

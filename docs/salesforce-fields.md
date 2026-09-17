@@ -95,14 +95,33 @@ These are not blocking — the connector validates them at sync time and reports
 any that are missing as a connection dependency rather than writing nulls. But
 confirming them now avoids a second round trip.
 
-| Purpose | Expected on Lead | Notes |
-| --- | --- | --- |
-| UTM source / medium / campaign / content / term | five text fields | drives the channel breakdown when a click ID is absent |
-| Landing page | text or URL | |
-| Self-reported monthly revenue | currency or number | feeds `qualified_rate` (minimum $10,000) |
-| Self-reported time in business | number, months | feeds `qualified_rate` (minimum 12 months) |
-| Industry | picklist or text | standard `Industry` if populated |
-| State | picklist or text | standard `State`/`StateCode` if populated |
+The probe now inventories these rather than assuming them. Running it prints,
+per concept, every candidate field with its **exact** population rate across the
+whole org, marks the one it would pick, and flags anything under 50%:
+
+```
+ok       monthly revenue
+           The MQL bar, and qualified_rate. Compared against $10,000/month.
+         → Monthly_Revenue__c (currency) — 88.0% (8800 of 10000)
+
+LOW      utm source
+           Channel attribution where no click ID is present.
+         → UTM_Source__c (string) — 31.0% (3100 of 10000)
+           Below 50%. Anything built on this would be a slice of the funnel
+           that looks like a measurement and is not one — cut it, or show
+           the unpopulated share explicitly beside it.
+```
+
+*(Shape only — those figures are fabricated. The real ones come from running it.)*
+
+Concepts covered: monthly revenue, annual revenue, time in business, industry,
+state, UTM source / medium / campaign / content / term, landing page.
+
+Rates are counted with SOQL's `COUNT(field)`, which excludes nulls, so they are
+exact over every lead in the org rather than sampled over the most recent few
+thousand — and recent leads are precisely the ones most likely to have a newly
+added field populated, which would flatter every rate. Long text areas cannot be
+aggregated in SOQL, so those fall back to a sample and are labelled as sampled.
 
 Industry and state matter more here than they look: approval rates vary sharply
 by both, and that variance is the engagement's central diagnosis. If they are
