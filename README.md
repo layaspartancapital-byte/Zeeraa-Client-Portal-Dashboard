@@ -25,7 +25,7 @@ click ID → opportunity → stage timestamps → funded amount     (Salesforce)
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Foundation — schema, migrations, RLS, leak test, auth, roles, tenant switcher, app shell | **Done** |
-| 2 | Salesforce — JWT connection, incremental sync, both attribution models | **Blocked** — see below |
+| 2 | Salesforce — JWT connection, incremental sync, both attribution models | **Partial** — attribution blocked |
 | 3 | The join and the executive view — Google Ads, metric definitions, provenance | Not started |
 | 4 | Monthly performance and funnel | Not started |
 | 5 | Content and approval workspace | Not started |
@@ -37,19 +37,10 @@ What phase 1 deliberately does **not** include: any ingested data. Every screen
 that would show a figure renders an explicit empty state naming what is missing,
 because a zero would read as a measurement.
 
-### Phase 2 is blocked on org access
+### Phase 2: what the org probe found
 
-Four things have to be true of the client's Salesforce org before leads,
-opportunities, stage events or attribution can be built honestly. None of them
-can be assumed, and three of them are org configuration rather than code:
-
-1. the click ID survives Lead → Opportunity conversion;
-2. per-stage timestamps exist, via field history or explicit date fields;
-3. the decline reason is populated, not merely present;
-4. the integration user can see deletions and merges.
-
-`packages/connectors/scripts/probe-salesforce.ts` answers all four against a
-real org, read-only, and exits non-zero if any comes back blocked:
+`packages/connectors/scripts/probe-salesforce.ts` answers four questions about
+a client's org, read-only, and exits non-zero if any comes back blocked:
 
 ```bash
 SF_CLIENT_ID=… SF_USERNAME=… SF_PRIVATE_KEY_BASE64=… \
@@ -57,9 +48,21 @@ SF_CLIENT_ID=… SF_USERNAME=… SF_PRIVATE_KEY_BASE64=… \
   pnpm --filter @zeeraa/connectors probe
 ```
 
-**It has never been run against an org.** The JWT flow and the probe's own
-judgement are unit-tested offline; nothing here has been verified against
-Salesforce itself.
+Against Spartan's org:
+
+| Question | Result |
+| --- | --- |
+| Click ID survives Lead → Opportunity conversion | **blocked** — Opportunity fields and lead mappings being created |
+| Per-stage timestamps | explicit `csbs__` datetime fields, not field history |
+| Decline reason populated | 16.4% of closed-lost |
+| Deletions and merges visible | yes — both handled |
+
+**Attribution is not built**, and will not be until the click-ID mapping is
+confirmed. Everything else is: leads, opportunities, stage events, the derived
+MQL stage, decline reasons, and delete/merge reconciliation.
+
+`docs/salesforce-fields.md` is the specification for what the admin needs to
+create, including the three ways that work can silently fail.
 
 ## Repository
 

@@ -204,12 +204,21 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         blockedSince: c.status === 'waiting_on_client' ? new Date() : null,
         config: c.config ?? {},
       })
-      .onConflictDoNothing({
+      // Configuration is re-applied on every seed; credentials never are. A
+      // connection that is already authenticated keeps its credential blob and
+      // picks up a corrected field mapping.
+      .onConflictDoUpdate({
         target: [
           schema.connections.tenantId,
           schema.connections.platform,
           schema.connections.accountIdentifier,
         ],
+        set: {
+          status: c.status,
+          blockedReason: c.blockedReason ?? null,
+          config: c.config ?? {},
+          updatedAt: new Date(),
+        },
       });
   }
 

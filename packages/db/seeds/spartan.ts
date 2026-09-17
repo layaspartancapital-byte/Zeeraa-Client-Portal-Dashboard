@@ -185,6 +185,20 @@ export const spartan: TenantSeed = {
       description: 'Trailing days drawn as still settling on any spend or conversion series.',
       value: { days: 7 },
     },
+    {
+      key: 'click_id_platform_priority',
+      description:
+        'Which click ID wins when a lead arrives carrying several. Deterministic ' +
+        'by configuration rather than by whichever field is read first.',
+      value: { priority: ['google_ads', 'microsoft_ads', 'meta', 'linkedin_ads'] },
+    },
+    {
+      key: 'decline_reason_sparse_threshold',
+      description:
+        'Below this recorded share, the decline breakdown states that the ' +
+        'composition is not representative. Spartan currently records 16.4%.',
+      value: { threshold: 0.6 },
+    },
   ],
 
   baselines: [
@@ -254,7 +268,54 @@ export const spartan: TenantSeed = {
    * `waiting_on_client` is a designed state, not a failure (§9.5).
    */
   connections: [
-    { platform: 'salesforce', accountIdentifier: 'pending', status: 'not_configured', config: { audience: 'https://login.salesforce.com' } },
+    {
+      platform: 'salesforce',
+      accountIdentifier: 'pending',
+      // The JWT connection itself works. What is outstanding is org
+      // configuration, which is the client's to make — so this is a dependency,
+      // not a failure (§9.5).
+      status: 'waiting_on_client',
+      blockedReason:
+        'Click IDs do not survive Lead → Opportunity conversion. The Opportunity ' +
+        'fields and the lead field mappings are being created. Leads, ' +
+        'opportunities and stage events sync without them; attribution does not. ' +
+        'See docs/salesforce-fields.md.',
+      config: {
+        audience: 'https://login.salesforce.com',
+        /**
+         * Field mapping for this org. Spartan's stage timestamps come from a
+         * managed package (csbs__); another client's will not, which is why this
+         * is a configuration row and not a constant.
+         */
+        fieldMapping: {
+          lead: {
+            // Confirmed present. The Opportunity side does not exist yet.
+            clickIds: { google_ads: 'GCLID__c' },
+          },
+          opportunity: {
+            clickIds: {},
+            amount: 'Amount',
+            declineReason: 'csbs__Decline_Reason__c',
+          },
+          stages: {
+            sql: 'csbs__Underwriting_Date_Time__c',
+            uw_approved: 'csbs__Approved_Date_Time__c',
+            offer: 'Offer_Received_Date_Time__c',
+            funded: 'csbs__Funded_Date_Time__c',
+          },
+          extraStageEvents: {
+            declined: 'csbs__Declined_Date_Time__c',
+            contract_requested: 'Contract_Requested_Date_Time__c',
+          },
+          derivedStages: {
+            lead: 'opportunity_created',
+            // No MQL timestamp exists in the org. Derived from the
+            // qualification minimums and marked computed wherever it renders.
+            mql: 'qualification_minimums',
+          },
+        },
+      },
+    },
     { platform: 'google_ads', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'microsoft_ads', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'meta', accountIdentifier: 'pending', status: 'not_configured' },
