@@ -320,11 +320,14 @@ export const spartan: TenantSeed = {
       // The JWT connection itself works. What is outstanding is org
       // configuration, which is the client's to make — so this is a dependency,
       // not a failure (§9.5).
-      status: 'waiting_on_client',
+      // Resolved 17 September 2026: the Opportunity click-ID fields exist and
+      // the conversion mapping carries all six. What remains is field-level and
+      // surfaced as blocked dependencies rather than as a broken connection.
+      status: 'degraded',
       blockedReason:
-        'Click IDs do not survive Lead → Opportunity conversion. The Opportunity ' +
-        'fields and the lead field mappings are being created. Leads, ' +
-        'opportunities and stage events sync without them; attribution does not. ' +
+        'Opportunity.csbs__Decline_Reason__c does not exist in the org, so decline ' +
+        'reasons cannot be ingested and the sync reports partial. Lead.TTCLID__c ' +
+        'has no Opportunity counterpart. Everything else syncs. ' +
         'See docs/salesforce-fields.md.',
       config: {
         audience: 'https://login.salesforce.com',
@@ -373,7 +376,33 @@ export const spartan: TenantSeed = {
             state: 'State', // 29.3%
           },
           opportunity: {
-            clickIds: {},
+            /**
+             * Live since 17 September 2026: the fields exist on Opportunity and
+             * the Lead → Opportunity conversion mapping carries all six.
+             *
+             * This route covers an opportunity created directly, which the
+             * converted-Lead backfill cannot reach. It does not backfill:
+             * Salesforce lead field mapping copies at the moment of conversion
+             * and never retrospectively, so every opportunity converted before
+             * the mapping existed still holds null here and is covered by
+             * `backfillClickIdsFromConvertedLeads` instead.
+             *
+             * Casing is load-bearing — `normalizeOpportunity` reads
+             * `record[field]` off the REST response, which is a case-sensitive
+             * property lookup against the canonical API name.
+             *
+             * `Gbraid__c` and `Wbraid__c` are mapped in Salesforce and captured
+             * there, but are absent here on purpose: one platform key holds one
+             * field, and Google's `click_view` only ever returns `gclid`. A
+             * gbraid touch could never resolve to a campaign, so promoting it to
+             * the join key would turn a deal we can cost into one we cannot.
+             */
+            clickIds: {
+              google_ads: 'gclid__c',
+              microsoft_ads: 'msclkid__c',
+              meta: 'acq_fbclid__c',
+              linkedin_ads: 'Li_Fat_ID__c',
+            },
             amount: 'Amount',
             declineReason: 'csbs__Decline_Reason__c',
           },
@@ -401,16 +430,20 @@ export const spartan: TenantSeed = {
     },
     {
       platform: 'google_ads',
-      accountIdentifier: '467-747-3505',
-      status: 'waiting_on_client',
-      blockedReason:
-        'Awaiting the OAuth refresh token. Every Google Ads credential for this tenant ' +
-        'belongs to Spartan rather than to Zeeraa: the manager account is theirs, ' +
-        'the OAuth consent is theirs, and since Google sunset developer tokens on ' +
-        '9 September 2026 the API access level belongs to the Google Cloud project ' +
-        'behind their OAuth client. Needed: a Desktop-app client id and secret, and ' +
-        'a refresh token from `pnpm --filter @zeeraa/connectors google-ads-token`. ' +
-        'A developer token is not required.',
+      /**
+       * The normalised form, with no dashes.
+       *
+       * This is the seed's upsert key, and `test-connection` rewrites the stored
+       * identifier to whatever the API reports — which is the dashless form.
+       * A dashed value here therefore stops matching the row it created and the
+       * next seed inserts a second connection for the same account, which the
+       * nightly fan-out then syncs twice. The two must agree, and the API's
+       * spelling is the one that wins.
+       */
+      accountIdentifier: '4677473505',
+      // Connected 17 September 2026. Credentials live encrypted in the
+      // connection row; the seed never rewrites them.
+      status: 'healthy',
       config: {
         // The client's own manager account, not a Zeeraa MCC. Another tenant may
         // arrive under a different arrangement entirely; nothing in the connector

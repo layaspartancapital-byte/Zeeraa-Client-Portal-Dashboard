@@ -76,32 +76,30 @@ broader name.
 
 ## Blocked
 
-- **Click-ID fields now exist on both objects; three of six are mapped.**
-  As of 17 September 2026, Lead and Opportunity both carry `gclid__c`,
-  `Gbraid__c`, `Wbraid__c`, `Li_Fat_ID__c`, `acq_fbclid__c` and `msclkid__c`,
-  all Text(255), all readable by the integration user. The Lead → Opportunity
-  conversion mapping carries `gclid__c`, `acq_fbclid__c` and `msclkid__c`.
-  **Not yet mapped: `Gbraid__c`, `Wbraid__c`, `Li_Fat_ID__c`.** Nothing about
-  those three prevents it — every mapping-relevant describe attribute is
-  identical to `gclid__c`'s. They are simply listed on the Map Lead Fields
-  screen under their *labels* ("Google iOS Click ID", "Google Web App Click ID",
-  "LinkedIn Click ID") rather than their API names, which is why they look
-  absent. Re-run `pnpm --filter @zeeraa/connectors probe-click-ids` after
-  mapping them.
-- **`TTCLID__c` exists on Lead with no Opportunity counterpart.** TikTok is not
-  in the engagement; either create the Opportunity field or leave it unmapped
-  deliberately.
-- **The connector's `fieldMapping.opportunity.clickIds` is still `{}`.** Now
-  that three fields are mapped, the mapped-field route can be turned on — it
-  covers opportunities created directly, which the converted-Lead backfill
-  cannot reach. Casing is load-bearing: the API names above are the canonical
-  casing the REST response uses.
-- **`Opportunity.csbs__Decline_Reason__c` does not exist in the org.** The sync
-  drops it from the query and reports it; decline reasons are unavailable until
-  it is created. This is why the Salesforce sync reports `partial`.
-- **MQL is undetermined for 6,843 of 7,202 leads.** The bar's two inputs are
-  close to empty on inbound leads. `qualifyLead` returns null rather than
-  guessing, and the stage renders as computed-and-undetermined.
+- **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
+  and the mapped route is switched on — but it changes nothing yet.** Salesforce
+  lead field mapping copies at the moment of conversion and never
+  retrospectively, so all 712 existing opportunities still hold null and
+  coverage is unmoved. It starts paying from the next conversion onward. Until
+  then `backfillClickIdsFromConvertedLeads` is still doing all the work.
+- **`acq_fbclid__c` is populated on 969 leads and the platform is not read.**
+  The Lead mapping names `gclid__c` only, so those leads currently count as
+  carrying no click at all. They are Meta clicks, and the deals behind them are
+  sitting in the unattributed bucket inflating Google Ads' plausible range.
+  Reading it is a one-line config change; the reason it has not been made is
+  that Meta has no connector, so a Meta channel row would show deals against no
+  spend — the exact shape the separation rule forbids. Decide between
+  connecting Meta and representing an unconnected-but-known channel.
+- **`Gbraid__c`, `Wbraid__c` are mapped in Salesforce but empty (0 leads), and
+  deliberately not in the connector mapping.** One platform key holds one field
+  and Google's `click_view` only ever returns `gclid`, so a gbraid touch could
+  never resolve to a campaign.
+- **`Lead.TTCLID__c` has no Opportunity counterpart.** TikTok is not in the
+  engagement; leave it or create the field deliberately.
+- **`Opportunity.csbs__Decline_Reason__c` does not exist.** Dropped from the
+  query and reported; the Salesforce sync reports `partial` for this alone.
+- **MQL is undetermined for most leads.** The bar's two inputs are close to
+  empty on inbound leads.
 - **Call tracking.** Vendor not selected.
 - Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
 
