@@ -48,6 +48,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const email = request.nextUrl.searchParams.get('email') ?? 'admin@zeeraa.com';
   const next = request.nextUrl.searchParams.get('next') ?? '/';
 
+  // `?debug=1` reports what actually arrived rather than signing in. A tunnel
+  // that rewrites Host and drops x-forwarded-proto looks identical from the
+  // outside to a cookie the browser refused, and guessing between the two is
+  // how this went wrong the first time.
+  if (request.nextUrl.searchParams.get('debug')) {
+    const seen = Object.fromEntries(request.headers.entries());
+    return new NextResponse(
+      JSON.stringify(
+        {
+          'request.url': request.url,
+          'nextUrl.origin': request.nextUrl.origin,
+          'nextUrl.protocol': request.nextUrl.protocol,
+          host: seen.host ?? null,
+          'x-forwarded-host': seen['x-forwarded-host'] ?? null,
+          'x-forwarded-proto': seen['x-forwarded-proto'] ?? null,
+          'x-forwarded-for': seen['x-forwarded-for'] ?? null,
+          origin: seen.origin ?? null,
+          referer: seen.referer ?? null,
+        },
+        null,
+        2,
+      ),
+      { headers: { 'content-type': 'application/json' } },
+    );
+  }
+
   const db = getAuthDb();
   const [user] = await db
     .select({ id: schema.users.id, email: schema.users.email })
@@ -66,24 +92,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
   await db.insert(schema.sessions).values({ sessionToken, userId: user.id, expires });
 
-  // Auth.js prefixes the cookie with `__Secure-` and marks it secure whenever it
-  // is serving over https. A Codespaces forwarded URL is https while the local
-  // one is not, so the name is decided by the request rather than assumed —
-  // getting this wrong is exactly why pasting a cookie by hand did not work.
-  const forwardedProto = request.headers.get('x-forwarded-proto');
-  const isSecure = (forwardedProto ?? request.nextUrl.protocol.replace(':', '')) === 'https';
-  const cookieName = isSecure ? '__Secure-authjs.session-token' : 'authjs.session-token';
+  /**
+   * A relative redirect, deliberately.
+   *
+   * `request.nextUrl.origin` is `http://localhost:3000` on every request the dev
+   * server handles, whatever Host arrived — so an absolute redirect built from
+   * it sends a browser on the forwarded URL to a localhost it cannot reach. A
+   * relative Location is resolved by the browser against the origin it actually
+   * used, which is the only origin that is certainly right.
+   */
+  const location = next.startsWith('/') ? next : `/${next}`;
+  const response = new NextResponse(null, { status: 307, headers: { Location: location } });
 
-  const response = NextResponse.redirect(new URL(next, request.nextUrl.origin));
-  response.cookies.set({
-    name: cookieName,
-    value: sessionToken,
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    secure: isSecure,
-    expires,
-  });
+  /**
+   * Both cookie names, every time.
+   *
+   * Auth.js prefixes the session cookie with `__Secure-` and requires the Secure
+   * attribute when it believes it is serving over https, and it decides that
+   * from a mixture of AUTH_URL and the request headers. Through this tunnel
+   * neither is reliable: `x-forwarded-proto` arrives as `http` even when the
+   * browser is on https, and NEXTAUTH_URL here names localhost. So the answer is
+   * not to guess which name Auth.js will read.
+   *
+   * Setting both costs nothing and cannot misfire. A browser on http silently
+   * discards the Secure one; a browser on https keeps both and Auth.js finds
+   * whichever it looks for. The `__Secure-` prefix is only honoured with
+   * `secure: true`, which is why that one carries it unconditionally.
+   *
+   * Neither sets a Domain, so both are host-only — scoped to exactly the host
+   * that served this response, which is the host the browser is on.
+   */
+  const shared = { value: sessionToken, httpOnly: true, sameSite: 'lax' as const, path: '/', expires };
+  response.cookies.set({ ...shared, name: 'authjs.session-token', secure: false });
+  response.cookies.set({ ...shared, name: '__Secure-authjs.session-token', secure: true });
 
   console.warn(`[dev-signin] signed in ${user.email} — development only`);
   return response;
