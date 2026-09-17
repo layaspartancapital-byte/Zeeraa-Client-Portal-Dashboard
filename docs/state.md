@@ -185,6 +185,12 @@ pnpm --filter @zeeraa/jobs sync-salesforce  spartan [--since YYYY-MM-DD] [--limi
 pnpm --filter @zeeraa/jobs spend-to-funded  spartan [--days 90]
 ```
 
+Looking at the UI locally: neither sign-in provider works without credentials,
+so `/api/dev-signin?email=admin@zeeraa.com` mints a real session for a seeded
+user and redirects. It is not an authorization bypass — RLS and `memberships`
+still decide everything afterwards — and it refuses unless `NODE_ENV` is not
+production *and* the auth database is on localhost.
+
 They read `DATABASE_URL_OWNER` and `DATABASE_URL_JOBS`; a local `.env` carrying
 the documented defaults from `.env.example` is enough. Platform credentials come
 from the shell and stop being environment variables at `set-credentials` — after
