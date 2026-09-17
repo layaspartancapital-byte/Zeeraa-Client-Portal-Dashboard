@@ -67,6 +67,24 @@ it, CI says so.
 
 ---
 
+## §14 — `SF_USERNAME` is missing from the environment variables
+
+**Added 17 September 2026.**
+
+§14 lists `SF_CLIENT_ID`, `SF_PRIVATE_KEY_BASE64` and `SF_LOGIN_URL` for
+Salesforce. The JWT bearer flow also requires the integration user's username,
+which becomes the assertion's `sub` claim. Without it there is no flow at all —
+the assertion identifies the app but not the user it is acting as.
+
+It is added as `SF_USERNAME`. Worth noting for whoever supplies it: this is the
+Salesforce username, which looks like an email address but frequently is not a
+real mailbox — integration users are commonly
+`something@client.com.integration`. Supplying the person's actual email is a
+common and confusing failure, because it produces the same `invalid_grant` as
+several unrelated problems.
+
+---
+
 ## §12 — `FORCE ROW LEVEL SECURITY`
 
 **Added 17 September 2026**, beyond what the brief required.
