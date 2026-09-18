@@ -14,15 +14,16 @@
     "@auth/drizzle-adapter": "^1.11.3",
     "@zeeraa/core": "workspace:*",
     "@zeeraa/db": "workspace:*",
+    "@zeeraa/jobs": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "inngest": "^4.20.0",
+    "lucide-react": "^1.47.0",
     "next": "^16.3.5",
     "next-auth": "5.0.0-beta.32",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^2.15.0",
-    "swr": "^2.3.0",
-    "@zeeraa/jobs": "workspace:*",
-    "inngest": "^4.20.0"
+    "swr": "^2.3.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

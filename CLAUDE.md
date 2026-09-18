@@ -78,19 +78,35 @@ commit history and get it wrong.
 
 ## Design
 
-Read §12 of the build brief before touching the UI. The short version:
+**§12 of the build brief is superseded. Design spec v2 governs the UI** — see
+`docs/brief-amendments.md`, "§12 — replaced in full by design spec v2", for the
+replacement and for every place the implementation states an exception to it.
 
-- A light, ledger-like workspace. Gold is a signal (targets, north star, active
-  tenant), never a surface.
-- Panels are a hairline rule and whitespace. Not a grid of rounded cards with
-  soft grey shadows. The only elevated surface is a modal.
-- One radius (4px), on interactive elements only.
-- `font-variant-numeric: tabular-nums` on every numeric cell, no exceptions.
-- Positive and negative are never carried by colour alone — always a sign,
-  arrow or label. Direction comes from each metric's `improvement_direction`;
-  "up is green" is wrong here, because a falling cost per funded deal is good.
-- Every figure carries a referent: value, comparison, and an explicit sign.
-- Sentence case. No tracked-out all-caps eyebrows. No emoji, no per-metric icon.
+The short version:
+
+- A modern SaaS analytics dashboard. Fixed left sidebar, elevated white cards on
+  a soft grey-blue canvas, one confident blue, Inter throughout.
+- Every card has surface, radius (12px) and the two-layer shadow. A
+  hairline-only panel is not a card in this system. No gold, no serif, no black
+  band.
+- `font-variant-numeric: tabular-nums` on every numeric value, via the
+  `.numeric` / `.tabular` utilities.
+- **No explanatory paragraph on a dashboard screen.** Every methodology note,
+  caveat, definition and "why this is not measured" goes in an ⓘ (two sentences
+  at most), in the "How this is measured" drawer, or as a one-line row in the
+  data-quality card. An empty state is one line plus at most one action.
+- Green and red mean improvement and regression as each metric's
+  `improvement_direction` defines them, and nothing else. A delta always carries
+  an arrow and a signed value as well as its colour. A metric with no configured
+  direction renders its delta in `--text-2`.
+- Every KPI card carries a mini chart. Where there is not enough history, draw
+  the buckets that exist and leave the rest blank — never fake it, and never
+  plot zero for a bucket nobody ingested.
+- A blocked or unmeasured figure is an amber `Not measured` badge with the reason
+  in its tooltip. Never a zero.
+- No horizontal page scroll at any width down to 375px. Anything wide scrolls
+  inside its own card, and the scroll container needs `min-w-0` or it widens the
+  page instead.
 - No celebration states anywhere. The delivery view is a compliance record.
 
 **Attribution on screen.** The separation rule is not only arithmetic; it
@@ -98,17 +114,30 @@ governs layout, because a table puts two numbers on one line and the reader
 assumes they are comparable.
 
 - **Channel-attributed and unattributed figures never share a row.** The monthly
-  table carries an explicit unattributed row which is not a channel: it has
-  deals but no spend and no cost per deal, and those cells render as an em dash
-  with a reason, never as zero.
+  table carries an explicit unattributed row group below a heavier rule, badged
+  `Not a channel`: it has deals but no spend and no cost per deal, and those
+  cells render as an em dash with the reason in an ⓘ, never as zero.
 - **No total mixes them.** A totals row sums what is summable — spend across
   channels, deals across every source — and renders nothing where the sum would
   be a category error. Blended cost per deal is one of those until every channel
   is ingested.
 - **A cost-per-deal figure carries its coverage and its range as part of the
-  metric.** Not a footnote, not a tooltip, not a caption below the fold. A bare
-  cost-per-deal number never renders; `CostPerDealFigure` takes a
-  `ChannelCostPerDeal` and there is no prop that accepts a plain number.
+  metric** — one small line under the number, with the full explanation in the
+  ⓘ beside it. A bare cost-per-deal number never renders; `CostPerDealFigure`
+  takes a `ChannelCostPerDeal` and there is no prop that accepts a plain number.
+
+### Charts
+
+Recharts, through the wrappers in `components/charts`. Two traps that cost real
+time:
+
+- **An axis must be a direct child of the chart.** Grouping `<XAxis>` and
+  `<YAxis>` in a fragment hides them from the library's child scan, and you get
+  gridlines with no tick labels and, in a horizontal layout, no bars at all.
+- **A chart is a client component, so it cannot take a formatter function.**
+  Pass a `FormatSpec` and a labels map; `format-spec.ts` resolves them, and the
+  rules still come from `@zeeraa/core` so a value formats identically on an
+  axis, in a table cell, in the CSV and on paper.
 
 ## Commands
 

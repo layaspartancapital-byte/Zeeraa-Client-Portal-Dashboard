@@ -1,125 +1,164 @@
 @import 'tailwindcss';
 
 /* ===========================================================================
-   A light, ledger-like workspace.
+   Design spec v2 — a modern SaaS analytics workspace.
 
-   The proposal's identity is black, gold and a high-contrast serif. Gold on
-   black fails contrast at data sizes and strains over an hour of reading
-   tables, so gold is a signal here, not a surface: it marks targets, the
-   north-star figure and the active tenant, and nothing else. The brand is
-   carried by the typography and by one dark band on the executive view.
+   Elevated white cards on a soft grey-blue canvas, one confident blue, green
+   and red reserved for improvement and regression as each metric's
+   `improvement_direction` defines them. Tokens are the whole palette: a colour
+   that is not here does not appear in a component.
    =========================================================================== */
 
 @theme {
-  --color-paper: #fafaf9;
+  --color-canvas: #f5f7fb;
   --color-surface: #ffffff;
-  --color-ink: #14161a;
-  --color-graphite: #5a6169;
-  --color-rule: #e4e3df;
-  --color-night: #101214;
+  --color-border: #e6eaf2;
 
-  /* Text-safe against paper and surface. */
-  --color-brass: #8a6b1f;
-  /* Fills and indicators on dark only — never text on light. */
-  --color-brass-bright: #c9a227;
+  --color-text: #101828;
+  --color-text-2: #475467;
+  /*
+    Spec v2 §4 gives this as #98A2B3. That is 2.6:1 against the surface and
+    2.4:1 against the canvas, and §1 keeps WCAG AA — so every caption, axis
+    label, placeholder and "since {date}" written in it would fail. Darkened to
+    the nearest grey-blue that clears 4.5:1 on both grounds (4.97 and 4.64).
+    The spec's value survives as `--color-mark`, for the marks it is legible
+    enough for.
+  */
+  --color-text-3: #667085;
+  /* Non-text only: axis rules, a dashed empty baseline, the unattributed
+     series. Never type. */
+  --color-mark: #98a2b3;
 
-  --color-shortfall: #9e3b2e;
-  --color-ahead: #2f6b4f;
-  --color-provisional: #b8b5ae;
+  --color-primary: #3b5bdb;
+  --color-primary-600: #2f4ac7;
+  --color-primary-100: #e7ecfb;
+  --color-primary-soft: #a9b8f2;
 
-  --font-display: var(--font-newsreader), Georgia, 'Times New Roman', serif;
-  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', monospace;
+  /* Improvement and regression only. Never decoration, never status. */
+  --color-up: #12b76a;
+  --color-down: #f04438;
+  --color-up-soft: #ecfdf3;
+  --color-down-soft: #fef3f2;
+  /*
+    The same two meanings, at a weight that can carry type. The spec's values
+    are 2.6:1 and 3.8:1 on white, so a delta written in them fails AA; these
+    clear it at 5.4:1 and 6.6:1 and are the same hues. The fills keep the spec's
+    values, and a bar drawn in one carries a 1px outline in its text variant so
+    its boundary clears 3:1 as a graphical object.
+  */
+  --color-up-text: #027a48;
+  --color-down-text: #b42318;
 
-  /* One radius, on interactive elements only. Panels are made of rules. */
-  --radius-default: 4px;
+  --color-warn: #f79009;
+  --color-warn-soft: #fffaeb;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 12px;
+  --radius-control: 8px;
+
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(16, 24, 40, 0.1), 0 2px 4px rgba(16, 24, 40, 0.06);
+  --shadow-pop: 0 8px 24px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.06);
 }
 
 @layer base {
-  * {
-    border-color: var(--color-rule);
-  }
-
   html {
-    background: var(--color-paper);
-    color: var(--color-ink);
+    background: var(--color-canvas);
+    color: var(--color-text);
     font-family: var(--font-sans);
     -webkit-text-size-adjust: 100%;
+    /*
+      No screen ever scrolls sideways. Anything wide — a table of every
+      platform against every stage — scrolls inside its own card.
+
+      `clip` rather than `hidden`: `hidden` still makes the root a scroll
+      container, so a wide descendant leaves the page scrollable by script and
+      by a trackpad swipe even though no scrollbar appears. `clip` creates no
+      scroll container at all, which is the actual requirement.
+    */
+    overflow-x: clip;
   }
 
   body {
     margin: 0;
+    background: var(--color-canvas);
     font-size: 14px;
     line-height: 1.5;
+    overflow-x: clip;
   }
 
-  /* Sentence case throughout; no tracked-out all-caps eyebrows. */
+  /* Sentence case throughout. No tracked-out uppercase eyebrows. */
   h1, h2, h3, h4 {
-    font-weight: 500;
-    letter-spacing: -0.005em;
+    font-weight: 600;
+    letter-spacing: -0.011em;
     text-wrap: balance;
+    margin: 0;
   }
 
-  /* Every numeric cell, no exceptions. */
-  .numeric, td.numeric, th.numeric, .tabular {
+  /* Every numeric value, no exceptions. */
+  .tabular,
+  .numeric,
+  td.numeric,
+  th.numeric {
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum' 1;
+  }
+
+  .numeric,
+  td.numeric,
+  th.numeric {
     text-align: right;
   }
 
-  code, .mono {
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-  }
-
-  /* Visible keyboard focus everywhere. */
   :focus-visible {
-    outline: 2px solid var(--color-brass);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 3px;
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--color-brass) 22%, transparent);
+    background: var(--color-primary-100);
+  }
+
+  /* Recharts puts a focusable wrapper around every surface; it has no content
+     of its own to reach by keyboard, and the accessible table behind each chart
+     is the real equivalent. */
+  .recharts-wrapper:focus,
+  .recharts-surface:focus {
+    outline: none;
   }
 }
 
 @layer components {
-  /* A panel is a rule and some space. No shadow: the only elevated surface in
-     the application is a modal. */
-  .panel {
+  /* Every card has surface, radius and shadow. A hairline-only panel is not a
+     card in this system. */
+  .card {
     background: var(--color-surface);
-    border: 1px solid var(--color-rule);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 
-  .panel-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.875rem 1.25rem;
-    border-bottom: 1px solid var(--color-rule);
+  .card-lift {
+    transition: box-shadow 120ms ease-out, transform 120ms ease-out;
   }
 
-  .hairline {
-    border-bottom: 1px solid var(--color-rule);
+  .card-lift:hover {
+    box-shadow: var(--shadow-card-hover);
   }
 
-  .label {
-    color: var(--color-graphite);
-    font-size: 12px;
+  /* Chart series animate in on first load only; a filter change crossfades. */
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
-  .figure-display {
-    font-family: var(--font-display);
-    font-weight: 400;
-    letter-spacing: -0.02em;
-    font-variant-numeric: tabular-nums;
+  .crossfade {
+    animation: fade-in 150ms ease-out;
   }
 }
 
-/* Motion marks state changes only: a filter applying, a row expanding, a sync
-   completing, an upload progressing. No entrance animation, no hover lift. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -132,46 +171,60 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Print. This gets printed for quarterly reviews: drop the chrome, keep the
-   evidence, and make sure the greyscale still separates.
+   Print. Printed for quarterly reviews: drop the chrome, keep the evidence,
+   expand every table, and keep greyscale separable.
    --------------------------------------------------------------------------- */
 @media print {
   @page {
-    margin: 14mm 12mm;
+    margin: 12mm 10mm;
   }
 
-  html, body {
+  html,
+  body {
     background: #fff;
-    font-size: 10pt;
+    font-size: 9.5pt;
   }
 
   .print-hidden,
-  nav,
-  .tenant-stripe {
+  aside[data-sidebar],
+  [data-topbar] {
     display: none !important;
+  }
+
+  [data-content],
+  [data-content] > * {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    background: #fff !important;
   }
 
   .print-header {
     display: block !important;
     border-bottom: 1px solid #000;
-    margin-bottom: 8mm;
-    padding-bottom: 3mm;
+    margin-bottom: 6mm;
+    padding-bottom: 2mm;
   }
 
-  .panel {
-    border: 1px solid #999;
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #9aa1ae !important;
     break-inside: avoid;
   }
 
-  /* Tables expand: nothing is hidden behind a scroll container on paper. */
-  .table-scroll {
+  /* Nothing is hidden behind a scroll container on paper. */
+  .scroll-x {
     overflow: visible !important;
     max-width: none !important;
   }
 
+  .print-full {
+    grid-column: 1 / -1 !important;
+  }
+
   a[href]::after {
     content: ' (' attr(href) ')';
-    font-size: 8pt;
+    font-size: 7.5pt;
     color: #555;
   }
 

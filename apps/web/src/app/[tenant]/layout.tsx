@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { AppChrome } from '@/components/AppChrome';
+import { AppShell } from '@/components/shell/AppShell';
 import { requireTenant } from '@/lib/tenant';
 
 /**
@@ -28,8 +28,12 @@ export default async function TenantLayout({
   const session = await requireTenant(slug);
 
   return (
-    <AppChrome viewer={session.viewer} tenant={session.tenant} generatedAt={new Date()}>
+    <AppShell
+      viewer={session.viewer}
+      tenant={session.tenant}
+      generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
+    >
       {children}
-    </AppChrome>
+    </AppShell>
   );
 }

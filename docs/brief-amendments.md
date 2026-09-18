@@ -478,3 +478,90 @@ The executive view's north-star band (§9.1) consequently shows one channel's
 cost per funded deal, named as one channel's, with its coverage and range. It
 does not show a blended figure, and it says so rather than leaving the absence
 to be inferred.
+
+---
+
+## §12 — replaced in full by design spec v2
+
+**Superseded 18 September 2026.**
+
+§12 of the brief specified a light, ledger-like workspace: a black-and-gold
+identity reduced to a signal, IBM Plex Sans with a high-contrast serif for two
+figures, panels made of hairline rules and whitespace, no shadows except on a
+modal, and provenance carried as a visual register.
+
+**That section is now superseded in full by design spec v2**, issued by the
+client after reviewing the built screens. The direction it sets is a modern SaaS
+analytics dashboard: a fixed left sidebar, elevated white cards on a soft
+grey-blue canvas, one confident blue, Inter throughout, a mini chart on every
+KPI card, green and red deltas, and dense multi-column grids.
+
+Where the two disagree, v2 wins. The tokens, type, structure, chart rules and
+motion rules in §12 no longer describe the product.
+
+### What survived, and why it is not styling
+
+Spec v2 §1 keeps a set of rules explicitly, and they are the ones this codebase
+enforces in types rather than in review:
+
+- Channel-attributed and unattributed figures never share a row and never sum
+  into one total. Still `ChannelRow` and `UnattributedRow` as separate shapes;
+  still three render paths in `PerformanceTable`.
+- A cost-per-deal figure carries its coverage and its range. `CostPerDealFigure`
+  still takes a `ChannelCostPerDeal` and still has no prop that accepts a plain
+  number. What changed is the shape of that context: two paragraphs became one
+  line plus an ⓘ.
+- A blocked or unmeasured stage renders as a state, never as zero.
+- Direction comes from each metric's `improvement_direction`, never hardcoded.
+- Recent unsettled data is marked provisional.
+- Responsive to 375px, keyboard accessible, WCAG AA, print stylesheet, CSV
+  export.
+
+### Where v2 is followed with a stated exception
+
+Four places, each because following v2 literally would put a number on screen
+that the data does not support.
+
+1. **No target line on the executive hero.** v2 §6 asks for the target as a
+   dashed line labelled at the right edge. Both of Spartan's candidate targets
+   carry `needs_reconciliation`: the engagement paperwork states cost per funded
+   deal two ways. A dashed line across a chart reads as a commitment somebody
+   made, so none is drawn, and the reason is a row in the data-quality card.
+   `Metrics.target()` returns null for an unreconciled metric, so this is not a
+   decision a call site can forget.
+
+2. **Some deltas render as a stated absence rather than a percentage.** v2 §6
+   puts a delta on every KPI card. Paid media was first ingested on 2026-06-20
+   and the CRM sync reaches back to 2024-08-05, so the ninety days before the
+   current window are a valid baseline for funded deals and a meaningless one
+   for spend — the account was spending and nobody pulled it. Comparing against
+   it produces `+19,566.7%`, which is arithmetically correct and reads as
+   performance. `ingestionStart()` gives the two boundaries and `Delta` takes a
+   nullable baseline, so the card says *not ingested before 2026-06-20* instead.
+
+3. **The hero chart's period toggle is in months, not 30d/90d/12m.** The north
+   star is a ratio with one or two funded deals in its numerator each month.
+   Bucketed weekly it is a line that is mostly gaps; a 30-day version of it is
+   two points. The page's own date-range control still offers 30d/90d/365d and
+   drives every figure; the hero toggle chooses 3, 6 or 12 months of trend.
+
+4. **"Month-over-month change" compares the last two complete months.** v2 §7
+   puts a month-over-month diverging-bar chart on the performance screen. Today
+   is the 18th, so the current month against the previous one reports a collapse
+   in every volume metric that has not happened. The card names the two months
+   it used. Its bars are percentage change, because five metrics in four units
+   cannot share an axis, and each bar's colour comes from that metric's own
+   improvement direction — paid media spend has none configured and stays blue.
+
+### Not built
+
+- **No donut anywhere.** v2 §6 permits one per screen for share-of-total
+  composition; §7 assigns a specific chart type to every slot and none of them
+  is a donut. Share of total is carried by the coverage bars in the channel
+  snapshot and by the stacked bars, both of which keep channel and unattributed
+  segments visibly separate.
+- **The workspace board is empty.** v2 §7 describes kanban cards with type
+  badges, assignees, comment counts and versions. The columns, the drop zone and
+  the activity rail are built and read from `assets`, `asset_comments` and
+  `asset_types`; uploads, versioning, mentions and the approval flow are phase 5,
+  so the board renders with real (zero) counts and invents no cards.

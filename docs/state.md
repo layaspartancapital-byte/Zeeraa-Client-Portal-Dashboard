@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 17 September 2026, end of session.**
+**Last updated: 18 September 2026, end of session.**
 
 ---
 
@@ -12,8 +12,20 @@ blocked, what is next. Updated at the end of every session.
 
 Phase 4 — screens. Phase 3 (connectors and ingestion) is complete: Google Ads
 and Salesforce are both live and the platform produces a real cost per funded
-deal. The executive view and the monthly performance table now render it from
-live data. The funnel, delivery and workspace screens are still phase-1 stubs.
+deal.
+
+**Every screen was rebuilt on 18 September 2026 against design spec v2**, which
+replaces §12 of the brief in full. §12 called for a hairline-and-whitespace
+ledger; the client rejected the result as too plain and too text-heavy and
+issued a modern SaaS analytics direction instead — left sidebar, elevated cards
+on a grey-blue canvas, one blue, Inter, a mini chart on every KPI, green and red
+deltas, no explanatory prose anywhere on a dashboard screen. The departures from
+v2, and the product rules that survived it unchanged, are in
+`docs/brief-amendments.md`, "§12 — replaced in full by design spec v2".
+
+Executive, monthly performance, funnel, delivery, connections, reconciliation
+and the workspace shell are all built. Workspace *content* — uploads,
+versioning, mentions, approvals — is still phase 5.
 
 ## Done
 
@@ -107,6 +119,39 @@ broader name.
 
 Done:
 
+- **The whole UI, rebuilt against design spec v2.** Not a restyle of the old
+  components: the layout shell, the card system, the chart set and every screen
+  were written from the shell down.
+  - `components/shell` — fixed 240px sidebar, collapsible to 64px and
+    off-canvas below `lg`, with the tenant mark, accent stripe, role and
+    switcher; a per-page 64px top bar carrying the breadcrumb, title, date
+    range, attribution toggle, export, print and "Sync now".
+  - `components/ui` — `Card`, `CardHeader`, `EmptyLine`, `Badge`, `Delta`,
+    `Progress`, `Ring`, `InfoTip`, `Segmented`, `Button`, `MethodDrawer`.
+  - `components/charts` — `AreaSeries`, `StackedBars`, `RangeBars`,
+    `DivergingBars`, `MiniChart`, and `chart-kit` holding the palette, the
+    tooltip and the animate-once rule.
+  - **The prose is gone.** Every methodology note, caveat and "why this is not
+    measured" now lives in an ⓘ, in a `Not measured` badge's tooltip, in the
+    "How this is measured" drawer, or as a one-line row in the data-quality
+    card. The drawer's contents are also expanded into the print sheet, because
+    a QBR printout that carries the figures without their definitions is the
+    dispute this product exists to prevent.
+- **Two metric config rows added** — `attributed_share` and `applications`, both
+  `improvement_direction: 'up'`. A KPI card colours its delta only where
+  configuration declares a direction; without a row it renders the sign and the
+  arrow in grey. Paid media spend deliberately has no row: spending less is not
+  an achievement and spending more is not a failure.
+- **CSV export** at `/api/export/{tenant}/{performance|funnel|delivery}`,
+  reading the same search params and the same query functions as the screen, so
+  it cannot drift from what is displayed. Blocked stages export as an empty cell
+  with the reason in a notes column, never as a zero; the unattributed row has
+  no spend or cost-per-deal cells at all.
+- **"Sync now"** at `/api/sync/{tenant}?platform=`, `zeeraa_admin` only, sending
+  the same Inngest event the nightly schedule sends. Until the app is registered
+  with Inngest it reports that plainly and names `run-scheduled` as the path
+  that works today.
+
 - **The separation rule is in the UI, not only the arithmetic.** Channel and
   unattributed figures are different TypeScript shapes, so a component cannot
   put them on one row by iterating a list. `UnattributedRow` has no `spend` and
@@ -139,12 +184,20 @@ Done:
 
 Next, in order:
 
-1. **Delivery view**, then the workspace.
-2. **Deploy, and register with Inngest.** The cron fallback above is running the
+1. **Deploy, and register with Inngest.** The cron fallback above is running the
    pipeline; the durable-step version is what should run it in the end.
+2. **Phase 5: the workspace.** Uploads to blob storage under
+   `tenant/{tenant_id}/`, signed and authorisation-checked URLs, versioning,
+   the mention picker, and the approval flow. The board, the columns, the drop
+   zone and the activity rail are built and read real rows; there are none yet.
 3. Chase the Opportunity click-ID fields and the decline-reason field.
-4. Campaign and keyword-tier drill-down on the performance table, and the CSV
-   export.
+4. Campaign and keyword-tier drill-down on the performance table. The breakdown
+   tab set is on screen with each dimension's blocker stated; campaign is the
+   one that is Zeeraa build work rather than a CRM gap.
+5. **Decide Meta.** `acq_fbclid__c` is populated on 969 leads and is not read,
+   because a Meta channel row would show deals against no spend. That decision
+   now has a visible home: it is a row in the data-quality card on every screen
+   that depends on it.
 
 ## Scheduling: where it really stands (17 September 2026)
 

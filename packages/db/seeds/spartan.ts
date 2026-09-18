@@ -98,6 +98,31 @@ export const spartan: TenantSeed = {
         '(link building, placements) in the period.',
     },
     {
+      /**
+       * Configuration, not code. The executive view colours a delta green or
+       * red only where a metric declares which way is better, so a KPI card
+       * without a row here renders its change with a sign and an arrow and no
+       * colour rather than having a component guess.
+       */
+      key: 'attributed_share',
+      label: 'Attributed share',
+      formulaKey: 'attributed_share',
+      formulaArgs: { stage: 'funded' },
+      improvementDirection: 'up',
+      definition:
+        'Deals reaching the value stage that the platform can attribute to a ' +
+        'connected channel, over every deal reaching it from any source. A ' +
+        'measure of coverage, not of performance.',
+    },
+    {
+      key: 'applications',
+      label: 'Applications',
+      formulaKey: 'stage_count',
+      formulaArgs: { stage: 'application' },
+      improvementDirection: 'up',
+      definition: 'Count of opportunities reaching the Application stage in the period.',
+    },
+    {
       key: 'offer_rate',
       label: 'Offer rate',
       formulaKey: 'stage_conversion_rate',

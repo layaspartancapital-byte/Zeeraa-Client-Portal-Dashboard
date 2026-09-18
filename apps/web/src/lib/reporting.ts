@@ -25,6 +25,7 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  */
 
 export const PLATFORM_LABELS: Record<string, string> = {
+  salesforce: 'Salesforce',
   google_ads: 'Google Ads',
   microsoft_ads: 'Microsoft Ads',
   meta: 'Meta',

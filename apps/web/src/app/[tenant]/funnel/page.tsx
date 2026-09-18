@@ -1,212 +1,333 @@
-import { asc, eq } from 'drizzle-orm';
-import { schema } from '@zeeraa/db';
-import { tenantDay, trailingWindow, type AttributionModel } from '@zeeraa/core';
-import { Panel, EmptyState } from '@/components/Panel';
-import { FunnelFlow } from '@/components/FunnelFlow';
-import { monthlyPerformance } from '@/lib/reporting';
-import { queryTenant, requireTenant } from '@/lib/tenant';
+import { Download } from 'lucide-react';
+import {
+  canAdministerTenant,
+  formatCount,
+  formatRate,
+  tenantDay,
+  trailingWindow,
+  type AttributionModel,
+} from '@zeeraa/core';
+import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
+import { ButtonLink } from '@/components/ui/Button';
+import { Segmented, segments } from '@/components/ui/Segmented';
+import { Badge } from '@/components/ui/Badge';
+import { InfoTip } from '@/components/ui/InfoTip';
+import { Progress } from '@/components/ui/Progress';
+import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
+import { PageMeta, TopBar } from '@/components/shell/TopBar';
+import { PrintButton, SyncNowButton } from '@/components/shell/actions';
+import { FunnelStages } from '@/components/FunnelStages';
+import { DataQualityCard } from '@/components/DataQualityCard';
+import { StackedBars } from '@/components/charts/Bars';
+import { monthlyPerformance, platformLabel } from '@/lib/reporting';
+import { dataQuality, unreadNotifications } from '@/lib/dashboard';
+import { requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Funnel' };
 
+const MODELS = [
+  { key: 'last_touch', label: 'Last touch' },
+  { key: 'first_touch', label: 'First touch' },
+];
+
+const WINDOWS = [
+  { key: '30', label: '30d' },
+  { key: '90', label: '90d' },
+  { key: '365', label: '365d' },
+];
+
 /**
+ * The funnel.
+ *
  * The stage flow is drawn from configuration even with no data behind it, which
  * is the point: the engine reads `funnel_stages`, so a tenant running
  * Lead → Demo → Trial → Subscription gets the same screen with no code change.
+ * "Offer rate" is `stage_conversion_rate(n, n+1)` over whatever stages a tenant
+ * happens to have configured.
  *
- * Conversion rates sit in the gaps between stages, because the gaps are the
- * diagnosis.
- *
- * A stage with no honest source renders as a named blocked dependency carrying
- * its reason, never as a zero. The distinction is the whole point of §9.5: a
- * zero is a measurement, and a stage nobody stamps in the CRM has not been
- * measured. The reasons are rows in `blocked_dependencies`, so unblocking one
- * is a delete rather than a deploy.
+ * The population selector includes "Unattributed" rather than treating it as a
+ * hidden remainder: those deals are a real population with a real funnel, and
+ * leaving them out of the picker would make every channel look like the whole
+ * business. Both halves of every rate come from the selected population.
  */
 export default async function Funnel({
   params,
   searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{ channel?: string; model?: string; days?: string }>;
+  searchParams: Promise<{ channel?: string; model?: string; days?: string; dim?: string }>;
 }) {
   const { tenant: slug } = await params;
-  const { channel: channelParam, model: modelParam, days: daysParam } = await searchParams;
+  const query = await searchParams;
   const session = await requireTenant(slug);
 
-  const model: AttributionModel = modelParam === 'first_touch' ? 'first_touch' : 'last_touch';
-  const days = Number(daysParam) > 0 ? Math.min(Number(daysParam), 365) : 90;
+  const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
+  const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
-  const data = await monthlyPerformance(session, range, model);
 
-  // Which population the flow describes. Every rate on the screen takes both
-  // halves from this one — a channel's rate is never its own numerator over
-  // everybody's denominator.
+  const [data, quality, unread] = await Promise.all([
+    monthlyPerformance(session, range, model),
+    dataQuality(session),
+    unreadNotifications(session),
+  ]);
+
   const populations = [
     { key: 'all', label: 'All sources', counts: data.total.stages },
     ...data.channels.map((c) => ({ key: c.platform, label: c.label, counts: c.stages })),
     { key: 'unattributed', label: 'Unattributed', counts: data.unattributed.stages },
   ];
-  const population = populations.find((p) => p.key === channelParam) ?? populations[0]!;
+  const population = populations.find((p) => p.key === query.channel) ?? populations[0]!;
 
-  const [stages, blocked] = await Promise.all([
-    queryTenant(session, (tx) =>
-      tx
-        .select()
-        .from(schema.funnelStages)
-        .where(eq(schema.funnelStages.tenantId, session.tenant.id))
-        .orderBy(asc(schema.funnelStages.position)),
-    ),
-    queryTenant(session, (tx) =>
-      tx
-        .select()
-        .from(schema.blockedDependencies)
-        .where(eq(schema.blockedDependencies.tenantId, session.tenant.id))
-        .orderBy(asc(schema.blockedDependencies.key)),
-    ),
-  ]);
+  const channelKeys = data.channels.map((c) => c.platform);
+  const measurable = data.stages.filter((s) => !data.stageStatus[s.key]?.blocked);
 
-  const blockedStages = new Map(
-    blocked.filter((b) => b.subjectKind === 'funnel_stage').map((b) => [b.subjectKey, b]),
-  );
-  const blockedBreakdowns = blocked.filter((b) => b.subjectKind === 'breakdown');
-  const day = (d: Date) => d.toISOString().slice(0, 10);
+  /**
+   * The breakdown dimensions.
+   *
+   * Every one of them is blocked or unbuilt today, and the tabs render with the
+   * reason on the panel rather than being hidden: a dimension that is absent
+   * from the interface is a dimension nobody knows to ask for.
+   */
+  const dimensions = [
+    { key: 'campaign', label: 'Campaign' },
+    { key: 'industry', label: 'Industry' },
+    { key: 'state', label: 'State' },
+    { key: 'product', label: 'Product' },
+  ];
+  const dimension = dimensions.find((d) => d.key === query.dim) ?? dimensions[0]!;
+
+  const notes: MethodNote[] = [
+    {
+      heading: 'Both halves of every rate',
+      body:
+        `Every rate on this screen divides ${population.label.toLowerCase()}'s numerator by ` +
+        `${population.label.toLowerCase()}'s denominator. A channel's rate is never its own ` +
+        `numerator over everybody's denominator — that number improves whenever a different ` +
+        `channel has a good month.`,
+    },
+    {
+      heading: 'Rates across a grain boundary',
+      body:
+        'The first stage counts inbound leads and the rest count opportunities. A rate that ' +
+        'crosses that boundary is a different kind of statement from one inside a grain, and the ' +
+        'chip that carries it says so.',
+    },
+    {
+      heading: 'Rates across a stage nobody measures',
+      body:
+        'Where a blocked stage sits between two measured ones, the chip carries the transition ' +
+        'that can still be measured and names what it spans. A gap in the instrumentation is not ' +
+        'a gap in the funnel.',
+    },
+    ...quality.map((item) => ({
+      heading: item.name,
+      body: item.detail || item.summary,
+      detail: item.since
+        ? `Outstanding since ${item.since.toISOString().slice(0, 10)}.`
+        : undefined,
+    })),
+  ];
+
+  const base = `/${slug}/funnel`;
+  const active = { channel: population.key, model, days: String(days), dim: dimension.key };
 
   return (
-    <div className="space-y-6">
-      <Panel
-        title="Stage flow"
-        description={`${range.start} to ${range.end} · ${population.label} · ${
-          model === 'last_touch' ? 'last touch' : 'first touch'
-        }`}
-        aside={
-          blockedStages.size > 0
-            ? `${blockedStages.size} of ${stages.length} stages blocked`
-            : undefined
-        }
-      >
-        {/*
-          The population selector. "Unattributed" is one of the options rather
-          than a hidden remainder: those deals are a real population with a real
-          funnel, and leaving them out of the picker would make every channel
-          look like the whole business.
-        */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-rule px-5 py-3 text-[12px]">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-graphite">Population</span>
-            {populations.map((p) => (
-              <a
-                key={p.key}
-                href={`?channel=${p.key}&model=${model}&days=${days}`}
-                aria-current={p.key === population.key ? 'true' : undefined}
-                className={`rounded-[4px] px-2 py-1 ${
-                  p.key === population.key ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
-                }`}
-              >
-                {p.label}
-              </a>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-graphite">Model</span>
-            {(['last_touch', 'first_touch'] as const).map((m) => (
-              <a
-                key={m}
-                href={`?channel=${population.key}&model=${m}&days=${days}`}
-                aria-current={m === model ? 'true' : undefined}
-                className={`rounded-[4px] px-2 py-1 ${
-                  m === model ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
-                }`}
-              >
-                {m === 'last_touch' ? 'Last touch' : 'First touch'}
-              </a>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-graphite">Window</span>
-            {[30, 90, 365].map((d) => (
-              <a
-                key={d}
-                href={`?channel=${population.key}&model=${model}&days=${d}`}
-                aria-current={d === days ? 'true' : undefined}
-                className={`rounded-[4px] px-2 py-1 tabular-nums ${
-                  d === days ? 'bg-ink text-paper' : 'text-graphite hover:text-ink'
-                }`}
-              >
-                {d} days
-              </a>
-            ))}
-          </div>
-        </div>
-
-        <FunnelFlow data={data} counts={population.counts} populationLabel={population.label} />
-
-        {blockedStages.size > 0 && (
-          <div className="border-t border-rule">
-            {[...blockedStages.values()].map((b) => (
-              <div key={b.key} className="border-b border-rule px-5 py-4 last:border-b-0">
-                <p className="text-[13px] text-ink">
-                  {b.label} is not measured
-                  <span className="text-provisional">
-                    {' '}
-                    · outstanding since {day(b.blockedSince)}
-                  </span>
-                </p>
-                <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-graphite">
-                  {b.reason}
-                </p>
-                {b.needed && (
-                  <p className="mt-2 max-w-prose text-[12px] leading-relaxed text-graphite">
-                    <span className="text-ink">Needed:</span> {b.needed}
-                  </p>
-                )}
-                {b.evidence && (
-                  <p className="mt-2 max-w-prose text-[12px] leading-relaxed text-graphite">
-                    <span className="text-ink">Measured:</span> {b.evidence}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="Breakdown">
-        <EmptyState
-          heading="No opportunities ingested"
-          body="The breakdown slices by platform, campaign, product, industry and state, on either attribution model. Industry and state matter most here: approval rates vary sharply by both."
-          needed="A Salesforce connection with stage-transition timestamps."
+    <>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title="Funnel" unread={unread}>
+        <Segmented
+          label="Population"
+          active={population.key}
+          options={segments(base, active, 'channel', populations)}
         />
-      </Panel>
+        <Segmented
+          label="Attribution model"
+          active={model}
+          options={segments(base, active, 'model', MODELS)}
+        />
+        <Segmented
+          label="Window"
+          active={String(days)}
+          options={segments(base, active, 'days', WINDOWS)}
+        />
+        <ButtonLink href={`/api/export/${slug}/funnel?model=${model}&days=${days}`}>
+          <Download aria-hidden="true" className="h-4 w-4" />
+          Export CSV
+        </ButtonLink>
+        <PrintButton />
+        {canAdministerTenant(session.tenant.role) && (
+          <SyncNowButton slug={slug} platform="salesforce" />
+        )}
+      </TopBar>
 
-      {blockedBreakdowns.length > 0 && (
-        <Panel
-          title="Slices not shown"
-          description="Cut rather than rendered. Each one would look like a measurement and is not one."
-        >
-          {blockedBreakdowns.map((b) => (
-            <div key={b.key} className="border-b border-rule px-5 py-4 last:border-b-0">
-              <p className="text-[13px] text-ink">
-                {b.label}
-                <span className="text-provisional"> · outstanding since {day(b.blockedSince)}</span>
-              </p>
-              <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-graphite">
-                {b.reason}
-              </p>
-              {b.needed && (
-                <p className="mt-2 max-w-prose text-[12px] leading-relaxed text-graphite">
-                  <span className="text-ink">Needed:</span> {b.needed}
-                </p>
+      <PageMeta>
+        <MethodDrawer notes={notes} title={`${population.label} · ${range.start} to ${range.end}`} />
+      </PageMeta>
+
+      <Grid>
+        <Card span={12}>
+          <CardHeader
+            title="Stage flow"
+            subtitle={`${population.label} · ${range.start} to ${range.end} · ${
+              model === 'last_touch' ? 'last touch' : 'first touch'
+            }`}
+            controls={
+              data.stages.length - measurable.length > 0 ? (
+                <Badge tone="warn">
+                  {data.stages.length - measurable.length} of {data.stages.length} not measured
+                </Badge>
+              ) : undefined
+            }
+          />
+          <FunnelStages
+            data={data}
+            counts={population.counts}
+            populationLabel={population.label}
+          />
+        </Card>
+
+        <Card span={8} selfStart>
+          <CardHeader
+            title="Stage by channel"
+            subtitle="Unattributed is its own segment, never folded into a channel"
+          />
+          <CardBody className="flex-1">
+            <StackedBars
+              id="funnel-stage-by-channel"
+              rows={measurable.map((stage) => ({
+                label: stage.label,
+                byChannel: Object.fromEntries(
+                  data.channels.map((c) => [c.platform, c.stages[stage.key] ?? 0]),
+                ),
+                unattributed: data.unattributed.stages[stage.key] ?? 0,
+              }))}
+              channels={channelKeys}
+              channelLabels={Object.fromEntries(
+                channelKeys.map((c) => [c, platformLabel(c)]),
               )}
-              {b.evidence && (
-                <p className="mt-2 max-w-prose text-[12px] leading-relaxed text-graphite">
-                  <span className="text-ink">Measured:</span> {b.evidence}
-                </p>
-              )}
-            </div>
-          ))}
-        </Panel>
-      )}
-    </div>
+              format={{ kind: 'count' }}
+              height={280}
+            />
+          </CardBody>
+        </Card>
+
+        <DataQualityCard items={quality} span={4} />
+
+        <Card span={12}>
+          <CardHeader
+            title="Breakdown"
+            subtitle={`${dimension.label} · ${population.label}`}
+            controls={
+              <Segmented
+                label="Dimension"
+                active={dimension.key}
+                options={segments(base, active, 'dim', dimensions)}
+              />
+            }
+          />
+          <BreakdownPanel
+            dimension={dimension}
+            stages={measurable.map((s) => ({ key: s.key, label: s.label }))}
+            counts={population.counts}
+            slug={slug}
+          />
+        </Card>
+      </Grid>
+
+      <MethodNotesForPrint notes={notes} />
+    </>
+  );
+}
+
+/**
+ * The breakdown table.
+ *
+ * Every dimension the brief asks for is either blocked in the CRM or waiting on
+ * a connector, and the honest render is the stage columns with an explicit
+ * blocked state for the slice — not a table of zeroes and not a hidden tab.
+ * The one thing it can show today is the stage profile of the selected
+ * population, which is the row that dimension would be sliced into.
+ */
+function BreakdownPanel({
+  dimension,
+  stages,
+  counts,
+  slug,
+}: {
+  dimension: { key: string; label: string };
+  stages: { key: string; label: string }[];
+  counts: Record<string, number>;
+  slug: string;
+}) {
+  const REASONS: Record<string, string> = {
+    campaign:
+      'Campaign-level drill-down is Zeeraa build work and follows the monthly table. 3 of the 9 attributed deals carry a click that has aged out of the 90-day window, so their campaign is permanently unknown even once it lands.',
+    industry:
+      'Industry is not populated on inbound leads in Salesforce, so banding by it would produce one row of everything.',
+    state:
+      'State is present on some leads and absent on most; a slice would report the ones that happen to carry it as though they were the population.',
+    product:
+      'Product is not a field on the opportunity in this org. It would have to be derived from the record type, which is a decision rather than a query.',
+  };
+
+  const first = stages[0];
+  const denominator = first ? (counts[first.key] ?? 0) : 0;
+
+  return (
+    <>
+      <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
+        <table className="w-full min-w-[640px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
+              <th scope="col" className="px-5 py-2.5 font-semibold">
+                {dimension.label}
+              </th>
+              {stages.map((stage) => (
+                <th key={stage.key} scope="col" className="numeric px-3 py-2.5 font-semibold">
+                  {stage.label}
+                </th>
+              ))}
+              <th scope="col" className="px-5 py-2.5 font-semibold">
+                Reach
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-border last:border-b-0">
+              <th scope="row" className="px-5 py-3 text-left font-medium text-text">
+                <span className="flex flex-wrap items-center gap-2">
+                  All {dimension.label.toLowerCase()}s
+                  <Badge tone="warn">Not measured</Badge>
+                  <InfoTip label={`Why ${dimension.label} cannot be sliced`} align="start">
+                    {REASONS[dimension.key]}
+                  </InfoTip>
+                </span>
+              </th>
+              {stages.map((stage) => (
+                <td key={stage.key} className="numeric px-3 py-3 tabular text-text">
+                  {formatCount(counts[stage.key] ?? 0)}
+                </td>
+              ))}
+              <td className="px-5 py-3">
+                <span className="flex items-center gap-2">
+                  <Progress
+                    value={1}
+                    label={`Whole population, ${formatCount(denominator)} at the first measured stage`}
+                  />
+                  <span className="shrink-0 text-[12px] tabular text-text-2">
+                    {formatRate(1)}
+                  </span>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <CardBody className="pt-3">
+        <EmptyLine href={`/${slug}/connections`} action="Connections">
+          One row until {dimension.label.toLowerCase()} can be sliced.
+        </EmptyLine>
+      </CardBody>
+    </>
   );
 }

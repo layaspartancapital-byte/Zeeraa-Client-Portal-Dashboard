@@ -1,32 +1,38 @@
 import { formatCount, formatCurrency, formatRate } from '@zeeraa/core';
-import { CostPerDealCell, NoCostPerDealCell } from '@/components/CostPerDeal';
+import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
+import { InfoTip } from '@/components/ui/InfoTip';
+import { Progress } from '@/components/ui/Progress';
+import { coverageExplanation, coverageLine } from '@/components/CostPerDeal';
 import type { MonthlyPerformance, StageCounts } from '@/lib/reporting';
 
 /**
- * One row per channel, then the unattributed row, then totals.
+ * The all-platforms table (spec v2 §6).
  *
- * The three row kinds are rendered by three functions rather than one loop with
+ * The three row kinds are rendered by three blocks rather than one loop with
  * conditionals, which is the layout half of the separation rule. A channel row
  * and the unattributed row are not the same thing with some cells blank: one
  * describes money spent and what it bought, the other describes deals nobody
  * bought. Sharing a render path is how they end up sharing an interpretation.
+ *
+ * What spec v2 changed is the surface, not the arithmetic: unattributed is now
+ * a visually distinct row group below a heavier rule carrying a grey
+ * `Not a channel` badge, a blocked stage is an amber `Not measured` badge with
+ * its reason in a tooltip, and the paragraphs that used to sit under the table
+ * are gone — they live in the ⓘ icons and in the data-quality card.
  */
 
 function Dash({ reason }: { reason: string }) {
   return (
-    <span className="text-provisional" title={reason}>
+    <span className="text-text-3" title={reason}>
       —
     </span>
   );
 }
 
 /**
- * Stage cells.
- *
  * A blocked stage renders its dependency, never a count. Nobody stamps that
  * timestamp in the CRM, so nothing reached it as far as the platform can tell —
- * and a zero would say the opposite of that, that the platform looked and found
- * none. The distinction is the whole of §9.5.
+ * and a zero would say the opposite: that the platform looked and found none.
  */
 function stageCells(
   stages: MonthlyPerformance['stages'],
@@ -37,143 +43,222 @@ function stageCells(
     const blocked = status[stage.key]?.blocked;
     if (blocked) {
       return (
-        <td key={stage.key} className="numeric px-3 py-2.5 align-top">
-          <Dash reason={`${blocked.label} is not measured. ${blocked.reason}`} />
-          <span className="mt-0.5 block text-[11px] text-graphite">not measured</span>
+        <td key={stage.key} className="numeric px-3 py-3">
+          <span className="inline-flex items-center gap-1.5">
+            <NotMeasuredBadge />
+            <InfoTip label={`Why ${blocked.label} is not measured`} align="end">
+              {blocked.reason}
+              {blocked.needed ? ` Needed: ${blocked.needed}` : ''}
+            </InfoTip>
+          </span>
         </td>
       );
     }
     return (
-      <td key={stage.key} className="numeric px-3 py-2.5 align-top text-ink">
+      <td key={stage.key} className="numeric px-3 py-3 tabular text-text">
         {formatCount(counts[stage.key] ?? 0)}
       </td>
     );
   });
 }
 
-export function PerformanceTable({ data, currency }: { data: MonthlyPerformance; currency: string }) {
+export function PerformanceTable({
+  data,
+  currency,
+}: {
+  data: MonthlyPerformance;
+  currency: string;
+}) {
   const { stages, channels, unattributed, total } = data;
-  const columnCount = 6 + stages.length + 2;
-
   const hasUnattributed = stages.some((s) => (unattributed.stages[s.key] ?? 0) > 0);
-  const blockedStages = stages
-    .map((s) => data.stageStatus[s.key])
-    .filter((s): s is NonNullable<typeof s> => Boolean(s?.blocked));
+  const valueStage = stages.find((s) => s.countsValue);
+  const widestCtr = Math.max(...channels.map((c) => c.ctr ?? 0), 0.0001);
 
   return (
-    <div className="table-scroll overflow-x-auto">
+    <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
       <table className="w-full min-w-max border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-rule text-left text-[11px] text-graphite">
-            <th scope="col" className="px-3 py-2 font-medium">
+        <thead className="sticky top-0 z-10 bg-surface">
+          <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
+            <th scope="col" className="px-5 py-2.5 font-semibold">
               Channel
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
+            <th scope="col" className="numeric px-3 py-2.5 font-semibold">
               Spend
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
+            <th scope="col" className="numeric px-3 py-2.5 font-semibold">
               Impressions
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
+            <th scope="col" className="numeric px-3 py-2.5 font-semibold">
               Clicks
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
+            <th scope="col" className="px-3 py-2.5 font-semibold">
               CTR
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
+            <th scope="col" className="numeric px-3 py-2.5 font-semibold">
               CPC
             </th>
             {stages.map((stage) => (
-              <th key={stage.key} scope="col" className="numeric px-3 py-2 font-medium">
-                <span className={stage.isOptimizationTarget ? 'border-b-2 border-brass pb-0.5' : ''}>
+              <th key={stage.key} scope="col" className="numeric px-3 py-2.5 font-semibold">
+                <span className="inline-flex items-center gap-1.5">
+                  {stage.isOptimizationTarget && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-primary"
+                      title="Optimisation target"
+                    />
+                  )}
                   {stage.label}
+                  {data.stageStatus[stage.key]?.origin === 'computed' && (
+                    <InfoTip label={`How ${stage.label} is established`} align="end">
+                      This stage has no timestamp in the CRM and is computed by the platform from
+                      the qualification bar. A computed stage is a different kind of fact from an
+                      observed one.
+                    </InfoTip>
+                  )}
                 </span>
-                {/* A computed stage is not an observed one, and says so
-                    wherever it appears. */}
                 {data.stageStatus[stage.key]?.origin === 'computed' && (
-                  <span className="mt-0.5 block font-normal text-[10px] text-provisional">
-                    computed
-                  </span>
+                  <span className="mt-0.5 block text-[11px] font-normal text-text-3">computed</span>
                 )}
               </th>
             ))}
-            <th scope="col" className="numeric px-3 py-2 font-medium">
-              Funded volume
+            <th scope="col" className="numeric px-3 py-2.5 font-semibold">
+              {valueStage?.label ?? 'Funded'} volume
             </th>
-            <th scope="col" className="numeric px-3 py-2 font-medium">
-              Cost per funded deal
+            <th scope="col" className="numeric px-5 py-2.5 font-semibold">
+              <span className="inline-flex items-center gap-1.5">
+                Cost per {(valueStage?.label ?? 'funded').toLowerCase()} deal
+                <InfoTip label="How cost per deal is measured" align="end">
+                  A channel&rsquo;s spend over the deals attributed to that channel. Deals no
+                  channel can claim are in no denominator, and the range under each figure is where
+                  it would land if every one of them turned out to be that channel.
+                </InfoTip>
+              </span>
             </th>
           </tr>
         </thead>
 
         <tbody>
           {channels.map((row) => (
-            <tr key={row.platform} className="border-b border-rule align-top">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal text-ink">
+            <tr
+              key={row.platform}
+              className="border-b border-border align-top transition-colors hover:bg-canvas"
+            >
+              <th
+                scope="row"
+                className="px-5 py-3 text-left text-[13px] font-medium text-text"
+              >
                 {row.label}
               </th>
-              <td className="numeric px-3 py-2.5 text-ink">
+              <td className="numeric px-3 py-3 tabular text-text">
                 {formatCurrency(row.spend, currency)}
               </td>
-              <td className="numeric px-3 py-2.5 text-ink">{formatCount(row.impressions)}</td>
-              <td className="numeric px-3 py-2.5 text-ink">{formatCount(row.clicks)}</td>
-              <td className="numeric px-3 py-2.5 text-ink">
-                {row.ctr === null ? <Dash reason="No impressions in this period." /> : formatRate(row.ctr)}
+              <td className="numeric px-3 py-3 tabular text-text">
+                {formatCount(row.impressions)}
               </td>
-              <td className="numeric px-3 py-2.5 text-ink">
+              <td className="numeric px-3 py-3 tabular text-text">{formatCount(row.clicks)}</td>
+              <td className="px-3 py-3">
+                {row.ctr === null ? (
+                  <Dash reason="No impressions in this window." />
+                ) : (
+                  <span className="flex min-w-[96px] items-center gap-2">
+                    <Progress
+                      value={row.ctr / widestCtr}
+                      label={`${row.label} click-through rate ${formatRate(row.ctr)}`}
+                    />
+                    <span className="shrink-0 tabular text-text">{formatRate(row.ctr)}</span>
+                  </span>
+                )}
+              </td>
+              <td className="numeric px-3 py-3 tabular text-text">
                 {row.cpc === null ? (
-                  <Dash reason="No clicks in this period." />
+                  <Dash reason="No clicks in this window." />
                 ) : (
                   formatCurrency(row.cpc, currency)
                 )}
               </td>
               {stageCells(stages, data.stageStatus, row.stages)}
-              <td className="numeric px-3 py-2.5 text-ink">
+              <td className="numeric px-3 py-3 tabular text-text">
                 {formatCurrency(row.valueVolume, currency)}
               </td>
-              <CostPerDealCell cost={row.costPerDeal} currency={currency} />
+              <td className="numeric px-5 py-3">
+                {row.costPerDeal.value === null ? (
+                  <>
+                    <Dash reason="No deal in this window is attributed to this channel." />
+                    <span className="mt-0.5 block text-[12px] text-text-3">
+                      no attributed deal
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 tabular font-medium text-text">
+                      {formatCurrency(row.costPerDeal.value, currency)}
+                      <InfoTip label={`Coverage and range for ${row.label}`} align="end">
+                        {coverageExplanation(row.costPerDeal, currency, row.label)}
+                      </InfoTip>
+                    </span>
+                    <span className="mt-0.5 block text-[12px] tabular text-text-2">
+                      {coverageLine(row.costPerDeal, currency)}
+                    </span>
+                  </>
+                )}
+              </td>
             </tr>
           ))}
-
-          {/*
-            Not a channel. It sits below every channel and above the total, with
-            its spend columns struck through rather than zeroed: nobody bought
-            these deals, and a 0 in a spend column against real funded deals
-            would read as an acquisition cost of nothing.
-          */}
-          {hasUnattributed && (
-            <tr className="border-b border-rule bg-paper/60 align-top">
-              <th scope="row" className="px-3 py-2.5 text-left font-normal text-ink">
-                {unattributed.label}
-                <span className="mt-0.5 block text-[11px] text-graphite">not a channel</span>
-              </th>
-              <td className="numeric px-3 py-2.5" colSpan={5}>
-                <span className="text-provisional">—</span>
-                <span className="ml-2 text-[11px] text-graphite">no spend stands behind these</span>
-              </td>
-              {stageCells(stages, data.stageStatus, unattributed.stages)}
-              <td className="numeric px-3 py-2.5 text-ink">
-                {formatCurrency(unattributed.valueVolume, currency)}
-              </td>
-              <NoCostPerDealCell reason={unattributed.reason} />
-            </tr>
-          )}
         </tbody>
 
+        {/*
+          Its own row group, below a heavier rule. Nobody bought these deals: a
+          0 in a spend column against real funded deals would be a measurement
+          claiming Zeeraa acquired them for nothing.
+        */}
+        {hasUnattributed && (
+          <tbody className="border-t-2 border-text-3/40 bg-canvas">
+            <tr className="align-top">
+              <th scope="row" className="px-5 py-3 text-left font-medium text-text">
+                <span className="flex flex-wrap items-center gap-2">
+                  {unattributed.label}
+                  <Badge tone="neutral">Not a channel</Badge>
+                  <InfoTip label="What unattributed means" align="start">
+                    {unattributed.reason}
+                  </InfoTip>
+                </span>
+              </th>
+              <td className="numeric px-3 py-3" colSpan={5}>
+                <span className="text-text-3">—</span>
+                <span className="ml-2 text-[12px] text-text-2">no spend stands behind these</span>
+              </td>
+              {stageCells(stages, data.stageStatus, unattributed.stages)}
+              <td className="numeric px-3 py-3 tabular text-text">
+                {formatCurrency(unattributed.valueVolume, currency)}
+              </td>
+              <td className="numeric px-5 py-3">
+                <span className="inline-flex items-center gap-1.5 text-text-3">
+                  —
+                  <InfoTip label="Why these deals have no cost per deal" align="end">
+                    {unattributed.reason}
+                  </InfoTip>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        )}
+
         <tfoot>
-          <tr className="border-t-2 border-ink align-top">
-            <th scope="row" className="px-3 py-2.5 text-left font-medium text-ink">
+          <tr className="border-t-2 border-text align-top font-medium">
+            <th scope="row" className="px-5 py-3 text-left font-semibold text-text">
               {total.label}
             </th>
-            <td className="numeric px-3 py-2.5 text-ink">
+            <td className="numeric px-3 py-3 tabular text-text">
               {formatCurrency(total.spend, currency)}
             </td>
-            <td className="numeric px-3 py-2.5 text-ink">{formatCount(total.impressions)}</td>
-            <td className="numeric px-3 py-2.5 text-ink">{formatCount(total.clicks)}</td>
-            <td className="numeric px-3 py-2.5 text-ink">
+            <td className="numeric px-3 py-3 tabular text-text">
+              {formatCount(total.impressions)}
+            </td>
+            <td className="numeric px-3 py-3 tabular text-text">{formatCount(total.clicks)}</td>
+            <td className="numeric px-3 py-3 tabular text-text">
               {total.ctr === null ? <Dash reason="No impressions." /> : formatRate(total.ctr)}
             </td>
-            <td className="numeric px-3 py-2.5 text-ink">
+            <td className="numeric px-3 py-3 tabular text-text">
               {total.cpc === null ? (
                 <Dash reason="No clicks." />
               ) : (
@@ -181,44 +266,28 @@ export function PerformanceTable({ data, currency }: { data: MonthlyPerformance;
               )}
             </td>
             {stageCells(stages, data.stageStatus, total.stages)}
-            <td className="numeric px-3 py-2.5 text-ink">
+            <td className="numeric px-3 py-3 tabular text-text">
               {formatCurrency(total.valueVolume, currency)}
             </td>
-            <NoCostPerDealCell reason={total.costPerDealAbsentBecause} />
+            <td className="numeric px-5 py-3">
+              <span className="inline-flex items-center gap-1.5 text-text-3">
+                —
+                <InfoTip label="Why there is no blended cost per deal" align="end">
+                  {total.costPerDealAbsentBecause}
+                </InfoTip>
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td colSpan={8 + stages.length} className="px-5 pb-3 pt-1">
+              <p className="text-[12px] text-text-3">
+                Total: spend across channels, deals across every source. Cost per deal does not
+                sum.
+              </p>
+            </td>
           </tr>
         </tfoot>
       </table>
-
-      <div className="border-t border-rule px-3 py-3">
-        <p className="max-w-prose text-[11px] leading-relaxed text-graphite">
-          <span className="text-ink">Totals.</span> Spend adds across channels and deals add across
-          every source. Cost per funded deal does not add, and dividing one total by the other is a
-          different metric. {total.costPerDealAbsentBecause}
-        </p>
-        {hasUnattributed && (
-          <p className="mt-2 max-w-prose text-[11px] leading-relaxed text-graphite">
-            <span className="text-ink">Unattributed.</span> {unattributed.reason}
-          </p>
-        )}
-        {blockedStages.map((stage) => (
-          <p key={stage.key} className="mt-2 max-w-prose text-[11px] leading-relaxed text-graphite">
-            <span className="text-ink">{stage.blocked!.label} is not measured.</span>{' '}
-            {stage.blocked!.reason}
-            {stage.blocked!.needed && (
-              <>
-                {' '}
-                <span className="text-ink">Needed:</span> {stage.blocked!.needed}
-              </>
-            )}
-            <span className="text-provisional">
-              {' '}
-              · outstanding since {stage.blocked!.since.toISOString().slice(0, 10)}
-            </span>
-          </p>
-        ))}
-      </div>
-
-      <span className="sr-only">{columnCount} columns</span>
     </div>
   );
 }

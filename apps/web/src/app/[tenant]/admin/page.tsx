@@ -1,10 +1,16 @@
 import { asc, eq } from 'drizzle-orm';
 import { schema } from '@zeeraa/db';
-import { Panel } from '@/components/Panel';
 import { canAdministerTenant } from '@zeeraa/core';
+import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { InfoTip } from '@/components/ui/InfoTip';
+import { TopBar } from '@/components/shell/TopBar';
+import { PrintButton } from '@/components/shell/actions';
+import { DataQualityCard } from '@/components/DataQualityCard';
+import { dataQuality, unreadNotifications } from '@/lib/dashboard';
 import { queryTenant, requireRole } from '@/lib/tenant';
 
-export const metadata = { title: 'Admin' };
+export const metadata = { title: 'Reconciliation' };
 
 type Claim = { value: string; source: string };
 
@@ -13,13 +19,14 @@ type Claim = { value: string; source: string };
  *
  * Several numbers in the engagement paperwork are stated two ways. Rendering
  * either version as committed progress would be a fabrication, so they sit here
- * until somebody decides. Nothing downstream may read an unresolved item.
+ * until somebody decides, and nothing downstream may read an unresolved item —
+ * which is why no target line is drawn on the executive chart today.
  */
 export default async function Admin({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant: slug } = await params;
   const session = await requireRole(slug, canAdministerTenant);
 
-  const [items, metrics] = await Promise.all([
+  const [items, metrics, quality, unread] = await Promise.all([
     queryTenant(session, (tx) =>
       tx
         .select()
@@ -31,54 +38,109 @@ export default async function Admin({ params }: { params: Promise<{ tenant: stri
       tx
         .select()
         .from(schema.tenantMetrics)
-        .where(eq(schema.tenantMetrics.needsReconciliation, true)),
+        .where(eq(schema.tenantMetrics.needsReconciliation, true))
+        .orderBy(asc(schema.tenantMetrics.key)),
     ),
+    dataQuality(session),
+    unreadNotifications(session),
   ]);
 
-  return (
-    <div className="space-y-6">
-      <Panel
-        title="Figures stated two ways"
-        description="Each of these appears twice in the engagement paperwork with different values. None is rendered as progress anywhere in the product until it is settled."
-      >
-        <ul className="divide-y divide-rule">
-          {items.map((item) => (
-            <li key={item.key} className="px-5 py-4">
-              <p className="text-[13px] text-ink">{item.label}</p>
-              <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-graphite">
-                {item.question}
-              </p>
-              <ul className="mt-2.5 space-y-1">
-                {(item.claims as Claim[]).map((claim, i) => (
-                  <li key={i} className="flex flex-wrap gap-x-2 text-[12px]">
-                    <span className="text-ink">{claim.value}</span>
-                    <span className="text-graphite">— {claim.source}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[11px] text-provisional">
-                {item.resolvedValue ? `Settled as ${item.resolvedValue}` : 'Unresolved'}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </Panel>
+  const unresolved = items.filter((item) => !item.resolvedValue);
 
-      <Panel
-        title="Metrics with unreconciled targets"
-        description="These metrics still compute; only their target is withheld."
+  return (
+    <>
+      <TopBar
+        tenant={session.tenant}
+        viewer={session.viewer}
+        title="Reconciliation"
+        unread={unread}
       >
-        <ul className="divide-y divide-rule">
-          {metrics.map((m) => (
-            <li key={m.key} className="px-5 py-3">
-              <p className="text-[13px] text-ink">{m.label}</p>
-              <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-graphite">
-                {m.reconciliationNote}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    </div>
+        <PrintButton />
+      </TopBar>
+
+      <Grid>
+        <Card span={8}>
+          <CardHeader
+            title="Figures stated two ways"
+            subtitle={`${unresolved.length} of ${items.length} unresolved`}
+            info={
+              <InfoTip label="Why these are here" align="start">
+                Each of these appears twice in the engagement paperwork with different values.
+                None is rendered as progress anywhere in the product until it is settled.
+              </InfoTip>
+            }
+          />
+          {items.length === 0 ? (
+            <CardBody>
+              <EmptyLine>Nothing is stated two ways for this client.</EmptyLine>
+            </CardBody>
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {items.map((item) => (
+                <li key={item.key} className="px-5 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="flex items-center gap-1.5 text-[13px] font-medium text-text">
+                      {item.label}
+                      <InfoTip label={`The question behind ${item.label}`} align="start">
+                        {item.question}
+                      </InfoTip>
+                    </p>
+                    {item.resolvedValue ? (
+                      <Badge tone="up">Settled as {item.resolvedValue}</Badge>
+                    ) : (
+                      <Badge tone="warn">Unresolved</Badge>
+                    )}
+                  </div>
+                  <ul className="mt-2 space-y-1">
+                    {(item.claims as Claim[]).map((claim, i) => (
+                      <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                        <span className="font-semibold tabular text-text">{claim.value}</span>
+                        <span className="text-text-2">{claim.source}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <DataQualityCard items={quality} span={4} />
+
+        <Card span={12}>
+          <CardHeader
+            title="Metrics with unreconciled targets"
+            subtitle="These metrics still compute; only their target is withheld"
+          />
+          {metrics.length === 0 ? (
+            <CardBody>
+              <EmptyLine>Every configured target is reconciled.</EmptyLine>
+            </CardBody>
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {metrics.map((metric) => (
+                <li
+                  key={metric.key}
+                  className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-5 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-[13px] font-medium text-text">
+                      {metric.label}
+                      <InfoTip label={`Why ${metric.label} has no target drawn`} align="start">
+                        {metric.reconciliationNote}
+                      </InfoTip>
+                    </p>
+                    <p className="mt-0.5 truncate text-[12px] text-text-2">
+                      {metric.reconciliationNote}
+                    </p>
+                  </div>
+                  <Badge tone="warn">No target drawn</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </Grid>
+    </>
   );
 }

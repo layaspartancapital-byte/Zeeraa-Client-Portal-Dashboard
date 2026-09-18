@@ -15,18 +15,19 @@ export default async function SignIn({
   const redirectTo = next && next.startsWith('/') ? next : '/';
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-16">
-      <p className="text-[12px] text-graphite">Zeeraa</p>
-      <h1 className="mt-1 font-display text-[28px] leading-tight text-ink">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-16 sm:px-6">
+      <div className="card p-6 sm:p-8">
+      <p className="text-[13px] font-medium text-text-2">Zeeraa</p>
+      <h1 className="mt-1 text-[22px] font-semibold leading-tight text-text">
         Performance platform
       </h1>
-      <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-graphite">
+      <p className="mt-2 text-[13px] leading-relaxed text-text-2">
         Access is granted per client engagement. Sign in with the address your
         invitation was sent to.
       </p>
 
       {error && (
-        <p className="mt-5 border-l-2 border-shortfall py-1 pl-3 text-[12px] leading-relaxed text-ink">
+        <p className="mt-5 rounded-[8px] border border-[#FECDCA] bg-down-soft px-3 py-2 text-[13px] leading-relaxed text-[#B42318]">
           That sign-in link did not work. Links expire after use and after 24 hours —
           request a new one below.
         </p>
@@ -39,7 +40,7 @@ export default async function SignIn({
           await signIn('resend', { email: String(formData.get('email') ?? ''), redirectTo });
         }}
       >
-        <label htmlFor="email" className="block text-[12px] text-graphite">
+        <label htmlFor="email" className="block text-[13px] font-medium text-text-2">
           Work email
         </label>
         <input
@@ -48,18 +49,18 @@ export default async function SignIn({
           type="email"
           required
           autoComplete="email"
-          className="mt-1.5 w-full rounded-[4px] border border-rule bg-surface px-3 py-2 text-[14px] text-ink"
+          className="mt-1.5 h-9 w-full rounded-[8px] border border-border bg-surface px-3 text-[14px] text-text"
         />
         <button
           type="submit"
-          className="mt-3 w-full rounded-[4px] bg-night px-3 py-2 text-[13px] text-paper transition-opacity hover:opacity-90"
+          className="mt-3 h-9 w-full rounded-[8px] bg-primary px-3 text-[13px] font-semibold text-white transition-colors hover:bg-primary-600"
         >
           Email me a sign-in link
         </button>
       </form>
 
-      <div className="my-6 flex items-center gap-3 text-[11px] text-graphite">
-        <span className="h-px flex-1 bg-rule" />
+      <div className="my-6 flex items-center gap-3 text-[12px] text-text-3">
+        <span className="h-px flex-1 bg-border" />
         or
         <span className="h-px flex-1 bg-rule" />
       </div>
@@ -72,11 +73,12 @@ export default async function SignIn({
       >
         <button
           type="submit"
-          className="w-full rounded-[4px] border border-rule bg-surface px-3 py-2 text-[13px] text-ink transition-colors hover:bg-paper"
+          className="h-9 w-full rounded-[8px] border border-border bg-surface px-3 text-[13px] font-semibold text-text transition-colors hover:bg-canvas"
         >
           Continue with Google
         </button>
       </form>
+      </div>
     </div>
   );
 }
