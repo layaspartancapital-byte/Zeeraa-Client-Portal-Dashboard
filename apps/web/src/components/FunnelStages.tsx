@@ -28,10 +28,19 @@ export function FunnelStages({
   data,
   counts,
   populationLabel,
+  suppressed = [],
 }: {
   data: MonthlyPerformance;
   counts: StageCounts;
   populationLabel: string;
+  /**
+   * Transitions that must carry no rate, each with the reason.
+   *
+   * Comes from a blocked metric whose formula is a stage conversion rate, so
+   * one row retires a figure everywhere it appears rather than on the screen
+   * somebody remembered.
+   */
+  suppressed?: { from: string; to: string; label: string; reason: string }[];
 }) {
   const { stages, stageStatus, qualification } = data;
   // Which stage is the computed one, from configuration rather than the word.
@@ -74,10 +83,11 @@ export function FunnelStages({
    * plausible, which is exactly why the rule cannot be left to arithmetic.
    */
   const notARate = (
-    from: { source?: string },
-    to: { source?: string },
+    from: { key: string; source?: string },
+    to: { key: string; source?: string },
     rate: { numerator: number; denominator: number },
-  ): 'not-drawn-from' | 'over-total' | null => {
+  ): 'suppressed' | 'not-drawn-from' | 'over-total' | null => {
+    if (suppressed.some((t) => t.from === from.key && t.to === to.key)) return 'suppressed';
     if (from.source === 'qualified_leads' && to.source !== 'qualified_leads') {
       return 'not-drawn-from';
     }
@@ -217,6 +227,10 @@ export function FunnelStages({
                       —
                     </span>
                     <InfoTip label="Why there is no rate here" align="center">
+                      {noRateBecause === 'suppressed' ? (
+                        suppressed.find((t) => t.from === stage.key && t.to === next.key)?.reason
+                      ) : (
+                        <>
                       {formatCount(adjacent.numerator)} reached {next.label} against{' '}
                       {formatCount(adjacent.denominator)} at {stage.label}.{' '}
                       {noRateBecause === 'not-drawn-from'
@@ -227,6 +241,8 @@ export function FunnelStages({
                         : `These are not nested populations, so their ratio is not a conversion
                            rate — the stages count different things rather than the same deals at
                            two moments.`}
+                        </>
+                      )}
                     </InfoTip>
                   </>
                 ) : adjacent ? (

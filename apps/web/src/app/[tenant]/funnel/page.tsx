@@ -22,7 +22,7 @@ import { DataQualityCard } from '@/components/DataQualityCard';
 import { StackedBars } from '@/components/charts/Bars';
 import { monthlyPerformance, platformLabel } from '@/lib/reporting';
 import { DeclineCard } from '@/components/DeclineCard';
-import { dataQuality, unreadNotifications, windowBuckets } from '@/lib/dashboard';
+import { dataQuality, loadMetrics, unreadNotifications, windowBuckets } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Funnel' };
@@ -68,14 +68,33 @@ export default async function Funnel({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const [data, quality, unread, buckets] = await Promise.all([
+  const [data, quality, unread, buckets, metrics] = await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
     unreadNotifications(session),
     // `declined` is a stage event but not a configured funnel stage, so it is
     // absent from the stage totals and has to be read from the buckets.
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
+    loadMetrics(session),
   ]);
+
+  /**
+   * Transitions the funnel must not put a rate on, from configuration.
+   *
+   * A blocked *metric* whose formula is a stage conversion rate names the two
+   * stages it spans, so the same row that suppresses the KPI card suppresses
+   * the connector chip between those stages. Otherwise blocking offer rate on
+   * the executive screen would leave the identical figure on this one, which is
+   * how a number survives being retired.
+   */
+  const suppressed = [...metrics.byKey.values()].flatMap((metric) => {
+    const block = metrics.blocked(metric.key);
+    if (!block || metric.formulaKey !== 'stage_conversion_rate') return [];
+    const from = String(metric.formulaArgs.from ?? '');
+    const to = String(metric.formulaArgs.to ?? '');
+    if (!from || !to) return [];
+    return [{ from, to, label: block.label, reason: block.reason }];
+  });
 
   /**
    * Declines per month, for the timing.
@@ -205,6 +224,7 @@ export default async function Funnel({
             data={data}
             counts={population.counts}
             populationLabel={population.label}
+            suppressed={suppressed}
           />
         </Card>
 

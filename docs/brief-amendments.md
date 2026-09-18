@@ -931,3 +931,55 @@ are connector configuration, the qualification bar and the decode dependency
 are `tenant_config` rows, the stage grain is a `funnel_stages` column, and
 `min_rate_denominator` — added because an offer rate computed over one approval
 reported a −70.6% regression — is a config row read by the delta logic.
+
+---
+
+## §8 — Offer rate is blocked, because it was measuring data entry
+
+**Added 18 September 2026**, after a read-only audit of the org prompted by the
+figure looking too high for MCA. It was: 58.8% (67 of 114).
+
+§8 defines offer rate as `stage_conversion_rate('uw_approved', 'offer')` and the
+implementation computes exactly that. The amendment is that in this org those
+two stages are **the same event**, so there is no transition between them for a
+deal to fail.
+
+**Evidence.** For the 112 approved deals that hold a `csbs__Offer__c` record,
+the gap between the transition into `Approved` and the first offer record has a
+median of **0.0 hours**; 110 of 112 fall within an hour, and in 98 cases the
+offer record already exists when the stage changes. The deal is moved to
+Approved *because* a lender offer arrived.
+
+What the rate therefore measured is whether somebody typed a date into
+`Offer_Received_Date_Time__c`. 112 of 115 approved deals hold an offer record;
+57 hold the field. It is a field-completion rate wearing the name of a
+conversion.
+
+**A second, independent defect.** The two populations do not nest: 10 of the 67
+offers in the window belong to deals with no approval event at all. 67/114 is
+58.8%; the nested figure is 57/114, or 50.0%. The extra 8.8 points are deals
+the denominator does not contain.
+
+**And offer is not a state a deal stays in.** Of the 125 deals holding an offer
+record, 88 are currently lost — 55 Declined by Lender, 31 Closed Lost, 2
+Declined in Final — and 21 funded. 46 of the 67 in-window offer deals have a
+decline *after* their last offer. A funnel stage that deals leave backwards is
+not a step in a monotonic sequence, which is recorded separately.
+
+### How it is blocked
+
+A `metric` row in `blocked_dependencies` against `offer_rate`, not a blocked
+stage: both stages are measured, and it is the metric over them that does not
+mean what its name says. That distinction is now expressible —
+`loadMetrics` returns `blocked(key)`, and a metric-level block outranks the
+stage check on the KPI cards.
+
+**One row retires the figure everywhere.** The same 58.8% also rendered as the
+funnel's connector chip between UW approved and Offer. A blocked metric whose
+formula is a stage conversion rate names the two stages it spans, so the funnel
+suppresses that transition from the same row. Blocking a metric on one screen
+and leaving the identical number on another is how a retired figure survives.
+
+**What replaces it** is a submission-level rate from `csbs__Submission__c`:
+offers received over decided submissions, which measures 18.2% across 131
+offered and 590 declined — the figure the deal-level rate was standing in for.

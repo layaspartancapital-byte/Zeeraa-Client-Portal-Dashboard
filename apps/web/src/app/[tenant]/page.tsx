@@ -26,6 +26,7 @@ import { monthlyPerformance } from '@/lib/reporting';
 import {
   covers,
   dataQuality,
+  firstSentence,
   ingestionStart,
   loadMetrics,
   minRateDenominator,
@@ -206,8 +207,22 @@ export default async function ExecutiveView({
   const offerMetric = metrics.byKey.get('offer_rate');
   const offerFrom = String(offerMetric?.formulaArgs.from ?? '');
   const offerTo = String(offerMetric?.formulaArgs.to ?? '');
+  /*
+   * The metric's own block comes first.
+   *
+   * Both stages are measured — the approval transitions are in field history
+   * and the offer timestamps are in a field — so nothing about the stages
+   * suppresses this, and the rate rendered at 58.8%. What it was measuring is
+   * whether somebody typed a date: approval and the first lender offer are the
+   * same event, median 0.0 hours apart. That is a fact about the metric rather
+   * than about either stage, so it is a `metric` row in
+   * `blocked_dependencies`, and it outranks the stage check.
+   */
   const offerBlocked =
-    data.stageStatus[offerFrom]?.blocked ?? data.stageStatus[offerTo]?.blocked ?? null;
+    metrics.blocked('offer_rate') ??
+    data.stageStatus[offerFrom]?.blocked ??
+    data.stageStatus[offerTo]?.blocked ??
+    null;
   const offerRate = (source: typeof data) => {
     const denominator = source.total.stages[offerFrom] ?? 0;
     return denominator === 0 ? null : (source.total.stages[offerTo] ?? 0) / denominator;
@@ -425,7 +440,7 @@ export default async function ExecutiveView({
           }
           notMeasured={
             offerBlocked
-              ? `${offerBlocked.label} has no timestamp in the CRM`
+              ? firstSentence(offerBlocked.reason)
               : 'Nothing reached the earlier stage in this window'
           }
           delta={

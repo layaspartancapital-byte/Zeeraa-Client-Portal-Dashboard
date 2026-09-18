@@ -46,6 +46,22 @@ export type MetricConfig = {
   definition: string | null;
 };
 
+/**
+ * A metric the platform will not render, and why.
+ *
+ * Distinct from a blocked *stage*: a stage is blocked when nobody stamps it,
+ * and every metric over it inherits that. This is the case where the stages
+ * are both measured and the metric over them still does not mean what its name
+ * says — so it has to be suppressible on its own, by a row, with its own
+ * reason. Offer rate is the first instance.
+ */
+export type MetricBlock = {
+  label: string;
+  reason: string;
+  needed: string | null;
+  since: Date;
+};
+
 export type Metrics = {
   byKey: Map<string, MetricConfig>;
   northStar: MetricConfig | null;
@@ -63,6 +79,8 @@ export type Metrics = {
    * than drawing none.
    */
   target: (key: string) => number | null;
+  /** The metric-level block on this metric, or null where there is none. */
+  blocked: (key: string) => MetricBlock | null;
 };
 
 /**
@@ -90,13 +108,22 @@ export async function minRateDenominator(session: TenantSession): Promise<number
 }
 
 export async function loadMetrics(session: TenantSession): Promise<Metrics> {
-  const rows = await queryTenant(session, (tx) =>
-    tx
+  const [rows, blocks] = await queryTenant(session, async (tx) => [
+    await tx
       .select()
       .from(schema.tenantMetrics)
       .where(eq(schema.tenantMetrics.tenantId, session.tenant.id))
       .orderBy(asc(schema.tenantMetrics.key)),
-  );
+    await tx
+      .select()
+      .from(schema.blockedDependencies)
+      .where(
+        and(
+          eq(schema.blockedDependencies.tenantId, session.tenant.id),
+          eq(schema.blockedDependencies.subjectKind, 'metric'),
+        ),
+      ),
+  ]);
 
   const configs = rows.map(
     (row): MetricConfig => ({
@@ -114,6 +141,17 @@ export async function loadMetrics(session: TenantSession): Promise<Metrics> {
   );
 
   const byKey = new Map(configs.map((c) => [c.key, c]));
+  const blockedByMetric = new Map<string, MetricBlock>(
+    blocks.map((row) => [
+      row.subjectKey,
+      {
+        label: row.label,
+        reason: row.reason,
+        needed: row.needed,
+        since: row.blockedSince,
+      },
+    ]),
+  );
 
   return {
     byKey,
@@ -124,6 +162,7 @@ export async function loadMetrics(session: TenantSession): Promise<Metrics> {
       if (!metric || metric.needsReconciliation) return null;
       return metric.target;
     },
+    blocked: (key) => blockedByMetric.get(key) ?? null,
   };
 }
 
@@ -589,7 +628,7 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
  * turns "Opportunity.csbs__Decline_Reason__c does not exist in the org" into
  * "Opportunity." Falls back to the whole text when there is no break.
  */
-function firstSentence(text: string): string {
+export function firstSentence(text: string): string {
   const trimmed = text.trim();
   const match = /^.*?[.!?](?=\s|$)/s.exec(trimmed);
   const sentence = match?.[0] ?? trimmed;

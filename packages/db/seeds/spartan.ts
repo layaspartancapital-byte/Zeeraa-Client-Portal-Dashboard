@@ -611,6 +611,36 @@ export const spartan: TenantSeed = {
         '175 answer in a band that spans the $10,000 bar.',
     },
     {
+      // Not a blocked stage. Both ends are measured: the approval transitions
+      // are in field history and the offer timestamps are in a field. The
+      // metric over them is what does not mean what its name says, so it is
+      // suppressed on its own.
+      key: 'offer_rate_definition',
+      subjectKind: 'metric',
+      subjectKey: 'offer_rate',
+      label: 'Offer rate',
+      reason:
+        'Offer rate as defined measures manual completion of ' +
+        'Offer_Received_Date_Time__c rather than a conversion. Approval and the ' +
+        'first lender offer are the same event — the median gap between the ' +
+        'transition into Approved and the first Offer record is 0.0 hours, and ' +
+        'in 98 of 112 cases the offer record exists before the stage changes — ' +
+        'so there is no step between them a deal can fail. The rate also ' +
+        'divided populations that do not nest: 10 of the 67 offers in the ' +
+        'window belong to deals with no approval event at all.',
+      needed:
+        'A submission-level offer rate, from csbs__Submission__c: offers ' +
+        'received over decided submissions, per lender. Measured at 18.2% ' +
+        'across 131 offered and 590 declined submissions, which is the figure ' +
+        'the deal-level rate was standing in for.',
+      evidence:
+        'Measured 18 September 2026. 112 of 115 approved deals hold a ' +
+        'csbs__Offer__c record but only 57 hold the date field, so the field ' +
+        'is absent about half the time. Of the 125 deals holding an offer ' +
+        'record, 88 are currently lost and 21 funded — offer is not a stage a ' +
+        'deal stays in.',
+    },
+    {
       key: 'revenue_band_breakdown',
       subjectKind: 'breakdown',
       subjectKey: 'revenue_band',
