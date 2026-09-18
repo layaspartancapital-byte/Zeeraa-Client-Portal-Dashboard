@@ -86,7 +86,17 @@ export type SyncResult = {
  */
 export async function runSalesforceSync(
   context: SyncContext,
-  options: { trigger?: string; now?: Date } = {},
+  /**
+   * `since` overrides the watermark this run reads from.
+   *
+   * Left unset, the window starts at the last *succeeded* run, which is the
+   * right default for the nightly and for a manual catch-up. The hourly
+   * incremental endpoint sets it explicitly, because a tenant whose sync
+   * reports `partial` for a permanently absent field would otherwise never
+   * advance its watermark and every "incremental" run would be a full pull.
+   * See `runIncrementalSync`.
+   */
+  options: { trigger?: string; now?: Date; since?: Date } = {},
 ): Promise<SyncResult> {
   const now = options.now ?? new Date();
 
@@ -139,7 +149,7 @@ export async function runSalesforceSync(
         result.status = 'partial';
       }
 
-      const since = await lastSuccessfulWatermark(tx, context.tenantId);
+      const since = options.since ?? (await lastSuccessfulWatermark(tx, context.tenantId));
       const exclusion = context.leadExclusion ?? NO_LEAD_EXCLUSION;
 
       // --- Leads -------------------------------------------------------------

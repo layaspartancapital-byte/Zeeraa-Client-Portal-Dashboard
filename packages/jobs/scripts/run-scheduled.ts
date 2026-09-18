@@ -4,18 +4,21 @@
  *   pnpm --filter @zeeraa/jobs run-scheduled nightly   # ads: 90-day window
  *   pnpm --filter @zeeraa/jobs run-scheduled hourly    # Salesforce incremental
  *
- * The Inngest functions in `src/inngest/functions.ts` are the real schedule and
- * carry the durable steps a long backfill needs. They only run once the app is
- * deployed and registered with Inngest, and until that happens nothing runs at
- * all — which for `click_view` is not a delay but a permanent loss. Google
- * serves ninety days of click data and then stops, so a night nobody syncs is a
- * day of attribution that no later run recovers.
+ * Routine hourly syncing is Vercel Cron's job now — `/api/cron/sync`, which
+ * runs `runIncrementalSync` inside a 60-second function: two days of paid media
+ * and Salesforce since its last completed read.
  *
- * So this exists to be driven by cron on any box that can reach the database
- * and the platforms, including a laptop, from tonight. It calls exactly the same
- * sync functions the Inngest handlers call, so the two cannot drift: when the
- * deployment lands, this stops being needed rather than needing to be kept in
- * step.
+ * This script is the other half, and it stays. It re-pulls the full ninety-day
+ * window, which does not fit in a serverless function: ninety days of
+ * `click_view` is ninety sequential requests. That matters because the window
+ * expires — Google serves ninety days of click data and then stops, so a day
+ * nobody captured is a day of attribution no later run recovers. Run this after
+ * a long outage, after first connecting a platform, and whenever the hourly
+ * endpoint reports that it skipped Salesforce because the change window was too
+ * wide to attempt.
+ *
+ * It calls exactly the same sync functions the endpoint calls, so the two
+ * cannot drift.
  *
  * Failures are per tenant and per platform. One client's revoked credential
  * must not stop another client's window from being captured, so every unit is

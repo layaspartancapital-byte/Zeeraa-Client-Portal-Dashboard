@@ -1,88 +1,64 @@
-import { and, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
-import { schema } from '@zeeraa/db';
 import { canAdministerTenant } from '@zeeraa/core';
-import { inngest } from '@zeeraa/jobs';
-import { queryTenant, requireRole } from '@/lib/tenant';
+import { runIncrementalSync, type SyncPlatform } from '@zeeraa/jobs';
+import { requireRole } from '@/lib/tenant';
 
 /**
- * "Sync now" (§7, `sync.manual`).
+ * "Sync now", for `zeeraa_admin`.
  *
- * Sends the same event the nightly schedule sends, so a manual run is the
- * scheduled run triggered early rather than a second code path that can drift
- * from it. The durable steps a 90-day click backfill needs live in the Inngest
- * function; this route only asks for it.
+ * Runs the same `runIncrementalSync` the hourly cron runs, scoped to one tenant
+ * and optionally one platform, and waits for it so the button can report what
+ * actually happened. It used to send an Inngest event and answer immediately,
+ * which meant the button reported that it had queued something and never
+ * reported whether the sync worked — and when the Inngest endpoint was
+ * misconfigured, nothing reported anything at all.
  *
- * `zeeraa_admin` only, asserted here rather than relied on from the button
- * being hidden: the URL is typeable.
+ * Deliberately the incremental path and not the backfill. A 90-day re-pull
+ * does not fit in a serverless function; `scripts/run-scheduled.ts` and the
+ * per-platform scripts remain the way to do that, from a machine with no
+ * request timeout.
  */
-const EVENTS: Record<string, string> = {
-  google_ads: 'google-ads/sync.requested',
-  salesforce: 'salesforce/sync.requested',
-};
+const PLATFORMS: SyncPlatform[] = ['google_ads', 'salesforce'];
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> },
 ): Promise<Response> {
   const { tenant: slug } = await params;
+  // Asserted here rather than relied on from the button being hidden: the URL
+  // is typeable, and this one spends the client's API quota.
   const session = await requireRole(slug, canAdministerTenant);
 
-  const platform = request.nextUrl.searchParams.get('platform') ?? '';
-  const event = EVENTS[platform];
-  if (!event) {
+  const requested = request.nextUrl.searchParams.get('platform');
+  if (requested && !PLATFORMS.includes(requested as SyncPlatform)) {
     return Response.json(
-      { ok: false, error: `No connector for ${platform || 'an unnamed platform'}.` },
+      { ok: false, error: `No connector for "${requested}".` },
       { status: 400 },
     );
   }
 
-  // The connection is read inside the tenant context, so a connection id from
-  // another tenant resolves to nothing rather than to somebody else's row.
-  const [connection] = await queryTenant(session, (tx) =>
-    tx
-      .select({ id: schema.connections.id, status: schema.connections.status })
-      .from(schema.connections)
-      .where(
-        and(
-          eq(schema.connections.tenantId, session.tenant.id),
-          eq(schema.connections.platform, platform),
-        ),
-      )
-      .limit(1),
-  );
+  const result = await runIncrementalSync({
+    tenantId: session.tenant.id,
+    platforms: requested ? [requested as SyncPlatform] : undefined,
+    trigger: 'manual',
+  });
 
-  if (!connection) {
+  if (result.outcomes.length === 0) {
     return Response.json(
-      { ok: false, error: `${platform} is not configured for this client.` },
+      {
+        ...result,
+        ok: false,
+        error: requested
+          ? `${requested} is not configured for this client.`
+          : 'No platform is configured for this client.',
+      },
       { status: 404 },
     );
   }
 
-  try {
-    await inngest.send({
-      name: event,
-      data: { tenantId: session.tenant.id, connectionId: connection.id, trigger: 'manual' },
-    });
-  } catch (error) {
-    // Says what happened and what to do next, without apologising: until the
-    // app is registered with Inngest there is nothing to receive the event, and
-    // `run-scheduled` is the path that works today.
-    return Response.json(
-      {
-        ok: false,
-        error:
-          'The sync queue did not accept the request. Until this deployment is registered ' +
-          'with Inngest, run `pnpm --filter @zeeraa/jobs run-scheduled nightly` on a box ' +
-          'that can reach the platforms.',
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      { status: 502 },
-    );
-  }
-
-  return Response.json({ ok: true, queued: platform });
+  return Response.json(result, { status: result.ok ? 200 : 207 });
 }
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;

@@ -16,7 +16,6 @@
     "@zeeraa/db": "workspace:*",
     "@zeeraa/jobs": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "inngest": "^4.20.0",
     "lucide-react": "^1.47.0",
     "next": "^16.3.5",
     "next-auth": "5.0.0-beta.32",

@@ -665,3 +665,93 @@ run it.** 0002 had to change so a *fresh* database can be built on Neon at all;
 `0008_policy_helpers_without_parameter_set.sql` restates it so an
 *already-migrated* database receives it. Every statement in both is idempotent,
 so a fresh database applying them in sequence lands in the same place.
+
+---
+
+## §7 — routine syncing runs on Vercel Cron, not Inngest
+
+**Superseded 18 September 2026.**
+
+§7 put ingestion on Inngest for a concrete reason, quoted from the brief:
+
+> Vercel functions have a hard timeout. Meta's Insights API is
+> submit-job-then-poll with waits measured in minutes, and a 90-day first
+> backfill across six platforms will exceed any of them.
+
+That reasoning is sound and is **not** what changed. What changed is the
+recognition that it applies to the *backfill*, not to routine syncing — and that
+paying an Inngest dependency for the routine path bought nothing while costing a
+deployment step that was never completed. `/api/inngest` returned
+`In cloud mode but no signing key found` in production, so nothing was syncing
+on any schedule at all.
+
+### The rule now
+
+**Hourly incremental sync on Vercel Cron.** `vercel.json` schedules
+`/api/cron/sync` at `0 * * * *`. It calls `runIncrementalSync` in
+`packages/jobs/src/incremental.ts`, which is sized for a 60-second function and
+measured at 5–7 seconds against Spartan:
+
+| | |
+| --- | --- |
+| Google Ads | 2-day window for spend *and* `click_view` |
+| Salesforce | records modified since its last completed read |
+| Observed duration | 5.4s (43 campaigns, 12 metric rows, 2/2 click days) |
+
+Two days rather than one is the smallest window that absorbs a restatement of
+yesterday plus a missed run. It upserts exactly as the ninety-day window does,
+so nothing double-counts — the "never append to `daily_metrics`" rule is what
+makes a short window safe.
+
+**The backfill stays a script.** `scripts/run-scheduled.ts` and the per-platform
+scripts re-pull the full ninety days from a machine with no request timeout.
+Ninety days of `click_view` is ninety sequential requests; it does not fit in a
+function and never will. When Meta arrives, its submit-then-poll flow belongs
+there too, or behind something durable — §7's argument, in its proper scope.
+
+### Salesforce is skipped rather than attempted when the window is too wide
+
+A first run, or a run after a long outage, is a full pull of tens of thousands
+of records. Starting one inside a 60-second function would time out, leave a
+`running` row in the ledger, and be retried on the hour forever. So the endpoint
+reads the change window first and, if it is missing or older than 26 hours,
+reports `skipped` with the script to run. `skipped` is a first-class outcome in
+the response and in the UI, not a soft failure.
+
+**The watermark had to be corrected for this to be incremental at all.**
+`runSalesforceSync` derived its window from `lastSuccessfulWatermark`, which
+requires `status = 'succeeded'`. Spartan's Salesforce sync reports `partial`
+permanently, for one field that does not exist in the org — so the watermark
+never advanced, and every "incremental" run would have been a full pull of
+54,000 leads. `lastCompletedWatermark` accepts `succeeded` *or* `partial`,
+because `partial` here means a named field was dropped from the query while the
+records in the window were still fully enumerated. `failed` is still excluded: a
+run that threw may have read nothing, and advancing past it would skip records
+permanently. The existing helper is untouched, so the nightly and the manual
+scripts behave exactly as before.
+
+### A latent SOQL bug this surfaced
+
+`buildBackfillQuery` interpolated `ConvertedDate >= ${since.toISOString()}`.
+`Lead.ConvertedDate` is a Date, not a DateTime, and SOQL rejects a timestamp
+literal against it — a 400, not a retryable failure. It only fired when a caller
+passed `since`, which until now only happened behind an explicit `--since` flag.
+The hourly endpoint passes it every run, so it failed every run until fixed to a
+bare `YYYY-MM-DD`. Truncating to the day widens the window by up to 24 hours,
+which is the safe direction for an idempotent upsert. Now pinned by
+`packages/jobs/test/backfill-query.test.ts`.
+
+### Authentication
+
+`CRON_SECRET` as a bearer token, compared with `timingSafeEqual` and
+length-guarded. A deployment without `CRON_SECRET` set returns 503 and runs
+nothing — an unauthenticated sync endpoint that works is worse than one that
+does not, because it lets a stranger spend the client's API quota. An
+unauthorised request gets 404 rather than 401: an endpoint that must not be
+reachable should not confirm that it exists.
+
+The "Sync now" button does not use the bearer. It posts to
+`/api/sync/{tenant}`, which is session-authenticated and `zeeraa_admin`-gated
+via `requireRole`, and which calls the same `runIncrementalSync` scoped to one
+tenant. It waits for the result and reports the real per-platform outcome,
+duration and remedy, instead of reporting that an event was queued.

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "comment": "Incremental sync: 2 days of paid media, Salesforce since its last completed read. The 90-day backfill is a manual script — it does not fit in a function.",
+      "path": "/api/cron/sync",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

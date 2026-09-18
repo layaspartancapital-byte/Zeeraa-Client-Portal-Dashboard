@@ -128,7 +128,15 @@ export function buildBackfillQuery(
   const conditions = ['IsConverted = true', 'ConvertedOpportunityId != null'];
   // At least one click ID present — no point paging through leads that carry none.
   conditions.push(`(${clickIdFields.map((f) => `${f} != null`).join(' OR ')})`);
-  if (since) conditions.push(`ConvertedDate >= ${since.toISOString()}`);
+  // `ConvertedDate` is a Date, not a DateTime, so the literal has to be a bare
+  // `YYYY-MM-DD` — a full ISO timestamp is rejected as malformed SOQL with a
+  // 400, which is why this only ever failed when a caller passed `since`. The
+  // hourly incremental passes it on every run, so it failed every run.
+  //
+  // Truncating to the day widens the window by up to 24 hours. That is the safe
+  // direction: the upsert is idempotent, and a narrower window would miss
+  // conversions recorded earlier on the same day.
+  if (since) conditions.push(`ConvertedDate >= ${since.toISOString().slice(0, 10)}`);
 
   return (
     `SELECT ${fields.join(', ')} FROM Lead WHERE ${conditions.join(' AND ')} ` +

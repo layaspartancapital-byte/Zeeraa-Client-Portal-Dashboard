@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { schema, type Database } from '@zeeraa/db';
 import type { ExclusionCounts } from '@zeeraa/connectors';
 
@@ -55,6 +55,40 @@ export async function closeSyncRun(
  * modified while a sync was in flight would otherwise fall into the gap between
  * the two and never be picked up.
  */
+/**
+ * The last run that finished reading, whether or not every mapped field
+ * existed.
+ *
+ * Distinct from `lastSuccessfulWatermark`, which requires `succeeded` and is
+ * the right default for the nightly. `partial` in this codebase means a named
+ * field was absent from the org and dropped from the query — the records in
+ * the window were still fully enumerated — so for deciding "what changed since
+ * we last looked" it is a valid starting point, and treating it as invalid is
+ * what turns an hourly incremental into an hourly full pull.
+ *
+ * `failed` is excluded: a run that threw may have read nothing, and advancing
+ * past it would skip records permanently.
+ */
+export async function lastCompletedWatermark(
+  tx: Database,
+  tenantId: string,
+  platform = 'salesforce',
+): Promise<Date | null> {
+  const [row] = await tx
+    .select({ startedAt: schema.syncRuns.startedAt })
+    .from(schema.syncRuns)
+    .where(
+      and(
+        eq(schema.syncRuns.tenantId, tenantId),
+        eq(schema.syncRuns.platform, platform),
+        inArray(schema.syncRuns.status, ['succeeded', 'partial']),
+      ),
+    )
+    .orderBy(desc(schema.syncRuns.startedAt))
+    .limit(1);
+  return row?.startedAt ?? null;
+}
+
 export async function lastSuccessfulWatermark(
   tx: Database,
   tenantId: string,

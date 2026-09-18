@@ -111,14 +111,15 @@ export function getJobsDb(): Database {
  *
  * `zeeraa_maint` is a member of `zeeraa_maintenance`, so a transaction that
  * opens the gate with `withMaintenance` can cross tenants. It is not the owner
- * — §5 forbids the application the owner connection, and the Inngest handler
+ * — §5 forbids the application the owner connection, and the cron endpoint
  * runs inside the application.
  *
  * There is exactly one legitimate use of this from a running application: the
- * scheduler deciding which tenants to sync tonight. That is orchestration, not
- * ingestion, and it reads two uuids per connection and nothing else. Every byte
- * of actual sync work goes through `withJobTenant` on the jobs role, which
- * cannot reach a second tenant however badly a connector behaves.
+ * hourly `/api/cron/sync` endpoint deciding which tenants to sync. That is
+ * orchestration, not ingestion, and it reads two uuids per connection and
+ * nothing else. Every byte of actual sync work goes through `withJobTenant` on
+ * the jobs role, which cannot reach a second tenant however badly a connector
+ * behaves.
  */
 let maintSql: ReturnType<typeof postgres> | undefined;
 let maintDb: Database | undefined;

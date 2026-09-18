@@ -1,15 +1,20 @@
 /**
  * The sync schedule (§7).
  *
- * Declared here as data in phase 1; the Inngest functions that implement it
- * arrive with the connectors they drive.
+ * Declared here as data: what runs, how often, and what window it re-pulls.
  *
- * These run on Inngest rather than Vercel cron functions for one concrete
- * reason: Vercel functions have a hard timeout, and Meta's Insights API is
- * submit-job-then-poll with waits measured in minutes. A 90-day first backfill
- * across six platforms passes in testing on a small account and fails on real
- * volume. Inngest's durable sleep steps survive that; a serverless function
- * does not.
+ * **Routine syncing runs on Vercel Cron**, hourly, through
+ * `/api/cron/sync` → `runIncrementalSync`. It is sized for a 60-second
+ * function: two days of paid media, and Salesforce since its last completed
+ * read.
+ *
+ * The backfill does not run there and cannot. Ninety days of `click_view` is
+ * ninety sequential requests, and Meta's Insights API is submit-job-then-poll
+ * with waits measured in minutes — both exceed any serverless timeout, which is
+ * the reason §7 specified durable steps in the first place. That reasoning still
+ * holds for the backfill; it is `scripts/run-scheduled.ts` and the per-platform
+ * scripts, run from a machine with no request timeout. See
+ * `docs/brief-amendments.md`.
  */
 export type JobSchedule = {
   id: string;

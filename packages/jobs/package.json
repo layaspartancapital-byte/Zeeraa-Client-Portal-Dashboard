@@ -22,7 +22,6 @@
     "@zeeraa/connectors": "workspace:*",
     "@zeeraa/core": "workspace:*",
     "@zeeraa/db": "workspace:*",
-    "inngest": "^4.20.0",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

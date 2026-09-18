@@ -122,6 +122,19 @@ killed, and two new mutations cover the mirror's own failure modes. Full
 reasoning in `docs/brief-amendments.md`, "§5 and §12 — the policy helpers no
 longer elevate".
 
+**Routine syncing is on Vercel Cron as of 18 September 2026.** `vercel.json`
+schedules `/api/cron/sync` hourly; it runs the incremental path only — two days
+of paid media, Salesforce since its last completed read — and measures 5–7
+seconds against Spartan, inside the 60s function limit. Protected by a
+`CRON_SECRET` bearer check that fails closed. The Inngest serve route and
+module are gone, along with the dependency; the ninety-day backfill remains
+`scripts/run-scheduled.ts` and the per-platform scripts, which is where §7's
+durable-steps argument actually applies. See `docs/brief-amendments.md`,
+"§7 — routine syncing runs on Vercel Cron, not Inngest".
+
+"Sync now" now calls the same incremental path per tenant and reports the real
+outcome in the UI rather than that an event was queued.
+
 **Still to do before the app serves traffic.**
 
 1. Set the Vercel environment from the connection strings and secrets generated
@@ -133,8 +146,9 @@ longer elevate".
    Production starts empty and the first sync fills it. The 90-day
    `click_view` window is the one thing with an expiry, so the first
    `run-scheduled nightly` against Neon should not wait.
-3. `NEXTAUTH_URL`, the OAuth and Resend credentials, `INNGEST_*` and
-   `BLOB_READ_WRITE_TOKEN` are still unset for production.
+3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503).
+   `NEXTAUTH_URL`, the OAuth and Resend credentials and `BLOB_READ_WRITE_TOKEN`
+   are still unset for production. `INNGEST_*` are no longer used by anything.
 
 ## Blocked
 
