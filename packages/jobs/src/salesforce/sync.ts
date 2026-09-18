@@ -281,12 +281,38 @@ export async function runSalesforceSync(
         result.merged += counts.merged;
       }
 
+      /**
+       * Why this run was not `succeeded`, recorded rather than discarded.
+       *
+       * `missingFields` and `blocked` were computed and then thrown away, so
+       * the only explanation for a `partial` run lived in the console output of
+       * whoever ran it. The connection panel had nothing to read and invented
+       * "Connection unavailable" — which is false: the connection works, one
+       * mapped field does not exist in the org. The reason belongs on the run,
+       * where it is per-run, self-correcting, and visible without a redeploy.
+       */
+      const shortfall =
+        result.status === 'succeeded'
+          ? null
+          : [
+              result.blocked.length > 0
+                ? `Blocking mapping problems: ${result.blocked.join('; ')}.`
+                : null,
+              result.missingFields.length > 0
+                ? `Synced, with ${result.missingFields.length} mapped ${
+                    result.missingFields.length === 1 ? 'field' : 'fields'
+                  } absent from the org and dropped from the query: ${result.missingFields.join(', ')}.`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' ') || null;
+
       await closeSyncRun(
         tx,
         syncRunId,
         result.status,
         totalRows(result),
-        null,
+        shortfall,
         result.exclusions,
       );
       return result;

@@ -402,7 +402,7 @@ const STATUS_ORDER: Record<DataQualityItem['status'], number> = {
  * the agency failed.
  */
 export async function dataQuality(session: TenantSession): Promise<DataQualityItem[]> {
-  const [blocked, connections, metrics] = await Promise.all([
+  const [blocked, connections, metrics, runs] = await Promise.all([
     queryTenant(session, (tx) =>
       tx
         .select()
@@ -429,7 +429,47 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
         )
         .orderBy(asc(schema.tenantMetrics.key)),
     ),
+
+    /**
+     * The latest finished run per platform *and trigger*, for its reason.
+     *
+     * Partitioned by trigger, not by platform alone. One platform runs several
+     * distinct jobs — the Salesforce sync and the converted-Lead click-ID
+     * backfill both write `platform = 'salesforce'` — and the backfill
+     * succeeding says nothing about a field the sync found missing. Ranking by
+     * platform alone let the newer, clean backfill mask the sync's reason.
+     *
+     * The connection row holds a *dependency*, something the client has to do.
+     * A run's `error` holds what the last attempt actually found, which is the
+     * only thing that stays true after `set-credentials` clears the dependency.
+     */
+    queryTenant(session, (tx) =>
+      tx
+        .select({
+          platform: schema.syncRuns.platform,
+          error: schema.syncRuns.error,
+          rank: sql<number>`row_number() over (
+            partition by ${schema.syncRuns.platform}, ${schema.syncRuns.trigger}
+            order by ${schema.syncRuns.finishedAt} desc
+          )`.as('rank'),
+        })
+        .from(schema.syncRuns)
+        .where(
+          and(
+            eq(schema.syncRuns.tenantId, session.tenant.id),
+            isNotNull(schema.syncRuns.finishedAt),
+          ),
+        ),
+    ),
   ]);
+
+  // Every current job outcome that has something to say, per platform.
+  const runError = new Map<string, string>();
+  for (const row of runs) {
+    if (Number(row.rank) !== 1 || !row.error) continue;
+    const existing = runError.get(row.platform);
+    runError.set(row.platform, existing ? `${existing} ${row.error}` : row.error);
+  }
 
   const items: DataQualityItem[] = [
     ...blocked.map(
@@ -446,16 +486,38 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
     ),
     ...connections
       .filter((c) => c.status === 'waiting_on_client' || c.status === 'degraded')
-      .map(
-        (row): DataQualityItem => ({
+      .map((row): DataQualityItem => {
+        /**
+         * Never invent a reason.
+         *
+         * This said "Connection unavailable" whenever nothing was stored, which
+         * for Salesforce was a fabrication: the connection authenticates and
+         * syncs, and one mapped field is absent from the org — the opposite of
+         * unavailable. The seed had put the real reason on the connection row
+         * and `set-credentials` then cleared it, correctly, because the
+         * credential was the dependency it was tracking. That left a `degraded`
+         * status with no explanation and this string filled the hole.
+         *
+         * Order of authority: the dependency on the connection row, then what
+         * the last run of each job actually found, then an explicit admission
+         * that nothing recorded a reason.
+         */
+        const recorded = row.blockedReason ?? row.lastError ?? runError.get(row.platform) ?? null;
+        const state = row.status.replace(/_/g, ' ');
+        return {
           key: `connection:${row.platform}`,
           name: platformLabel(row.platform),
           status: row.status === 'degraded' ? 'degraded' : 'waiting_on_client',
-          summary: firstSentence(row.blockedReason ?? row.lastError ?? 'Connection unavailable.'),
-          detail: row.blockedReason ?? row.lastError ?? '',
+          summary: recorded
+            ? firstSentence(recorded)
+            : `Marked ${state}, with no reason recorded against it.`,
+          detail:
+            recorded ??
+            `The connection is marked ${state}, but neither the connection row nor the ` +
+              'most recent run of any of its jobs records why. Run the sync to refresh it.',
           since: row.blockedSince ?? null,
-        }),
-      ),
+        };
+      }),
     ...metrics.map(
       (row): DataQualityItem => ({
         key: `metric:${row.key}`,
@@ -502,6 +564,12 @@ export type ConnectionCard = {
   lastSyncAt: Date | null;
   lastSyncStatus: string | null;
   rowsWritten: number | null;
+  /**
+   * What is actually wrong, in order of authority: the dependency recorded on
+   * the connection, then the last run's own explanation of why it was not
+   * `succeeded`. Null means nothing is known to be wrong — which is not the
+   * same as "unavailable", and must not be rendered as though it were.
+   */
   detail: string | null;
   since: Date | null;
 };
@@ -518,14 +586,19 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
       // The most recent finished run per platform, whatever its outcome: a run
       // that failed an hour ago is more useful than one that succeeded a week
       // ago, and hiding it would make a broken connector look idle.
+      //
+      // `trigger` comes back too, because the reason has to be read per job —
+      // see the note in `dataQuality`.
       tx
         .select({
           platform: schema.syncRuns.platform,
+          trigger: schema.syncRuns.trigger,
           finishedAt: schema.syncRuns.finishedAt,
           status: schema.syncRuns.status,
           rowsWritten: schema.syncRuns.rowsWritten,
+          error: schema.syncRuns.error,
           rank: sql<number>`row_number() over (
-            partition by ${schema.syncRuns.platform}
+            partition by ${schema.syncRuns.platform}, ${schema.syncRuns.trigger}
             order by ${schema.syncRuns.finishedAt} desc
           )`.as('rank'),
         })
@@ -538,9 +611,22 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
         ),
     ]);
 
-    const latest = new Map(
-      runs.filter((r) => Number(r.rank) === 1).map((r) => [r.platform, r]),
-    );
+    const current = runs.filter((r) => Number(r.rank) === 1);
+    // Newest job per platform, for "last sync" and "rows ingested".
+    const latest = new Map<string, (typeof current)[number]>();
+    for (const row of current) {
+      const held = latest.get(row.platform);
+      if (!held || (row.finishedAt?.getTime() ?? 0) > (held.finishedAt?.getTime() ?? 0)) {
+        latest.set(row.platform, row);
+      }
+    }
+    // Reasons across every current job, so a clean backfill cannot mask them.
+    const reasons = new Map<string, string>();
+    for (const row of current) {
+      if (!row.error) continue;
+      const held = reasons.get(row.platform);
+      reasons.set(row.platform, held ? `${held} ${row.error}` : row.error);
+    }
 
     return connections.map((row): ConnectionCard => {
       const run = latest.get(row.platform);
@@ -552,7 +638,7 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
         lastSyncAt: run?.finishedAt ?? null,
         lastSyncStatus: run?.status ?? null,
         rowsWritten: run ? Number(run.rowsWritten) : null,
-        detail: row.blockedReason ?? row.lastError ?? null,
+        detail: row.blockedReason ?? row.lastError ?? reasons.get(row.platform) ?? null,
         since: row.blockedSince ?? null,
       };
     });
