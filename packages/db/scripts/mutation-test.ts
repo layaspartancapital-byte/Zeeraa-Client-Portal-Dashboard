@@ -116,6 +116,21 @@ const MUTATIONS: Mutation[] = [
             $x$`,
   },
   {
+    name: 'membership-index-readable-by-app',
+    description: 'Grant the application read access to the authorisation mirror',
+    // The mirror answers every policy in the schema. A SELECT grant on it hands
+    // `zeeraa_app` every tenant's membership list in one query, which is the
+    // leak the absent grant exists to prevent.
+    sql: 'grant select on app.membership_index to zeeraa_app',
+  },
+  {
+    name: 'membership-index-drift',
+    description: 'Let the mirror disagree with memberships',
+    // Authorisation reads a denormalised copy, so a copy that drifts is a
+    // wrong access decision. Dropping the sync trigger is how it would happen.
+    sql: 'drop trigger memberships_index_sync on public.memberships',
+  },
+  {
     name: 'job-role-unscoped',
     description: 'Let the ingestion role reach every tenant instead of one',
     sql: `drop policy job_tenant_isolation on public.opportunities;

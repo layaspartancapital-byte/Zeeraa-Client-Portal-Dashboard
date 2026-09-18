@@ -158,40 +158,108 @@ describe('the application role', () => {
 });
 
 /**
- * How the SECURITY DEFINER helpers elevate, and how they stop.
+ * How the SECURITY DEFINER helpers read authorisation, and what they may not do.
  *
- * They need the maintenance flag to read `memberships` while FORCE binds their
- * owner. The mechanism matters: the flag is attached as a function SET clause,
- * which Postgres reverts when the function exits. Calling `set_config()` in the
- * body would instead leave the flag set for the remainder of the transaction,
- * and any statement after the call could ride it — a caller would get one
- * elevated statement for free simply by touching a policy.
+ * They used to carry `SET app.maintenance = 'on'` so they could read
+ * `memberships` while FORCE bound their owner. That mechanism is gone — a
+ * managed Postgres will not grant SET on a custom parameter, see
+ * `0002_force_rls.sql` — and they now read `app.membership_index`, which needs
+ * no elevation because no application role holds a privilege on it.
+ *
+ * So the invariant is stronger than it was: these functions must not elevate at
+ * all. Not as a SET clause, and above all not with `set_config()` in the body,
+ * which would leave the flag set for the remainder of the transaction and hand
+ * a caller one elevated statement for free simply by touching a policy.
  */
 describe('the definer helpers', () => {
-  it('carry the flag as a SET clause and never set it in the body', async () => {
+  it('never elevate — no maintenance flag, and no set_config in the body', async () => {
     const rows = await owner.db.execute<{
       proname: string;
       hasflag: boolean;
       bodysets: boolean;
+      pinssearchpath: boolean;
     }>(sql`
       select p.proname,
-             coalesce(p.proconfig, '{}') @> array['app.maintenance=on'] as hasflag,
-             p.prosrc ilike '%set_config%' as bodysets
+             coalesce(p.proconfig, '{}')::text[] @> array['app.maintenance=on'] as hasflag,
+             p.prosrc ilike '%set_config%' as bodysets,
+             exists (
+               select 1 from unnest(coalesce(p.proconfig, '{}')) c
+               where c like 'search_path=%'
+             ) as pinssearchpath
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'app' and p.prosecdef
     `);
 
     expect(rows.length).toBeGreaterThan(0);
     for (const fn of rows) {
+      // The elevation is gone, not merely scoped.
       expect({ name: fn.proname, hasflag: fn.hasflag }).toEqual({
         name: fn.proname,
-        hasflag: true,
+        hasflag: false,
       });
       expect({ name: fn.proname, bodysets: fn.bodysets }).toEqual({
         name: fn.proname,
         bodysets: false,
       });
+      // A SECURITY DEFINER function without a pinned search_path is a
+      // privilege-escalation primitive regardless of anything else.
+      expect({ name: fn.proname, pinssearchpath: fn.pinssearchpath }).toEqual({
+        name: fn.proname,
+        pinssearchpath: true,
+      });
     }
+  });
+
+  /**
+   * The new mechanism's own failure modes, which the old one did not have.
+   *
+   * The helpers answer from a mirror, so two things have to hold that were
+   * previously true by construction: the mirror must be unreachable by the
+   * application, and it must agree with `memberships`. Both are tested here
+   * because "authorisation reads a denormalised copy" is only safe while both
+   * do.
+   */
+  it('answer from a mirror no application role can reach', async () => {
+    const rows = await owner.db.execute<{ role: string; readable: boolean; writable: boolean }>(sql`
+      select r.rolname as role,
+             has_table_privilege(r.rolname, 'app.membership_index', 'select') as readable,
+             has_table_privilege(r.rolname, 'app.membership_index', 'insert') as writable
+      from pg_roles r
+      where r.rolname in ('zeeraa_app', 'zeeraa_auth', 'zeeraa_jobs_runner')
+      order by r.rolname
+    `);
+
+    expect(rows.length).toBe(3);
+    for (const row of rows) {
+      expect({ role: row.role, readable: row.readable, writable: row.writable }).toEqual({
+        role: row.role,
+        readable: false,
+        writable: false,
+      });
+    }
+  });
+
+  it('answer from a mirror that agrees with memberships', async () => {
+    // Through the gate: FORCE binds the owner on `public.memberships`, so
+    // comparing the two sides needs the same door a backfill uses.
+    const [row] = await withMaintenance(owner.db, (tx) =>
+      tx.execute<{ drift: number }>(sql`
+      select (
+        select count(*) from (
+          select tenant_id, user_id, role from public.memberships
+          except
+          select tenant_id, user_id, role from app.membership_index
+        ) missing
+      ) + (
+        select count(*) from (
+          select tenant_id, user_id, role from app.membership_index
+          except
+          select tenant_id, user_id, role from public.memberships
+        ) extra
+      ) as drift
+    `),
+    );
+    expect(Number(row?.drift)).toBe(0);
   });
 
   it('leaves the flag off the moment each one returns', async () => {

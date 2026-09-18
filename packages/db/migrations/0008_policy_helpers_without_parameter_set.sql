@@ -1,68 +1,27 @@
 -- ===========================================================================
--- Hardening pass before the Salesforce work.
+-- The policy helpers, without a custom-parameter SET clause.
 --
--- Four changes, each closing a path the first cut left open:
+-- This is the same change `0002_force_rls.sql` now carries, restated as a
+-- forward migration. Both files are needed and neither is redundant:
 --
---   1. FORCE ROW LEVEL SECURITY, so the table owner is bound by the same
---      policies as the application — a backfill script or a psql session is
---      no longer outside the model.
---   2. An explicit maintenance gate, because (1) would otherwise make seeds
---      and backfills impossible rather than merely deliberate.
---   3. The Zeeraa admin cross-tenant path now requires a real membership row
---      per tenant. It previously granted every tenant to anyone holding the
---      role anywhere, with no row to audit.
---   4. The membership cardinality trigger becomes SECURITY DEFINER. As an
---      invoker-rights function it read `memberships` under the caller's own
---      policies, so it could not see the row it was meant to find — a Zeeraa
---      admin in tenant A could attach one of tenant B's client users to
---      tenant A, giving that user two memberships and a read on both.
+--   * a *fresh* database runs 0002, and 0002 had to stop carrying
+--     `SET app.maintenance = 'on'` or it could not run on a managed Postgres
+--     at all — only a true superuser may grant SET on a custom parameter, and
+--     Neon has none (`permission denied for parameter app.maintenance`);
+--   * an *already migrated* database never re-runs 0002, because drizzle's
+--     ledger records the journal timestamp rather than a hash of the file, so
+--     editing it is inert. Those databases get the change here.
 --
--- Amended 18 September 2026. The elevation mechanism changed; the guarantees
--- did not. The helpers used to carry `SET app.maintenance = 'on'` so that they
--- could read `memberships` while FORCE bound their owner. Attaching a SET
--- clause for a *custom* parameter requires SET privilege on that parameter,
--- and only a true superuser can grant it — which a managed Postgres does not
--- give you. On Neon, as `neondb_owner` and a member of `neon_superuser`:
+-- Every statement is idempotent, so a fresh database applying both in sequence
+-- lands in exactly the same place.
 --
---     grant set on parameter app.maintenance to zeeraa_owner;
---     ERROR:  permission denied for parameter app.maintenance
---
--- so this migration could not run there at all. The helpers now read
--- `app.membership_index` — an authorisation-only mirror of (tenant, user, role)
--- that lives in the `app` schema, carries no grant to any application role, and
--- therefore needs no elevation to read. What did *not* change: FORCE still
--- binds the owner on every table in `public`, `maintenance_access` is still
--- conditional on the flag, no role anywhere gains BYPASSRLS, and the helpers
--- still return scalars rather than rows. See docs/brief-amendments.md.
+-- The guarantees are unchanged and are asserted in `test/force-rls.test.ts`:
+-- FORCE still binds the owner on every table in `public`,
+-- `maintenance_access` is still conditional on the flag, no role gains
+-- BYPASSRLS, the helpers still return scalars rather than rows, and the mirror
+-- they read is unreachable by every application role. Two mutations in
+-- `scripts/mutation-test.ts` cover the mirror's own failure modes.
 -- ===========================================================================
-
--- --------------------------------------------------------------------------
--- 1. The maintenance gate.
---
--- `zeeraa_maintenance` is a NOLOGIN role granted to whoever owns the tables,
--- and to `zeeraa_maint` for backfills and psql sessions. Membership alone
--- grants nothing: the policies below also require `app.maintenance` to be set
--- on, so an ordinary session by the owner still sees no tenant rows. Turning
--- it on is a deliberate act, per transaction, and it is greppable.
---
--- `zeeraa_app` is not a member, so setting the GUC from the application buys
--- nothing — the policy does not apply to it at all.
--- --------------------------------------------------------------------------
-do $$
-begin
-  if not exists (select 1 from pg_roles where rolname = 'zeeraa_maintenance') then
-    create role zeeraa_maintenance nologin;
-  end if;
-end $$;
---> statement-breakpoint
-
-create or replace function app.is_maintenance() returns boolean
-  language sql stable
-  as $$ select coalesce(current_setting('app.maintenance', true), 'off') = 'on' $$;
---> statement-breakpoint
-
-grant execute on function app.is_maintenance() to public;
---> statement-breakpoint
 
 -- --------------------------------------------------------------------------
 -- 1b. The membership index.
@@ -217,12 +176,7 @@ create or replace function app.effective_role() returns text
 --> statement-breakpoint
 
 -- --------------------------------------------------------------------------
--- 3. The cardinality trigger, with the rights it always needed.
---
--- The rule it enforces is a premise of the isolation model, so it has to see
--- every membership a user holds — including ones in tenants the caller cannot
--- read. Running as invoker it saw only the caller's own tenant, which made it
--- trivially bypassable from the application.
+-- The cardinality trigger, reading the index for the same reason.
 -- --------------------------------------------------------------------------
 create or replace function app.enforce_membership_cardinality() returns trigger
   language plpgsql security definer
@@ -262,43 +216,3 @@ create or replace function app.enforce_membership_cardinality() returns trigger
   end;
   $$;
 --> statement-breakpoint
-
--- --------------------------------------------------------------------------
--- 4. FORCE, and the maintenance policy that keeps the door usable.
---
--- Note what FORCE cannot do: a superuser bypasses row level security
--- regardless. On a managed Postgres the owner is not a superuser and this
--- binds; on a local Docker image where the owner is `postgres`, it does not.
--- That is why migrations and seeds connect as `zeeraa_owner` rather than as
--- `postgres` — so local development exercises the same constraint production
--- does, instead of passing for a reason that will not hold.
--- --------------------------------------------------------------------------
-do $$
-declare
-  t text;
-  all_tables text[] := array[
-    'tenants','memberships','connections',
-    'ad_accounts','campaigns','daily_metrics','organic_metrics','ai_visibility',
-    'leads','opportunities','stage_events','attribution',
-    'funnel_stages','tenant_metrics','tenant_config','baselines','milestones',
-    'deliverable_commitments','deliverable_records','sla_commitments','sla_events',
-    'asset_types','assets','asset_comments','mentions','notifications','activity_log',
-    'sync_runs','data_sources','reconciliation_items',
-    'users','accounts','sessions','verification_tokens'
-  ];
-begin
-  foreach t in array all_tables loop
-    execute format('alter table public.%I force row level security', t);
-    -- Editing this migration changes its hash, so an existing database will
-    -- re-apply it. Everything else here is idempotent; CREATE POLICY is not.
-    execute format('drop policy if exists maintenance_access on public.%I', t);
-    execute format($f$
-      create policy maintenance_access on public.%I
-        as permissive for all to zeeraa_maintenance
-        using (app.is_maintenance())
-        with check (app.is_maintenance())
-    $f$, t);
-    execute format(
-      'grant select, insert, update, delete on public.%I to zeeraa_maintenance', t);
-  end loop;
-end $$;

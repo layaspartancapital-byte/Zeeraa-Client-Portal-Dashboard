@@ -35,9 +35,30 @@ const passwords = {
 
 const sql = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
 
+/**
+ * A single-quoted SQL literal.
+ *
+ * Role DDL cannot be parameterised, so the password is interpolated — and a
+ * password containing an apostrophe would previously have ended the literal
+ * early and executed whatever followed. Quotes are doubled, which is correct
+ * under `standard_conforming_strings` (on by default since 9.1), and anything
+ * outside the generated alphabet is refused rather than escaped, because a
+ * backslash or a newline in role DDL is never something we meant.
+ */
+function literal(value: string): string {
+  if (!/^[A-Za-z0-9!*\-._~]+$/.test(value)) {
+    throw new Error(
+      'Role passwords must use only letters, digits and !*-._~ — these are ' +
+        'interpolated into DDL and into connection URLs, and anything else is ' +
+        'either a quoting hazard or needs percent-encoding.',
+    );
+  }
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
 async function ensureLoginRole(name: keyof typeof passwords) {
   const [existing] = await sql`select 1 from pg_roles where rolname = ${name}`;
-  const clause = `login nosuperuser nobypassrls password '${passwords[name]}'`;
+  const clause = `login nosuperuser nobypassrls password ${literal(passwords[name])}`;
   await sql.unsafe(existing ? `alter role ${name} with ${clause}` : `create role ${name} with ${clause}`);
   console.log(`  ${name}: ${existing ? 'updated' : 'created'}`);
 }
@@ -73,14 +94,43 @@ try {
   );
   await sql.unsafe(`grant create on database "${db}" to zeeraa_owner`);
 
-  // The SECURITY DEFINER helpers carry `SET app.maintenance = 'on'` so they can
-  // read `memberships` while FORCE binds the owner. Attaching a SET clause for a
-  // custom parameter needs an explicit grant when the owner is not a superuser —
-  // which it deliberately is not. Postgres 15+.
-  await sql.unsafe('grant set on parameter app.maintenance to zeeraa_owner');
+  /**
+   * Best-effort, and no longer load-bearing.
+   *
+   * Only a true superuser may grant privileges on a configuration parameter,
+   * and a managed Postgres gives you none — Neon's `neon_superuser` is refused
+   * with `permission denied for parameter app.maintenance`. The policy helpers
+   * therefore no longer carry a `SET app.maintenance` clause; they read
+   * `app.membership_index` instead, which needs no elevation at all. See
+   * `0002_force_rls.sql`.
+   *
+   * The grant is still attempted where it is possible, because a session-level
+   * `SET app.maintenance` by a maintenance member is unaffected by it either
+   * way and a future migration may want the option.
+   */
+  try {
+    await sql.unsafe('grant set on parameter app.maintenance to zeeraa_owner');
+    console.log('  app.maintenance: SET granted to zeeraa_owner');
+  } catch (error) {
+    console.log(
+      `  app.maintenance: SET not grantable here (${(error as Error).message.split('\n')[0]}) — not required`,
+    );
+  }
 
-  // The owner must own the schema in order to create tables in it, and to own
-  // the SECURITY DEFINER helper functions.
+  /**
+   * The owner must own the schema in order to create tables in it, and to own
+   * the SECURITY DEFINER helper functions.
+   *
+   * `ALTER SCHEMA ... OWNER TO` requires the caller to be able to SET ROLE to
+   * the new owner. On Postgres 16+ a non-superuser CREATEROLE creator gets
+   * `admin_option` on the roles it creates but *not* `set_option`, so this
+   * fails on a managed Postgres with "must be able to SET ROLE". Granting the
+   * role to ourselves with SET closes that gap; on a cluster where the caller
+   * is a superuser it is a harmless no-op.
+   */
+  await sql
+    .unsafe('grant zeeraa_owner to current_user with set true')
+    .catch(() => undefined);
   await sql.unsafe('alter schema public owner to zeeraa_owner');
   await sql.unsafe(
     'grant usage on schema public to zeeraa_app, zeeraa_auth, zeeraa_maint, zeeraa_jobs_runner',

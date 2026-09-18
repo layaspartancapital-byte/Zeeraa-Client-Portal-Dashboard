@@ -70,11 +70,27 @@ commit history and get it wrong.
 - A new tenant-scoped table must, in its own migration, grant to `zeeraa_app`,
   `enable` and `force` row level security, and create both its
   `tenant_isolation` and `maintenance_access` policies.
-- Functions that read `memberships` from inside a policy must be SECURITY
-  DEFINER with `SET app.maintenance = 'on'`. As invoker-rights functions they
-  are subject to the very policies they are evaluating, and read nothing.
-- After changing any policy, run `scripts/mutation-test.ts`. If a mutation
-  survives, add the test before shipping.
+- Functions that answer authorisation from inside a policy must be SECURITY
+  DEFINER with a pinned `search_path`, and must read `app.membership_index`
+  rather than `public.memberships`. As invoker-rights functions they would be
+  subject to the very policies they are evaluating and read nothing; reading
+  `memberships` as the definer would need elevation, and **the only elevation
+  this database can express is a session-level flag, which a policy helper must
+  never set** — the side effect would outlive the policy evaluation.
+  `app.membership_index` is a synchronously-maintained mirror of
+  (tenant, user, role) in the `app` schema with no grant to any application
+  role, so it needs no elevation at all. Do not put a `SET app.maintenance`
+  clause on a function: only a true superuser can grant SET on a custom
+  parameter and a managed Postgres has none, so it does not deploy. See
+  `docs/brief-amendments.md`, "§5 and §12 — the policy helpers no longer
+  elevate".
+- After changing any policy, run `scripts/mutation-test.ts` — against a
+  throwaway database, because it drops the schema it points at. If a mutation
+  survives, add the test before shipping; if you add a control, add the
+  mutation that breaks it.
+- A migration edit is inert on any database that has already run it: drizzle's
+  ledger records the journal timestamp, not a hash of the file. A change that
+  existing environments need has to be a new migration as well.
 
 ## Design
 

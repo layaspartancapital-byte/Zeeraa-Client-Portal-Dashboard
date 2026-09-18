@@ -86,6 +86,56 @@ deals) and needs every channel ingested before it means anything. With only
 Google Ads live, a blended figure would be the Google Ads figure wearing a
 broader name.
 
+## Production database — Neon, up as of 18 September 2026
+
+`neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
+empty: roles bootstrapped, 9 migrations applied, tenants seeded, preflight green.
+
+| | |
+| --- | --- |
+| Tables in `public` | 38, **all** with RLS enabled and FORCE |
+| `public` schema owner | `zeeraa_owner` (NOSUPERUSER, NOBYPASSRLS) |
+| Roles with BYPASSRLS or SUPERUSER | none of the seven `zeeraa*` roles |
+| `app.membership_index` | 2 rows, zero drift against `memberships` |
+| Memberships | `hello@zeeraa.com` zeeraa_admin · `lshah@spartancapitalgroup.com` client_admin |
+| `assertRlsEnforced` | ok |
+| `assertTransactionLocalContext` | ok |
+
+Neon's sample table `playing_with_neon` (20 rows) was dropped — `public` has to
+be empty of anything without a policy or `assertRlsEnforced` refuses to serve.
+
+**Endpoints.** The runtime roles use the pooled host
+(`...-pooler...`, PgBouncer transaction mode, which is what
+`assertTransactionLocalContext` requires and what `client.ts`'s
+`prepare: false` is for). The owner and maintenance roles use the direct host,
+because migrations take advisory locks. Put
+`pnpm --filter @zeeraa/db preflight` in the Vercel build command so a wrong
+endpoint breaks the deploy rather than quietly disabling isolation.
+
+**The isolation model had to change to deploy at all.** The SECURITY DEFINER
+policy helpers used to carry `SET app.maintenance = 'on'`; only a true
+superuser can grant SET on a custom parameter, and Neon has none, so migration
+0002 could not run. The helpers now read `app.membership_index`, a mirror in the
+`app` schema with no grant to any application role. FORCE, the maintenance gate
+and the absence of BYPASSRLS are all unchanged, 16 of 16 mutations are still
+killed, and two new mutations cover the mirror's own failure modes. Full
+reasoning in `docs/brief-amendments.md`, "§5 and §12 — the policy helpers no
+longer elevate".
+
+**Still to do before the app serves traffic.**
+
+1. Set the Vercel environment from the connection strings and secrets generated
+   during bring-up. `ENCRYPTION_KEY` is new, so the Google Ads and Salesforce
+   credentials do not decrypt against it — re-run
+   `pnpm --filter @zeeraa/db set-credentials spartan google_ads` and
+   `... salesforce` against Neon.
+2. Nothing is ingested there yet: 0 daily_metrics, 0 leads, 0 opportunities.
+   Production starts empty and the first sync fills it. The 90-day
+   `click_view` window is the one thing with an expiry, so the first
+   `run-scheduled nightly` against Neon should not wait.
+3. `NEXTAUTH_URL`, the OAuth and Resend credentials, `INNGEST_*` and
+   `BLOB_READ_WRITE_TOKEN` are still unset for production.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),

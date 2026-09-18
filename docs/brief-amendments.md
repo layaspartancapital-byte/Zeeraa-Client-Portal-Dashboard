@@ -565,3 +565,103 @@ that the data does not support.
   the activity rail are built and read from `assets`, `asset_comments` and
   `asset_types`; uploads, versioning, mentions and the approval flow are phase 5,
   so the board renders with real (zero) counts and invents no cards.
+
+---
+
+## §5 and §12 — the policy helpers no longer elevate
+
+**Superseded 18 September 2026.**
+
+`0002_force_rls.sql` gave the SECURITY DEFINER policy helpers a function-level
+`SET app.maintenance = 'on'` so they could read `memberships` while FORCE bound
+their owner. That mechanism cannot be deployed to a managed Postgres.
+
+Attaching a `SET` clause for a *custom* configuration parameter requires `SET`
+privilege on that parameter, and only a true superuser may grant it. Neon gives
+you none — `neondb_owner`, a member of `neon_superuser`, is refused:
+
+```
+grant set on parameter app.maintenance to zeeraa_owner;
+ERROR:  permission denied for parameter app.maintenance
+```
+
+Verified against the live instance, not inferred. The same refusal applies to
+`ALTER DATABASE ... SET` and `ALTER ROLE ... SET`, so the parameter cannot be
+pre-declared into existence either. Migration 0002 therefore aborted partway and
+the chain never completed. A recognised parameter is unaffected: `set
+search_path` in a function definition works, and a *session-level*
+`SET app.maintenance` works for any role, which is why `withMaintenance()` is
+untouched.
+
+### The rule now
+
+The helpers read **`app.membership_index`** — an authorisation-only mirror of
+`(tenant_id, user_id, role)` — and carry no parameter SET clause at all.
+
+- It lives in `app`, not `public`. It is not tenant data, and it is outside the
+  sweep `assertRlsEnforced` runs over `public`.
+- **No application role holds any privilege on it.** `zeeraa_app`,
+  `zeeraa_auth` and `zeeraa_jobs_runner` cannot read or write it. Privileges are
+  checked before policies, so this is the primary control, not the policy.
+- Row level security is enabled on it with no permissive policy, behind that, as
+  defence in depth.
+- It is maintained synchronously by SECURITY DEFINER triggers on
+  `public.memberships`, in the writer's own transaction — including an
+  `AFTER TRUNCATE` statement trigger, which is the one write a row-level trigger
+  never sees. Access therefore remains answerable from `memberships` and
+  revocable there, which §5 requires.
+
+### Why not the two obvious alternatives
+
+Both are pre-declared regressions by `scripts/mutation-test.ts`, which is the
+codebase's own statement that they were considered and rejected:
+
+- **`set_config()` in the function body** is the mutation
+  `definer-elevates-in-body`. The flag would outlive the policy evaluation, so
+  any statement later in the transaction could ride it — a caller would get an
+  elevated statement for free simply by touching a policy.
+- **Dropping FORCE** so the owner reads `memberships` directly is the mutation
+  `unforce-opportunities`. It puts a psql session back outside the model.
+
+A third option — owning the helpers with a `BYPASSRLS NOLOGIN` role, which Neon
+does permit — was rejected on the merits rather than by the test suite. It
+requires `zeeraa_owner` to hold `SET` on a role that ignores every policy in the
+schema, which is one `SET ROLE` away from exactly the blanket, unauditable
+cross-tenant access the first §5 amendment was written to eliminate, and it does
+not grep.
+
+### What did not change
+
+FORCE still binds the owner on all 38 tables in `public`. `maintenance_access`
+is still conditional on the flag. No role anywhere gains `BYPASSRLS` or
+`SUPERUSER`. The helpers are still SECURITY DEFINER, still pin `search_path`,
+and still return a boolean or a role name rather than rows.
+
+### The test that changed, and the ones that were added
+
+`test/force-rls.test.ts` asserted that every SECURITY DEFINER function in `app`
+carried `app.maintenance=on` in `proconfig`. That assertion encoded the
+mechanism, not the guarantee, and under the new design it would require an
+elevation that has deliberately been removed. It is replaced by a strictly
+stronger one: no such function carries the flag **and** none calls `set_config`
+in its body **and** every one pins `search_path`.
+
+Because the new mechanism has a failure mode the old one did not — a mirror can
+drift, or be granted away — two tests and two mutations were added rather than
+taking the change on trust:
+
+| test | mutation it is killed by |
+| --- | --- |
+| the mirror is unreachable by every application role | `membership-index-readable-by-app` |
+| the mirror agrees with `memberships`, with zero drift | `membership-index-drift` |
+
+16 of 16 mutations are killed.
+
+### Both 0002 and 0008 carry this, and neither is redundant
+
+Drizzle's ledger records each migration's journal timestamp rather than a hash of
+its contents, so **editing a migration is inert on any database that has already
+run it.** 0002 had to change so a *fresh* database can be built on Neon at all;
+`0008_policy_helpers_without_parameter_set.sql` restates it so an
+*already-migrated* database receives it. Every statement in both is idempotent,
+so a fresh database applying them in sequence lands in the same place.
