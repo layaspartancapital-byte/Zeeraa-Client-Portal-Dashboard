@@ -7,6 +7,7 @@ import type {
   OpportunityRow,
   Reconciliation,
   StageEventRow,
+  SubmissionRow,
 } from "@zeeraa/connectors";
 
 /**
@@ -436,4 +437,71 @@ export async function applyReconciliation(
   }
 
   return { deleted, merged, clickIdsMoved };
+}
+
+/**
+ * Lender submissions.
+ *
+ * Upsert on (tenant, submission id), like everything else here: the sync
+ * re-reads a trailing window every run, and a submission's whole purpose is to
+ * change status after it is created. Appending would multiply one lender's
+ * answer by the number of runs that saw it and turn a 18.2% offer rate into
+ * whatever the cadence happened to be.
+ *
+ * Every column is overwritten from the incoming row, `outcome` included. That
+ * is correct here and deliberately unlike the MQL verdict, which is coalesced:
+ * a verdict can be absent because the bar was not run, whereas a submission's
+ * outcome is always classified — an unmapped status classifies as `undecided`
+ * with its reason, rather than as nothing.
+ */
+export async function upsertSubmissions(
+  tx: Database,
+  tenantId: string,
+  rows: readonly SubmissionRow[],
+  syncRunId: string,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+
+  const deduped = byUpsertKey(rows, (row) => row.externalId);
+
+  return inBatches(deduped, batchSize(13), async (batch) => {
+    const written = await tx
+      .insert(schema.submissions)
+      .values(
+        batch.map((row) => ({
+          tenantId,
+          externalId: row.externalId,
+          opportunityExternalId: row.opportunityExternalId,
+          lenderExternalId: row.lenderExternalId,
+          lenderName: row.lenderName,
+          status: row.status,
+          outcome: row.outcome,
+          undecidedReason: row.undecidedReason,
+          declineReasons: row.declineReasons,
+          submittedAt: row.submittedAt,
+          statusChangedAt: row.statusChangedAt,
+          syncRunId,
+          updatedAt: new Date(),
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [schema.submissions.tenantId, schema.submissions.externalId],
+        set: {
+          opportunityExternalId: sql`excluded.opportunity_external_id`,
+          lenderExternalId: sql`excluded.lender_external_id`,
+          lenderName: sql`excluded.lender_name`,
+          status: sql`excluded.status`,
+          outcome: sql`excluded.outcome`,
+          undecidedReason: sql`excluded.undecided_reason`,
+          declineReasons: sql`excluded.decline_reasons`,
+          submittedAt: sql`excluded.submitted_at`,
+          statusChangedAt: sql`excluded.status_changed_at`,
+          syncRunId: sql`excluded.sync_run_id`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
+      .returning({ id: schema.submissions.id });
+
+    return written.length;
+  });
 }

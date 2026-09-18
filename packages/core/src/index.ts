@@ -7,3 +7,4 @@ export * from './bands';
 export * from './qualification';
 export * from './funnel';
 export * from './attribution';
+export * from './submissions';

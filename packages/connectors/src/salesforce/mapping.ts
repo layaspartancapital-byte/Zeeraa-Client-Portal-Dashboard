@@ -1,4 +1,5 @@
 import type { SalesforceClient } from './client';
+import type { SubmissionMapping } from './submissions';
 
 /**
  * Which Salesforce field holds which of our concepts.
@@ -73,6 +74,16 @@ export type SalesforceFieldMapping = {
    * rather than observed.
    */
   derivedStages: Record<string, 'qualification_minimums' | 'opportunity_created'>;
+  /**
+   * The lender-grain submission object, where the client has one.
+   *
+   * Optional because it is a property of the client's broker package rather
+   * than of the product. A tenant without it has no lender grain, which is a
+   * supported state: the submission metrics render as a blocked dependency and
+   * nothing else changes. Its own type lives in `submissions.ts` with the
+   * module that reads it.
+   */
+  submissions?: SubmissionMapping;
 };
 
 export type FieldIssue = {

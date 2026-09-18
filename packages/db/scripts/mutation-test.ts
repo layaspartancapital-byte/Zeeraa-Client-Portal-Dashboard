@@ -30,6 +30,19 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop policy tenant_isolation on public.opportunities',
   },
   {
+    // The newest tenant-scoped table, and the first one holding a third
+    // party's name. A submission says which lender declined which merchant, so
+    // a leak here is commercially sensitive in a way a click id is not.
+    name: 'drop-submissions-policy',
+    description: 'Drop the tenant_isolation policy on submissions',
+    sql: 'drop policy tenant_isolation on public.submissions',
+  },
+  {
+    name: 'unforce-submissions',
+    description: 'Drop FORCE on submissions, leaving the owner outside its policies',
+    sql: 'alter table public.submissions no force row level security',
+  },
+  {
     name: 'disable-rls-opportunities',
     description: 'Disable row level security on opportunities entirely',
     sql: 'alter table public.opportunities disable row level security',

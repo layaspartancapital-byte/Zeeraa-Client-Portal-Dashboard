@@ -29,6 +29,7 @@ export function FunnelStages({
   counts,
   populationLabel,
   suppressed = [],
+  maxLeakage,
 }: {
   data: MonthlyPerformance;
   counts: StageCounts;
@@ -41,8 +42,13 @@ export function FunnelStages({
    * somebody remembered.
    */
   suppressed?: { from: string; to: string; label: string; reason: string }[];
+  /**
+   * The share of a later stage that may have skipped the earlier one before
+   * the ratio stops being a conversion rate. From configuration.
+   */
+  maxLeakage: number;
 }) {
-  const { stages, stageStatus, qualification } = data;
+  const { stages, stageStatus, qualification, progression } = data;
   // Which stage is the computed one, from configuration rather than the word.
   const mqlStageKey = stages.find((st) => st.key === 'mql')?.key ?? null;
   const reach: StageReach[] = stages.map((stage) => ({
@@ -86,10 +92,26 @@ export function FunnelStages({
     from: { key: string; source?: string },
     to: { key: string; source?: string },
     rate: { numerator: number; denominator: number },
-  ): 'suppressed' | 'not-drawn-from' | 'over-total' | null => {
+  ): 'suppressed' | 'not-drawn-from' | 'not-nested' | 'over-total' | null => {
     if (suppressed.some((t) => t.from === from.key && t.to === to.key)) return 'suppressed';
     if (from.source === 'qualified_leads' && to.source !== 'qualified_leads') {
       return 'not-drawn-from';
+    }
+    /*
+     * Nesting, measured rather than assumed.
+     *
+     * The funnel's left-to-right order asserts that everything at the later
+     * stage came through the earlier one. `progression` checks that against the
+     * records, and here it does not hold: 10 of the 67 deals with an offer have
+     * no approval event at all. A rate over a denominator that is missing part
+     * of its numerator is not a conversion rate, however plausible the
+     * percentage looks — and this is the check that would have caught the offer
+     * rate without anybody noticing the figure was high.
+     */
+    const step = progression[to.key];
+    if (step && step.previous === from.key && step.reached > 0) {
+      const leaked = (step.reached - step.alsoPrevious) / step.reached;
+      if (leaked > maxLeakage) return 'not-nested';
     }
     if (rate.denominator !== 0 && rate.numerator > rate.denominator) return 'over-total';
     return null;
@@ -126,6 +148,11 @@ export function FunnelStages({
         const bridge = next && !bothMeasured ? bridgeFor(i) : null;
         const crossesGrain = next ? grainOf(stage.source) !== grainOf(next.source) : false;
         const noRateBecause = next && adjacent ? notARate(stage, next, adjacent) : null;
+        // Deals at the next stage with no event at this one, where this stage
+        // is the one the funnel says they came through.
+        const step = next ? progression[next.key] : undefined;
+        const leaked =
+          step && next && step.previous === stage.key ? step.reached - step.alsoPrevious : 0;
 
         return (
           <div key={stage.key} className="flex min-w-0 flex-1 basis-[132px] items-stretch">
@@ -168,6 +195,29 @@ export function FunnelStages({
                     : 'opportunities'}
                 {stage.isOptimizationTarget && ' · target'}
               </p>
+
+              {/*
+                Deals that reached this stage and were then lost.
+                A funnel drawn left to right cannot show a deal going
+                backwards, and here most of them do: 46 of the 67 deals with an
+                offer were declined after their last offer, and reading the
+                Offer column as a pipeline would overstate what is live by
+                threefold. So the regression is stated on the stage it happened
+                to, rather than left for somebody to discover in the CRM.
+              */}
+              {!blocked && (progression[stage.key]?.laterLost ?? 0) > 0 && (
+                <p className="mt-1 flex items-center gap-1 text-[12px] leading-tight text-text-3">
+                  <span className="tabular">
+                    {formatCount(progression[stage.key]!.laterLost)} later declined
+                  </span>
+                  <InfoTip label="What later declined means" align="start">
+                    {formatCount(progression[stage.key]!.laterLost)} of the{' '}
+                    {formatCount(progression[stage.key]!.reached)} deals reaching {stage.label} in
+                    this window have a decline recorded after it. They are counted here because
+                    they did reach the stage; they are not still in it.
+                  </InfoTip>
+                </p>
+              )}
 
               {/*
                 A computed stage never renders as a bare count.
@@ -233,7 +283,16 @@ export function FunnelStages({
                         <>
                       {formatCount(adjacent.numerator)} reached {next.label} against{' '}
                       {formatCount(adjacent.denominator)} at {stage.label}.{' '}
-                      {noRateBecause === 'not-drawn-from'
+                      {noRateBecause === 'not-nested'
+                        ? `${formatCount(
+                            (progression[next.key]?.reached ?? 0) -
+                              (progression[next.key]?.alsoPrevious ?? 0),
+                          )} of the ${formatCount(
+                            progression[next.key]?.reached ?? 0,
+                          )} deals reaching ${next.label} never reached ${stage.label} at all, so
+                           the later population is not drawn from the earlier one and their ratio
+                           is not a conversion rate.`
+                        : noRateBecause === 'not-drawn-from'
                         ? `${stage.label} is computed from what a lead reported, not a gate it
                            passes through — a lead that misses the bar can still reach
                            ${next.label}. So ${next.label} is not drawn from ${stage.label}, and
@@ -255,6 +314,21 @@ export function FunnelStages({
                       <InfoTip label="This rate crosses a grain boundary" align="center">
                         This rate divides opportunities by inbound leads. It is a different kind of
                         statement from a rate inside one grain, and the two are not comparable.
+                      </InfoTip>
+                    )}
+                    {/*
+                      Leakage small enough to keep the rate, stated anyway. The
+                      figure is the same statement it would be without these
+                      records; a reader reconciling it against the CRM still
+                      needs to know they exist.
+                    */}
+                    {!crossesGrain && leaked > 0 && (
+                      <InfoTip label="What this rate leaves out" align="center">
+                        {formatCount(leaked)} of the {formatCount(progression[next.key]!.reached)}{' '}
+                        deals reaching {next.label} have no {stage.label} event, so the numerator
+                        holds {leaked === 1 ? 'one deal' : `${formatCount(leaked)} deals`} the
+                        denominator does not. Below the configured tolerance, so the rate is shown
+                        rather than withheld.
                       </InfoTip>
                     )}
                   </>

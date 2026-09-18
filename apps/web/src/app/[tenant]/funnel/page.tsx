@@ -20,9 +20,16 @@ import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { StackedBars } from '@/components/charts/Bars';
-import { monthlyPerformance, platformLabel } from '@/lib/reporting';
+import { monthlyPerformance, platformLabel, submissionReport } from '@/lib/reporting';
 import { DeclineCard } from '@/components/DeclineCard';
-import { dataQuality, loadMetrics, unreadNotifications, windowBuckets } from '@/lib/dashboard';
+import { LenderOutcomes } from '@/components/LenderOutcomes';
+import {
+  dataQuality,
+  loadMetrics,
+  maxRateLeakage,
+  unreadNotifications,
+  windowBuckets,
+} from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Funnel' };
@@ -68,7 +75,8 @@ export default async function Funnel({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const [data, quality, unread, buckets, metrics] = await Promise.all([
+  const [data, quality, unread, buckets, metrics, submissions, leakageTolerance] =
+    await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
     unreadNotifications(session),
@@ -76,6 +84,8 @@ export default async function Funnel({
     // absent from the stage totals and has to be read from the buckets.
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
     loadMetrics(session),
+    submissionReport(session, range),
+    maxRateLeakage(session),
   ]);
 
   /**
@@ -111,7 +121,7 @@ export default async function Funnel({
     value: b.crmIngested ? (b.stages.declined ?? 0) : null,
     provisional: b.provisional,
   }));
-  const declineReason = quality.find((q) => q.key === 'blocked:decline_reason_breakdown') ?? null;
+  const declineReason = quality.find((q) => q.key === 'blocked:decline_reason_deal_grain') ?? null;
 
   const populations = [
     { key: 'all', label: 'All sources', counts: data.total.stages },
@@ -225,6 +235,7 @@ export default async function Funnel({
             counts={population.counts}
             populationLabel={population.label}
             suppressed={suppressed}
+            maxLeakage={leakageTolerance}
           />
         </Card>
 
@@ -267,10 +278,13 @@ export default async function Funnel({
             events={data.declines.events}
             range={range}
             reason={declineReason}
+            submissions={submissions}
           />
         </div>
 
         <DataQualityCard items={quality} span={4} />
+
+        <LenderOutcomes report={submissions} span={12} />
 
         <Card span={12}>
           <CardHeader

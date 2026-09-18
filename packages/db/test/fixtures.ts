@@ -122,6 +122,31 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
     { tenantId: b.id, platform: 'google_ads', date: '2026-08-01', spend: '9999.0000' },
   ]);
 
+  // A submission names a third party's decision about a client's merchant, so
+  // a leak here is commercially sensitive in a way a spend figure is not:
+  // tenant A would learn which lenders tenant B uses and what they decline.
+  await db.insert(schema.submissions).values([
+    {
+      tenantId: a.id,
+      externalId: 'A-SUB-1',
+      opportunityExternalId: 'A-OPP-1',
+      lenderName: 'Lender A',
+      status: 'Declined',
+      outcome: 'declined',
+      declineReasons: ['Bankruptcy'],
+      submittedAt: new Date('2026-08-01T12:00:00Z'),
+    },
+    {
+      tenantId: b.id,
+      externalId: 'B-SUB-1',
+      opportunityExternalId: 'B-OPP-1',
+      lenderName: 'Lender B',
+      status: 'Offer(s) Received',
+      outcome: 'offered',
+      submittedAt: new Date('2026-08-01T12:00:00Z'),
+    },
+  ]);
+
   return {
     tenantA: a.id,
     tenantB: b.id,

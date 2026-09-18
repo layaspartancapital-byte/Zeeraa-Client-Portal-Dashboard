@@ -1,7 +1,9 @@
 import { and, desc, eq } from 'drizzle-orm';
 import {
   buildStageHistoryQuery,
+  buildSubmissionQuery,
   extractStageHistoryEvents,
+  normalizeSubmissions,
   buildIncrementalQuery,
   countLeadClassification,
   extractStageEvents,
@@ -31,6 +33,7 @@ import {
   upsertOpportunities,
   upsertOpportunityClickIds,
   upsertStageEvents,
+  upsertSubmissions,
   type ClickIdRow,
 } from './writer';
 
@@ -90,6 +93,20 @@ export type SyncResult = {
     span: { earliest: Date | null; latest: Date | null };
     unrecognised: Record<string, number>;
   };
+  /**
+   * Lender submissions, where the client's org has them.
+   *
+   * `unclassified` is a status value the mapping does not know. Those become
+   * `undecided` — never a decision — and are reported here so a new picklist
+   * entry shows up as a number rather than as a slow drift in the denominator
+   * of the offer rate.
+   */
+  submissions: {
+    rows: number;
+    counts: { offered: number; declined: number; undecided: number };
+    span: { earliest: Date | null; latest: Date | null };
+    unclassified: Record<string, number>;
+  } | null;
   status: 'succeeded' | 'partial' | 'failed';
 };
 
@@ -144,6 +161,7 @@ export async function runSalesforceSync(
       },
       blocked: [],
       missingFields: [],
+      submissions: null,
       stageHistory: {
         rows: 0,
         events: 0,
@@ -309,6 +327,52 @@ export async function runSalesforceSync(
         stageEvents,
         syncRunId,
       );
+
+      // --- Lender submissions --------------------------------------------------
+      /*
+       * Read unbounded, for the same reason field history is: the object holds
+       * 1,427 rows for this org's entire history and a submission's status
+       * changes long after it is created, so an incremental window on
+       * `LastModifiedDate` would still have to be generous and a full re-read
+       * self-heals anything a missed run left behind. If this object grows past
+       * a page or two, bound it — `buildSubmissionQuery` already takes `since`.
+       *
+       * Absent configuration means the tenant has no lender grain. That is a
+       * supported state, not a failure: `submissions` stays null, the funnel
+       * renders the blocked dependency, and nothing else in this sync changes.
+       */
+      if (context.mapping.submissions) {
+        const submissionRecords = await context.client.query<SalesforceRecord>(
+          buildSubmissionQuery(context.mapping.submissions),
+        );
+        const submissions = normalizeSubmissions(submissionRecords, context.mapping.submissions);
+        const written = await upsertSubmissions(
+          tx,
+          context.tenantId,
+          submissions.rows,
+          syncRunId,
+        );
+        result.submissions = {
+          rows: written,
+          counts: submissions.counts,
+          span: submissions.span,
+          unclassified: submissions.unclassified,
+        };
+
+        // The object begins in June 2026, so every submission metric has a
+        // horizon of its own — earlier periods hold no submissions rather than
+        // no lender activity.
+        if (submissions.span.earliest) {
+          await recordSourceWindow(
+            tx,
+            context.tenantId,
+            'salesforce:submissions',
+            'salesforce',
+            submissions.span.earliest,
+            syncRunId,
+          );
+        }
+      }
 
       // --- Click IDs from the mapped Opportunity fields -----------------------
       const clickIdRows: ClickIdRow[] = [];

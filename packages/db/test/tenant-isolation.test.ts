@@ -52,6 +52,56 @@ describe('the runtime role', () => {
   });
 });
 
+describe('lender submissions', () => {
+  /*
+   * The newest tenant-scoped table, tested at both ends.
+   *
+   * A submission holds a third party's decision about a client's merchant, so
+   * the leak it would permit is worse than most: tenant A would learn which
+   * lenders tenant B submits to and what they decline. Both directions are
+   * asserted, because a policy that reads nothing for anybody is as broken as
+   * one that reads everything — and only the first of those is caught by a
+   * test that checks the leak alone.
+   */
+  it('are readable inside the tenant that owns them', async () => {
+    const rows = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) => tx.select().from(schema.submissions),
+      app.db,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.externalId).toBe('A-SUB-1');
+    expect(rows[0]?.lenderName).toBe('Lender A');
+  });
+
+  it('do not leak another tenant’s lenders from an unfiltered query', async () => {
+    const rows = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      // Again the forgotten filter, which is the whole point of the policy.
+      (tx) => tx.select().from(schema.submissions),
+      app.db,
+    );
+    expect(rows.map((r) => r.lenderName)).not.toContain('Lender B');
+  });
+
+  it('cannot be written into another tenant', async () => {
+    await expect(
+      withTenant(
+        { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+        (tx) =>
+          tx.insert(schema.submissions).values({
+            tenantId: fx.tenantB,
+            externalId: 'X-SUB-1',
+            opportunityExternalId: 'B-OPP-1',
+            outcome: 'offered',
+            submittedAt: new Date('2026-08-02T12:00:00Z'),
+          }),
+        app.db,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
 describe('a client admin in tenant A', () => {
   it('reads only tenant A rows from an unfiltered query', async () => {
     const rows = await withTenant(

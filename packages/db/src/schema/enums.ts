@@ -111,3 +111,23 @@ export const mqlVerdictEnum = pgEnum('mql_verdict', [
   'unqualified',
   'undeterminable',
 ]);
+
+/**
+ * What one lender did with one submission.
+ *
+ * Three states, and `undecided` is load-bearing. A deal goes to several lenders
+ * at once and most submissions are still open or never completed — 706 of
+ * Spartan's 1,427 — so folding them into a denominator would report a lender
+ * as declining a deal it has not answered on. Only `offered` and `declined`
+ * are decisions, and only decisions belong in a rate.
+ *
+ * The raw picklist value is stored alongside this, because the mapping from a
+ * client's status vocabulary onto these three is configuration and will be
+ * refined; keeping the original means a refinement is a query rather than a
+ * re-ingest.
+ */
+export const submissionOutcomeEnum = pgEnum('submission_outcome', [
+  'offered',
+  'declined',
+  'undecided',
+]);

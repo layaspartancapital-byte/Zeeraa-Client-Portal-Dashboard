@@ -8,7 +8,13 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { attributionModelEnum, clickIdSourceEnum, mqlVerdictEnum, stageOriginEnum } from './enums';
+import {
+  attributionModelEnum,
+  clickIdSourceEnum,
+  mqlVerdictEnum,
+  stageOriginEnum,
+  submissionOutcomeEnum,
+} from './enums';
 import { tenants } from './tenancy';
 import { campaigns } from './ads';
 import { syncRuns } from './provenance';
@@ -224,5 +230,64 @@ export const opportunityClickIds = pgTable(
       t.source,
     ),
     index('opportunity_click_ids_tenant_platform_idx').on(t.tenantId, t.platform),
+  ],
+);
+
+/**
+ * One deal's submission to one lender.
+ *
+ * The grain the business actually runs at, and the grain the funnel was missing.
+ * A deal is shopped to several lenders at once — Spartan's median is four — and
+ * each lender answers separately, so approve, offer and decline are *lender*
+ * events. Reading them off the opportunity flattens four answers into one
+ * field and loses which lender said what, which is why deal-level offer rate
+ * came out at 58.8% against 18.2% at this grain.
+ *
+ * `lender_name` is denormalised on purpose. The lender is an Account in the
+ * CRM, and the platform does not ingest Accounts — it has no use for 25,358 of
+ * them — so the name arrives with the submission and is stored beside it. It is
+ * a label on a dimension, not an entity this product owns.
+ *
+ * `status_changed_at` is a proxy and named as one. History tracking on the
+ * submission object records only creation, so a lender's decline carries no
+ * timestamp of its own; `LastModifiedDate` is the closest available and any
+ * other edit moves it. Timing claims must not be built on it without saying so.
+ */
+export const submissions = pgTable(
+  'submissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    opportunityExternalId: text('opportunity_external_id').notNull(),
+    lenderExternalId: text('lender_external_id'),
+    lenderName: text('lender_name'),
+    /** The client's own picklist value, kept verbatim. */
+    status: text('status'),
+    outcome: submissionOutcomeEnum('outcome').notNull(),
+    /**
+     * Why a submission is undecided, where the status says. Open and failed are
+     * both outside the denominator but they are not the same thing, and a
+     * pipeline of 687 open submissions is a different fact from 12 that broke.
+     */
+    undecidedReason: text('undecided_reason'),
+    /**
+     * Decline reasons, as given. A multipicklist, so a lender can cite several
+     * for one submission — which means a breakdown by reason counts more
+     * citations than declines and must never be rendered as a share of deals.
+     */
+    declineReasons: text('decline_reasons').array(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('submissions_upsert_key').on(t.tenantId, t.externalId),
+    index('submissions_tenant_opportunity_idx').on(t.tenantId, t.opportunityExternalId),
+    index('submissions_tenant_outcome_idx').on(t.tenantId, t.outcome, t.submittedAt),
+    index('submissions_tenant_lender_idx').on(t.tenantId, t.lenderExternalId, t.outcome),
   ],
 );

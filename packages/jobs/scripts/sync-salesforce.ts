@@ -98,6 +98,28 @@ try {
     for (const [v, n] of Object.entries(h.unrecognised)) console.log(`    ${v}: ${n}`);
   }
 
+  if (sync.submissions) {
+    const sub = sync.submissions;
+    const decided = sub.counts.offered + sub.counts.declined;
+    console.log('\n  ── lender submissions ──');
+    console.log(`  submissions written:       ${sub.rows}`);
+    console.log(
+      `  offered / declined:        ${sub.counts.offered} / ${sub.counts.declined}` +
+        (decided > 0 ? `  (offer rate ${((sub.counts.offered / decided) * 100).toFixed(1)}%)` : ''),
+    );
+    // Stated, not omitted: these are outside the rate's denominator, and a
+    // reader who assumes otherwise is out by a factor of two.
+    console.log(`  undecided (excluded):      ${sub.counts.undecided}`);
+    console.log(
+      `  window observed:           ${sub.span.earliest?.toISOString().slice(0, 10) ?? '(none)'} .. ` +
+        `${sub.span.latest?.toISOString().slice(0, 10) ?? '(none)'}`,
+    );
+    if (Object.keys(sub.unclassified).length > 0) {
+      console.log('  UNCLASSIFIED statuses (add to the mapping; counted as undecided):');
+      for (const [v, n] of Object.entries(sub.unclassified)) console.log(`    ${v}: ${n}`);
+    }
+  }
+
   console.log('\n  ── pass 2: click ids from converted leads ──');
   const backfill = await backfillClickIdsFromConvertedLeads({
     tenantId,

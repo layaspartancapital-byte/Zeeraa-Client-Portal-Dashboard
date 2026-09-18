@@ -3,10 +3,16 @@ import { schema, type Database } from '@zeeraa/db';
 import {
   channelCostPerDeal,
   previousMonth,
+  rankReasonCitations,
+  reasonCoverageByPeriod,
+  submissionOfferRate,
   type AttributionModel,
   type ChannelCostPerDeal,
   type DateRange,
+  type ReasonCitations,
+  type ReasonCoverage,
   type StageDefinition,
+  type SubmissionOfferRate,
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
@@ -166,6 +172,28 @@ export type MonthlyPerformance = {
    * no column in `stages`.
    */
   declines: { deals: number; events: number };
+  /**
+   * What the stage order asserts, checked against the records.
+   *
+   * The funnel draws stages left to right and puts a conversion rate on each
+   * connector, which asserts two things the data has to be asked about rather
+   * than assumed: that the later population is drawn from the earlier one, and
+   * that a deal which reaches a stage stays reached. Neither holds here — 10 of
+   * 67 deals with an offer have no approval event at all, and 46 of those 67
+   * were declined after their last offer.
+   *
+   * So each entry is measured, per stage key:
+   *
+   *   * `reached` — deals reaching this stage in the window;
+   *   * `alsoPrevious` — how many of those also reached the stage before it,
+   *     which is the nesting the rate above it depends on;
+   *   * `laterLost` — how many went on to a decline *after* reaching it, which
+   *     is the regression a left-to-right funnel cannot draw.
+   */
+  progression: Record<
+    string,
+    { reached: number; previous: string | null; alsoPrevious: number; laterLost: number }
+  >;
   /**
    * How much of the qualification bar could be evaluated, over the leads in
    * this window.
@@ -350,6 +378,88 @@ export async function monthlyPerformance(
           lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
         ),
       );
+
+    /*
+     * Stage membership and the last decline per deal, for the progression
+     * check. Read unbounded by window on purpose: whether a deal reached the
+     * previous stage, and whether it was later declined, are facts about the
+     * deal rather than about the window — a deal approved in May and offered in
+     * July did reach approval, and a 90-day window that excludes May must not
+     * report otherwise.
+     */
+    const [membershipRows, lastDeclineRows] = await Promise.all([
+      tx
+        .selectDistinct({
+          stage: schema.stageEvents.stage,
+          opportunityExternalId: schema.stageEvents.opportunityExternalId,
+        })
+        .from(schema.stageEvents)
+        .where(eq(schema.stageEvents.tenantId, tenantId)),
+      tx
+        .select({
+          opportunityExternalId: schema.stageEvents.opportunityExternalId,
+          at: sql<string>`max(${schema.stageEvents.occurredAt})`,
+        })
+        .from(schema.stageEvents)
+        .where(
+          and(
+            eq(schema.stageEvents.tenantId, tenantId),
+            eq(schema.stageEvents.stage, 'declined'),
+          ),
+        )
+        .groupBy(schema.stageEvents.opportunityExternalId),
+    ]);
+
+    const reachedStages = new Map<string, Set<string>>();
+    for (const row of membershipRows) {
+      const set = reachedStages.get(row.stage) ?? new Set<string>();
+      set.add(row.opportunityExternalId);
+      reachedStages.set(row.stage, set);
+    }
+    const lastDecline = new Map(
+      lastDeclineRows.map((r) => [r.opportunityExternalId, new Date(r.at).getTime()]),
+    );
+
+    // The last time each deal reached each stage inside the window, so
+    // "declined afterwards" compares two moments rather than two counts.
+    const reachedAtRows = await tx
+      .select({
+        stage: schema.stageEvents.stage,
+        opportunityExternalId: schema.stageEvents.opportunityExternalId,
+        at: sql<string>`max(${schema.stageEvents.occurredAt})`,
+      })
+      .from(schema.stageEvents)
+      .where(
+        and(
+          eq(schema.stageEvents.tenantId, tenantId),
+          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
+          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+        ),
+      )
+      .groupBy(schema.stageEvents.stage, schema.stageEvents.opportunityExternalId);
+
+    const progression: MonthlyPerformance['progression'] = {};
+    const eventStages = stages.filter((st) => (st.source ?? 'stage_events') === 'stage_events');
+    for (const [index, stage] of eventStages.entries()) {
+      const previous = index === 0 ? null : (eventStages[index - 1]?.key ?? null);
+      const reachedInWindow = reachedAtRows.filter((r) => r.stage === stage.key);
+      const previousEver = previous ? reachedStages.get(previous) : null;
+
+      progression[stage.key] = {
+        reached: reachedInWindow.length,
+        previous,
+        alsoPrevious: previousEver
+          ? reachedInWindow.filter((r) => previousEver.has(r.opportunityExternalId)).length
+          : reachedInWindow.length,
+        laterLost:
+          stage.key === 'declined'
+            ? 0
+            : reachedInWindow.filter((r) => {
+                const declined = lastDecline.get(r.opportunityExternalId);
+                return declined !== undefined && declined > new Date(r.at).getTime();
+              }).length,
+      };
+    }
 
     // Funded amount per opportunity, for the value-volume column.
     const valueIds = valueStage
@@ -614,6 +724,7 @@ export async function monthlyPerformance(
         deals: Number(declineRow?.deals ?? 0),
         events: Number(declineRow?.events ?? 0),
       },
+      progression,
       qualification: {
         total: verdictTotal,
         qualified,
@@ -765,5 +876,230 @@ export async function monthlySeries(
         ingested: firstObserved !== undefined && month >= firstObserved,
       };
     });
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Lender submissions                                                       */
+/* ------------------------------------------------------------------------- */
+
+export type LenderRow = {
+  lenderExternalId: string | null;
+  label: string;
+  offers: SubmissionOfferRate;
+};
+
+export type SubmissionReport = {
+  range: DateRange;
+  /**
+   * Every lender's submissions in the window, together.
+   *
+   * The window is on the submission date, so a submission made inside it and
+   * still unanswered is `undecided` here rather than missing — which is the
+   * honest reading and the reason `undecided` is on the metric rather than in a
+   * caption.
+   */
+  overall: SubmissionOfferRate;
+  /** One row per lender, each rate over that lender's own decisions. */
+  lenders: LenderRow[];
+  /**
+   * Why the undecided submissions are undecided.
+   *
+   * Open and failed are both outside the denominator and are not the same
+   * fact: a pipeline awaiting answers is normal, submissions that never
+   * completed are a problem, and an unclassified status is a mapping gap.
+   */
+  undecided: { reason: string; count: number }[];
+  /** Reason citations over the declines in the window. */
+  citations: ReasonCitations;
+  /**
+   * Reason coverage per month across the whole record, not just the window.
+   *
+   * The field is being adopted, so the trend is the point and a window would
+   * hide it. Deliberately never summed.
+   */
+  reasonCoverage: ReasonCoverage[];
+  /**
+   * Offer rate per month, for the KPI card's mini chart.
+   *
+   * A month where no lender decided anything carries null rather than zero —
+   * the chart leaves the bucket blank instead of plotting a rate nobody
+   * measured.
+   */
+  monthly: { month: string; label: string; rate: number | null; decided: number }[];
+  /** The first submission on record, as the horizon on all of the above. */
+  from: string | null;
+  /** True when the tenant has no submission data at all. */
+  empty: boolean;
+};
+
+/**
+ * Submissions for one window, at lender grain.
+ *
+ * Separate from `monthlyPerformance` because it answers a different question
+ * about a different population: that one counts deals through stages, this one
+ * counts lender answers. Joining them would invite exactly the cross-grain
+ * division that produced a 58.8% offer rate.
+ */
+export async function submissionReport(
+  session: TenantSession,
+  range: DateRange,
+): Promise<SubmissionReport> {
+  return queryTenant(session, async (tx) => {
+    const from = new Date(`${range.start}T00:00:00.000Z`);
+    const to = new Date(`${range.end}T23:59:59.999Z`);
+    const inWindow = and(
+      eq(schema.submissions.tenantId, session.tenant.id),
+      gte(schema.submissions.submittedAt, from),
+      lte(schema.submissions.submittedAt, to),
+    );
+
+    const [byLender, undecidedRows, declineRows, coverageRows, [firstRow], monthlyRows] =
+      await Promise.all([
+      tx
+        .select({
+          lenderExternalId: schema.submissions.lenderExternalId,
+          lenderName: schema.submissions.lenderName,
+          outcome: schema.submissions.outcome,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.submissions)
+        .where(inWindow)
+        .groupBy(
+          schema.submissions.lenderExternalId,
+          schema.submissions.lenderName,
+          schema.submissions.outcome,
+        ),
+
+      tx
+        .select({
+          reason: schema.submissions.undecidedReason,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.submissions)
+        .where(and(inWindow, eq(schema.submissions.outcome, 'undecided')))
+        .groupBy(schema.submissions.undecidedReason)
+        .orderBy(sql`count(*) desc`),
+
+      tx
+        .select({ reasons: schema.submissions.declineReasons })
+        .from(schema.submissions)
+        .where(and(inWindow, eq(schema.submissions.outcome, 'declined'))),
+
+      // Every month on record, not only the window: the adoption curve is the
+      // finding, and a 90-day window would show its tail as if it were a level.
+      tx
+        .select({
+          month: sql<string>`to_char(${schema.submissions.submittedAt}, 'YYYY-MM')`,
+          declined: sql<number>`count(*)::int`,
+          withReason: sql<number>`count(${schema.submissions.declineReasons})::int`,
+        })
+        .from(schema.submissions)
+        .where(
+          and(
+            eq(schema.submissions.tenantId, session.tenant.id),
+            eq(schema.submissions.outcome, 'declined'),
+          ),
+        )
+        .groupBy(sql`1`)
+        .orderBy(sql`1`),
+
+      tx
+        .select({
+          day: sql<string | null>`to_char(min(${schema.submissions.submittedAt}), 'YYYY-MM-DD')`,
+        })
+        .from(schema.submissions)
+        .where(eq(schema.submissions.tenantId, session.tenant.id)),
+
+      // Every month on record, for the trend. Not windowed: a mini chart that
+      // only covers the window has nothing to be a trend against.
+      tx
+        .select({
+          month: sql<string>`to_char(${schema.submissions.submittedAt}, 'YYYY-MM')`,
+          outcome: schema.submissions.outcome,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.submissions)
+        .where(eq(schema.submissions.tenantId, session.tenant.id))
+        .groupBy(sql`1`, schema.submissions.outcome)
+        .orderBy(sql`1`),
+    ]);
+
+    const totals = { offered: 0, declined: 0, undecided: 0 };
+    const perLender = new Map<string, { label: string; id: string | null; tally: typeof totals }>();
+
+    for (const row of byLender) {
+      const n = Number(row.count);
+      totals[row.outcome] += n;
+      // Grouped by id, not by name: two lenders can share a name and one
+      // lender can be renamed, and a rate is per lender either way.
+      const key = row.lenderExternalId ?? '(none)';
+      const entry =
+        perLender.get(key) ??
+        perLender
+          .set(key, {
+            label: row.lenderName ?? 'Lender not named',
+            id: row.lenderExternalId,
+            tally: { offered: 0, declined: 0, undecided: 0 },
+          })
+          .get(key)!;
+      entry.tally[row.outcome] += n;
+      if (row.lenderName) entry.label = row.lenderName;
+    }
+
+    const lenders = [...perLender.values()]
+      .map((entry) => ({
+        lenderExternalId: entry.id,
+        label: entry.label,
+        offers: submissionOfferRate(entry.tally),
+      }))
+      // Most decisions first: a lender with two answers and a 50% rate is not
+      // the most informative row on the card.
+      .sort((a, b) => b.offers.decided - a.offers.decided || a.label.localeCompare(b.label));
+
+    return {
+      range,
+      overall: submissionOfferRate(totals),
+      lenders,
+      undecided: undecidedRows.map((row) => ({
+        reason: row.reason ?? 'no reason recorded',
+        count: Number(row.count),
+      })),
+      citations: rankReasonCitations(declineRows.map((row) => ({ reasons: row.reasons }))),
+      reasonCoverage: reasonCoverageByPeriod(
+        Object.fromEntries(
+          coverageRows.map((row) => [
+            row.month,
+            { declined: Number(row.declined), withReason: Number(row.withReason) },
+          ]),
+        ),
+      ),
+      monthly: (() => {
+        const tallies = new Map<string, { offered: number; declined: number; undecided: number }>();
+        for (const row of monthlyRows) {
+          const tally =
+            tallies.get(row.month) ??
+            tallies.set(row.month, { offered: 0, declined: 0, undecided: 0 }).get(row.month)!;
+          tally[row.outcome] += Number(row.count);
+        }
+        return [...tallies]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([month, tally]) => {
+            const rate = submissionOfferRate(tally);
+            const [year, m] = month.split('-');
+            return {
+              month,
+              label: new Date(Date.UTC(Number(year), Number(m) - 1, 1)).toLocaleDateString(
+                'en-US',
+                { month: 'short', year: '2-digit', timeZone: 'UTC' },
+              ),
+              rate: rate.rate,
+              decided: rate.decided,
+            };
+          });
+      })(),
+      from: firstRow?.day ?? null,
+      empty: byLender.length === 0 && firstRow?.day == null,
+    };
   });
 }

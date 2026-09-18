@@ -18,11 +18,12 @@ import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import { KpiCard } from '@/components/KpiCard';
+import { LenderOfferRateCard } from '@/components/LenderOfferRateCard';
 import { HeroCard, type SecondaryFigure } from '@/components/HeroCard';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { ChannelSnapshot } from '@/components/ChannelSnapshot';
 import { coverageExplanation } from '@/components/CostPerDeal';
-import { monthlyPerformance } from '@/lib/reporting';
+import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import {
   covers,
   dataQuality,
@@ -101,8 +102,18 @@ export default async function ExecutiveView({
   const prior = previousRange(range);
   const currency = session.tenant.currency;
 
-  const [data, previous, buckets, heroBuckets, metrics, quality, unread, ingestion, rateFloor] =
-    await Promise.all([
+  const [
+    data,
+    previous,
+    buckets,
+    heroBuckets,
+    metrics,
+    quality,
+    unread,
+    ingestion,
+    rateFloor,
+    submissions,
+  ] = await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, prior, model),
     // Twelve monthly buckets for the mini charts, whatever the page range: a
@@ -115,6 +126,7 @@ export default async function ExecutiveView({
     unreadNotifications(session),
     ingestionStart(session),
     minRateDenominator(session),
+    submissionReport(session, range),
   ]);
 
   /**
@@ -198,44 +210,15 @@ export default async function ExecutiveView({
     }));
 
   /**
-   * Offer rate, from configuration rather than from the word "offer".
+   * The lender offer rate's configuration row.
    *
-   * `stage_conversion_rate(from, to)` over `funnel_stages`; the two stages are
-   * the metric's own arguments. Where either end is a stage nobody stamps in
-   * the CRM, there is no rate — not a low one — and the card says so.
+   * `offer_rate` itself is gone from this screen: it is retired by a `metric`
+   * block, which the data quality card renders, and the figure that answers the
+   * same question lives at lender grain. The helpers that computed the old
+   * deal-level rate were removed with it rather than left behind dark, because
+   * a dead rate is one import away from coming back.
    */
-  const offerMetric = metrics.byKey.get('offer_rate');
-  const offerFrom = String(offerMetric?.formulaArgs.from ?? '');
-  const offerTo = String(offerMetric?.formulaArgs.to ?? '');
-  /*
-   * The metric's own block comes first.
-   *
-   * Both stages are measured — the approval transitions are in field history
-   * and the offer timestamps are in a field — so nothing about the stages
-   * suppresses this, and the rate rendered at 58.8%. What it was measuring is
-   * whether somebody typed a date: approval and the first lender offer are the
-   * same event, median 0.0 hours apart. That is a fact about the metric rather
-   * than about either stage, so it is a `metric` row in
-   * `blocked_dependencies`, and it outranks the stage check.
-   */
-  const offerBlocked =
-    metrics.blocked('offer_rate') ??
-    data.stageStatus[offerFrom]?.blocked ??
-    data.stageStatus[offerTo]?.blocked ??
-    null;
-  const offerRate = (source: typeof data) => {
-    const denominator = source.total.stages[offerFrom] ?? 0;
-    return denominator === 0 ? null : (source.total.stages[offerTo] ?? 0) / denominator;
-  };
-  /**
-   * Whether the comparison period can carry a rate at all.
-   *
-   * Not whether it has one — it does — but whether it has enough behind it to
-   * compare against. The baseline here held one approval, so its offer rate was
-   * 200% and the delta read as a 70% collapse caused by a single opportunity.
-   */
-  const offerBaseline = previous.total.stages[offerFrom] ?? 0;
-  const offerComparable = offerBaseline >= rateFloor;
+  const lenderOfferMetric = metrics.byKey.get('lender_offer_rate');
 
   const attributedShare = (source: typeof data) => {
     const total = dealsIn(source.total.stages);
@@ -433,51 +416,17 @@ export default async function ExecutiveView({
           info="Deals the platform can attribute to a connected channel, over every deal reaching the value stage. A measure of coverage, not of performance."
         />
 
-        <KpiCard
-          label={offerMetric?.label ?? 'Offer rate'}
-          value={
-            offerBlocked || offerRate(data) === null ? null : formatRate(offerRate(data)!)
-          }
-          notMeasured={
-            offerBlocked
-              ? firstSentence(offerBlocked.reason)
-              : 'Nothing reached the earlier stage in this window'
-          }
-          delta={
-            !offerBlocked && offerRate(data) !== null ? (
-              <Delta
-                current={offerRate(data)!}
-                baseline={crmComparable && offerComparable ? offerRate(previous) : null}
-                direction={metrics.direction('offer_rate')}
-                unavailable={
-                  crmComparable
-                    ? `previous period had only ${formatCount(offerBaseline)} to divide by`
-                    : notIngested(ingestion.crmFrom)
-                }
-              />
-            ) : (
-              <NoDelta />
-            )
-          }
-          context={
-            offerBlocked
-              ? undefined
-              : `${formatCount(data.total.stages[offerTo] ?? 0)} of ${formatCount(
-                  data.total.stages[offerFrom] ?? 0,
-                )}`
-          }
-          points={mini((b) => {
-            if (offerBlocked) return null;
-            const denominator = b.stages[offerFrom] ?? 0;
-            return denominator === 0 ? null : (b.stages[offerTo] ?? 0) / denominator;
-          })}
-          info={
-            offerBlocked
-              ? `${offerBlocked.reason}${offerBlocked.needed ? ` Needed: ${offerBlocked.needed}` : ''}`
-              : offerMetric?.definition ??
-                'One instance of the generic stage conversion rate over the configured stages.'
-          }
-        />
+        {/*
+          Offer rate, replaced rather than merely blocked.
+          The deal-level metric is retired — a `metric` row in
+          `blocked_dependencies` records why, and it still renders in the data
+          quality card. What stands in its place is the same question asked at
+          the grain the answer exists: one lender's offers over that lender's
+          decisions. Leaving the slot empty would have been the safe move and
+          the wrong one; the client's question was never "what percentage of
+          Offer_Received_Date_Time__c is filled in".
+        */}
+        <LenderOfferRateCard report={submissions} metric={lenderOfferMetric} />
 
         <KpiCard
           label="Applications"

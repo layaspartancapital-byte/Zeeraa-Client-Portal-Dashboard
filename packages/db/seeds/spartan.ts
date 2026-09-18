@@ -142,6 +142,27 @@ export const spartan: TenantSeed = {
         'of the generic stage conversion rate, not a column in the database.',
     },
     {
+      /*
+       * The replacement for offer_rate, at the grain the decision happens.
+       *
+       * `formulaKey` is deliberately not `stage_conversion_rate`: this is not a
+       * transition between two funnel stages, it is one population of lender
+       * answers divided by the decided part of itself. Giving it the stage
+       * formula would invite the same cross-grain division that made the
+       * metric it replaces meaningless.
+       */
+      key: 'lender_offer_rate',
+      label: 'Lender offer rate',
+      formulaKey: 'submission_offer_rate',
+      formulaArgs: {},
+      improvementDirection: 'up',
+      definition:
+        'Submissions a lender offered on, over the submissions a lender has ' +
+        'decided — offers plus declines. Submissions nobody has answered are ' +
+        'excluded and stated separately, because a lender that has not replied ' +
+        'has not declined.',
+    },
+    {
       key: 'cpa',
       label: 'Cost per acquisition',
       formulaKey: 'cost_per_stage',
@@ -217,6 +238,21 @@ export const spartan: TenantSeed = {
         'the resulting "−70.6%, a regression" was a statement about one ' +
         'opportunity.',
       value: { minimum: 10 },
+    },
+    {
+      key: 'max_rate_leakage',
+      description:
+        'How much of a later funnel stage may have skipped the earlier one ' +
+        'before their ratio stops being a conversion rate. Measured per ' +
+        'transition against the stage events rather than assumed from the ' +
+        'stage order, because the order is a drawing and the events are the ' +
+        'record. In this org: 1 of 114 approved deals has no underwriting ' +
+        'timestamp (0.9%, inside tolerance, rate shown with the exclusion ' +
+        'stated), 10 of 67 offers have no approval at all (14.9%) and 9 of 21 ' +
+        'funded deals have no recorded offer (42.9%) — both suppressed, ' +
+        'because a numerator that is a seventh strangers is not measuring the ' +
+        'transition it is named after.',
+      value: { share: 0.02 },
     },
     {
       key: 'mql_bar',
@@ -482,7 +518,19 @@ export const spartan: TenantSeed = {
               linkedin_ads: 'Li_Fat_ID__c',
             },
             amount: 'Amount',
-            declineReason: 'csbs__Decline_Reason__c',
+            /*
+             * Deliberately no decline reason here any more.
+             *
+             * It pointed at csbs__Decline_Reason__c, which does not exist in
+             * the org. That was kept on purpose while the reason was
+             * unmeasured, so validateMapping would keep reporting it — but the
+             * reason is now read at lender grain from Decline_Reason__c on
+             * csbs__Submission__c, where it actually lives. Keeping a
+             * permanently absent field would leave the connection `Degraded`
+             * and every sync `partial` for a gap that is closed, which is the
+             * fastest way to make a real warning invisible. The deal-grain gap
+             * stays recorded as a blocked dependency.
+             */
           },
           stages: {
             sql: 'csbs__Underwriting_Date_Time__c',
@@ -508,6 +556,47 @@ export const spartan: TenantSeed = {
             // No MQL timestamp exists in the org. Derived from the
             // qualification minimums and marked computed wherever it renders.
             mql: 'qualification_minimums',
+          },
+          /**
+           * Lender grain. Added 18 September 2026.
+           *
+           * The status vocabulary is this org's, which is why the four lists
+           * below are configuration and not a switch statement. Only
+           * `Offer(s) Received` and `Declined` are lender decisions; the rest
+           * are the pipeline, and 706 of 1,427 submissions sit in it at any
+           * moment. Putting those in a denominator would report a lender as
+           * declining a deal it has not answered on.
+           *
+           * `Closing`, `Closing Incomplete` and `Contract Ready` are listed as
+           * open rather than as offers even though each of them implies an
+           * offer exists, because the status is the *current* one and these
+           * three describe what is happening now rather than the lender's
+           * answer. They are two records between them, so nothing material
+           * turns on it — and the raw status is stored, so revisiting the
+           * judgement is a query rather than a re-ingest.
+           */
+          submissions: {
+            object: 'csbs__Submission__c',
+            opportunity: 'csbs__Opportunity__c',
+            lender: 'csbs__Lender__c',
+            // A relationship path: the lender is an Account, and the platform
+            // does not ingest Accounts to label six of them.
+            lenderName: 'csbs__Lender__r.Name',
+            status: 'csbs__Status__c',
+            // Spartan's own field, not the managed package's — which is why a
+            // search for csbs__Decline_Reason__c found nothing and this was
+            // reported as absent for a day.
+            declineReason: 'Decline_Reason__c',
+            offeredStatuses: ['Offer(s) Received'],
+            declinedStatuses: ['Declined'],
+            failedStatuses: ['Failed', 'Incomplete Application', 'Partial Submission'],
+            openStatuses: [
+              'Submitted',
+              'Pending',
+              'Closing',
+              'Closing Incomplete',
+              'Contract Ready',
+            ],
           },
         },
       },
@@ -561,19 +650,35 @@ export const spartan: TenantSeed = {
    */
   blockedDependencies: [
     {
-      key: 'decline_reason_breakdown',
+      /*
+       * Unblocked 18 September 2026, at lender grain.
+       *
+       * The reason survived on the wrong object. `Loss_Reason__c` on
+       * Opportunity is abandoned and nothing brings it back — but a decline is
+       * a lender's decision, and `Decline_Reason__c` on csbs__Submission__c
+       * holds it: 16 values, 121 of 590 declined submissions, rising from 0%
+       * of June's declines to 30.5% of September's.
+       *
+       * This row is kept, re-scoped to the deal-level field, because the
+       * deal-level composition still cannot be stated — it is the thing a
+       * reader will assume the lender chart shows. Coverage is rendered per
+       * month and never summed: an all-time figure would average an unused
+       * field with an adopted one.
+       */
+      key: 'decline_reason_deal_grain',
       subjectKind: 'breakdown',
-      subjectKey: 'decline_reason',
-      label: 'Decline reasons',
+      subjectKey: 'decline_reason_deal',
+      label: 'Decline reasons, per deal',
       reason:
-        'Loss_Reason__c was filled in on every closed-lost opportunity through ' +
-        'January 2025 — 68 of 68 that month, 23 of 23 in December 2024 — and then ' +
-        'abandoned: 0 of 133 in July 2026, 2 of 132 in August, 1 of 66 in ' +
-        'September. No other field on Opportunity carries a reason: ' +
-        'Competitor_Lost_To__c and Do_Not_Call_Reason__c are empty on all 716. ' +
-        'So the reason is not recoverable. How many declined and when is — that ' +
-        'is the Declined stage, measured from csbs__Declined_Date_Time__c on 89% ' +
-        'of closed-lost deals plus the stage transitions.',
+        'Lender decline reasons are measured, at lender grain, from ' +
+        'Decline_Reason__c on csbs__Submission__c. What is not measured is a ' +
+        'reason per *deal*: Loss_Reason__c was filled in on every closed-lost ' +
+        'opportunity through January 2025 — 68 of 68 that month, 23 of 23 in ' +
+        'December 2024 — and then abandoned, 0 of 133 in July 2026, 2 of 132 in ' +
+        'August, 1 of 66 in September. No other field on Opportunity carries ' +
+        'one: Competitor_Lost_To__c and Do_Not_Call_Reason__c are empty on all ' +
+        '716. A deal declined by three lenders for three different reasons has ' +
+        'no single reason in the CRM, and the platform does not choose one.',
       needed:
         'The reason field filled in on closed-lost opportunities again. The ' +
         'picklist already exists and already has sensible values.',

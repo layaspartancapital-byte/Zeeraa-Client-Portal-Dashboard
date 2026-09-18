@@ -983,3 +983,140 @@ and leaving the identical number on another is how a retired figure survives.
 **What replaces it** is a submission-level rate from `csbs__Submission__c`:
 offers received over decided submissions, which measures 18.2% across 131
 offered and 590 declined — the figure the deal-level rate was standing in for.
+
+---
+
+## §4, §8 and §9.3 — submissions are the grain the funnel was missing
+
+**Added 18 September 2026.** The brief models the pipeline as a deal moving
+through stages. For an MCA broker that is one level above where the business
+happens: a deal is submitted to several lenders at once — Spartan's median is
+four, its maximum ten — and each lender answers separately. Approve, offer and
+decline are *lender* events.
+
+Reading them off the opportunity flattens four answers into one field. That is
+what produced a deal-level offer rate of 58.8% where the lender-grain figure is
+18.2%, and it is why "which lender declines this profile, and why" could not be
+asked at all.
+
+`csbs__Submission__c` was not in the brief's field list. It holds 1,427 records
+across 419 opportunities and six lenders, and its `Decline_Reason__c` is the
+decline reason that was reported as unrecoverable — on the object it belongs to
+rather than the one the brief looked at.
+
+### The table
+
+`submissions`, one row per deal per lender, with the usual treatment: granted
+to `zeeraa_app` and `zeeraa_jobs`, RLS enabled and forced, `tenant_isolation`
+and `maintenance_access` policies hand-written in migration 0011. Two mutations
+and three isolation tests were added with it, because a submission names a
+third party's decision about a client's merchant — a leak here would tell one
+client which lenders another uses and what they decline.
+
+Three decisions worth recording:
+
+* **The lender is denormalised onto the row.** It is an Account in the CRM and
+  this platform has no reason to ingest 25,358 Accounts to label six of them.
+  The lender is a dimension, not an entity we own.
+* **Decline reasons are an array**, because the source is a multipicklist and
+  one lender can cite several for one decline. That makes a reason breakdown a
+  count of *citations*, never a share of declines, and the array keeps that
+  visible instead of letting a join imply otherwise.
+* **`status_changed_at` is named as a proxy.** History tracking on the object
+  records only creation, so a lender's decline has no timestamp of its own and
+  `LastModifiedDate` is the closest available — any other edit moves it. No
+  timing claim is built on it.
+
+### The metric
+
+`submissionOfferRate` divides offers by *decided* submissions — offers plus
+declines. 706 of 1,427 are undecided at any moment, and they are carried on the
+metric rather than in a caption: a reader who assumes the denominator is every
+submission is out by a factor of two. A lender that has not replied has not
+declined, and a window where nothing has been decided returns null rather than
+zero.
+
+Undecided is broken into its causes on screen, because 693 submissions awaiting
+an answer is the pipeline working and 13 that never completed is not.
+
+`offer_rate` is retired by a `metric` row and replaced by `lender_offer_rate` on
+the executive and performance screens, with the per-lender table on the funnel.
+Per lender, of decided submissions: CFG 34.4%, Spartan Capital 17.1%, Elevate
+Funding 11.4%, Forward Financing 5.4%. Both halves of each rate come from that
+lender — exactly the rule channel metrics follow, for the same reason.
+
+The card carries no delta. The object begins on 18 June 2026, so there is no
+comparable previous period; an arrow drawn against a partial first month would
+be a statement about when the object was switched on.
+
+### Decline reasons: unblocked at lender grain, still blocked per deal
+
+Reasons are measured, from `Decline_Reason__c`: 123 citations across 121 lender
+declines, with the 16 values the picklist offers. **Coverage is rendered per
+month and never summed**, because the field is being adopted rather than used —
+0% of June's declines, 15.4% of July's, 9.1% of August's, 30.5% of September's.
+An all-time 20.5% would average an unused field with an adopted one and describe
+neither month, so no function in `packages/core` returns one.
+
+What stays blocked is a reason *per deal*. `Loss_Reason__c` is abandoned, and a
+deal declined by three lenders for three different reasons has no single reason
+in the CRM. The platform does not choose one. The blocked row was re-scoped
+rather than deleted, because a deal-level composition is exactly what a reader
+will assume the lender chart shows.
+
+`csbs__Decline_Reason__c` was dropped from the Opportunity mapping at the same
+time. It was kept deliberately while the reason was unmeasured so
+`validateMapping` would keep reporting it; now that the reason is read where it
+lives, a permanently absent field would leave the connection `Degraded` and
+every sync `partial` for a gap that is closed — the fastest way to make a real
+warning invisible. The sync reports `succeeded` again.
+
+### §9.3 — the funnel no longer assumes stages progress in order
+
+The stage flow draws stages left to right and puts a conversion rate on each
+connector. That asserts two things this data does not support, and both are now
+measured per transition rather than assumed:
+
+**That the later population came through the earlier one.** It does not always:
+1 of 114 approved deals has no underwriting timestamp, 10 of 67 offers have no
+approval event at all, and 9 of 21 funded deals have no recorded offer.
+`progression` counts the overlap from the stage events, and the two cases need
+different answers — suppressing a rate over one stray record in 114 replaces a
+figure that is right to a tenth of a percent with an em dash, while rendering
+one whose numerator is a seventh strangers is the error this audit was about.
+So the line is `max_rate_leakage`, a config row, defaulting to 2%: above it the
+rate is withheld with the count, below it the rate renders and the ⓘ states what
+it leaves out.
+
+This is the check that would have caught the offer rate without anybody noticing
+the figure looked high.
+
+**That a deal which reaches a stage stays reached.** It does not: 47 of the 67
+deals reaching Offer in the window were declined afterwards, and of the 125
+deals holding an offer record, 88 are lost and 21 funded. A funnel drawn left to
+right cannot show a deal going backwards, so each stage card states how many of
+its deals were later declined. Reading the Offer column as live pipeline would
+overstate it threefold.
+
+---
+
+## §7 — planned: a direct Aloware connector, not `Aloware_Call__c`
+
+**Added 18 September 2026.** The org inventory turned up 30,093
+`Aloware_Call__c` records — one per call, linked to a `Lead`, carrying
+`Direction__c`, `Disposition__c`, `Duration_Sec__c` and a recording URL, and
+running at 12,000–15,000 a month since June 2026. Call tracking currently
+renders as `Waiting on client — vendor not selected`, which is wrong: the vendor
+is Aloware and it is live.
+
+**It is deliberately not being read from Salesforce.** A Salesforce custom object
+fed by a vendor's integration is a copy whose completeness depends on that
+integration's own sync, and this platform would be inferring call outcomes from
+whatever the middle layer happened to write. Call tracking will be a direct
+Aloware API connector, like Google Ads and Salesforce: its own `connections`
+row, its own credentials, its own `sync_runs` ledger and its own reconciliation.
+
+Until that connector exists the blocked state stays, and its reason should be
+corrected from "vendor not selected" to name Aloware and the planned connector.
+That correction is not made here because it belongs with the connector work
+rather than in a commit about submissions.

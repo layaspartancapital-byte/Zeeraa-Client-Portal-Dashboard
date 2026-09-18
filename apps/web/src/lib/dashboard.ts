@@ -107,6 +107,42 @@ export async function minRateDenominator(session: TenantSession): Promise<number
   return typeof minimum === 'number' && minimum > 0 ? minimum : 10;
 }
 
+/**
+ * How much leakage a conversion rate may carry before it is not one.
+ *
+ * A funnel rate divides deals reaching a later stage by deals reaching an
+ * earlier one, which reads as a conversion only if the later population came
+ * through the earlier one. `progression` measures whether it did, and it never
+ * does perfectly: Spartan has one approved deal out of 114 with no underwriting
+ * timestamp, and ten offers out of 67 with no approval at all.
+ *
+ * Those two need different answers. Suppressing a rate over one stray record
+ * replaces a figure that is right to a tenth of a percent with an em dash, and
+ * an em dash nobody can act on is its own kind of wrong; rendering a rate whose
+ * numerator is 15% strangers is the error this whole audit was about. So the
+ * line is a number, and a number that is a judgement about a client's data
+ * quality is a config row rather than a constant.
+ *
+ * Two per cent by default: small enough that the rate is still the same
+ * statement, large enough to absorb the handful of records every CRM has.
+ */
+export async function maxRateLeakage(session: TenantSession): Promise<number> {
+  const [row] = await queryTenant(session, (tx) =>
+    tx
+      .select({ value: schema.tenantConfig.value })
+      .from(schema.tenantConfig)
+      .where(
+        and(
+          eq(schema.tenantConfig.tenantId, session.tenant.id),
+          eq(schema.tenantConfig.key, 'max_rate_leakage'),
+        ),
+      )
+      .limit(1),
+  );
+  const share = (row?.value as { share?: number } | undefined)?.share;
+  return typeof share === 'number' && share >= 0 && share <= 1 ? share : 0.02;
+}
+
 export async function loadMetrics(session: TenantSession): Promise<Metrics> {
   const [rows, blocks] = await queryTenant(session, async (tx) => [
     await tx

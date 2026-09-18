@@ -192,6 +192,52 @@ judgements), the band parser no longer drops a zero lower bound or reads the
 `m` in "Months" as "million", and `reconcileDeletesAndMerges` clamps both
 `getDeleted` window bounds instead of throwing the whole sync.
 
+## Lender grain, and the offer rate that was not one (18 September 2026)
+
+An audit of the org — prompted by an offer rate of 58.8% looking too high for
+MCA — found that the funnel was reading lender decisions off the deal. Full
+reasoning in `docs/brief-amendments.md`, "§8 — Offer rate is blocked, because it
+was measuring data entry" and "§4, §8 and §9.3 — submissions are the grain the
+funnel was missing".
+
+**Offer rate is retired.** Approval and the first lender offer are the same
+event: median 0.0 hours apart, 110 of 112 within an hour, and 98 of the offer
+records predate the stage change. What the rate measured is whether somebody
+typed a date into `Offer_Received_Date_Time__c` — 57 of 115 approved deals have
+it, 112 hold an offer record. It also divided populations that do not nest: 10
+of 67 offers belong to deals with no approval event.
+
+**`csbs__Submission__c` is ingested at lender grain.** 1,427 submissions, 419
+opportunities, 6 lenders, from 2026-06-18. One table, migration 0011, with the
+usual RLS treatment plus two mutations and three isolation tests.
+
+| | Submissions | Offered | Declined | Offer rate of decided |
+| --- | ---: | ---: | ---: | ---: |
+| CFG | 419 | 73 | 137 | 34.8% |
+| Spartan Capital | 310 | 27 | 131 | 17.1% |
+| Elevate Funding | 348 | 21 | 164 | 11.4% |
+| Forward Financing | 347 | 9 | 158 | 5.4% |
+| **All lenders** | **1,427** | **131** | **590** | **18.2%** |
+
+706 submissions are undecided and excluded — 693 awaiting an answer, 13 that
+never completed. They are on the metric, not in a caption: a reader assuming the
+denominator is every submission is out by a factor of two.
+
+**Decline reasons are measured, at lender grain.** 123 citations across 121
+lender declines. Coverage is rendered per month and never summed, because the
+field is being adopted: 0% of June's declines, 15.4% of July's, 9.1% of
+August's, 30.5% of September's. A reason *per deal* stays blocked —
+`Loss_Reason__c` is abandoned and a deal declined by three lenders has no single
+reason in the CRM.
+
+**The funnel no longer assumes stages progress in order.** Nesting is measured
+per transition against the stage events, with `max_rate_leakage` (2%, a config
+row) deciding whether a rate renders with its exclusion stated or is withheld.
+Every stage card states how many of its deals were later declined — 47 of 67 at
+Offer. The Salesforce sync reports `succeeded` again, the absent
+`csbs__Decline_Reason__c` having been dropped from the mapping now that the
+reason is read where it lives.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
@@ -214,14 +260,16 @@ judgements), the band parser no longer drops a zero lower bound or reads the
   never resolve to a campaign.
 - **`Lead.TTCLID__c` has no Opportunity counterpart.** TikTok is not in the
   engagement; leave it or create the field deliberately.
-- **`Opportunity.csbs__Decline_Reason__c` does not exist.** Dropped from the
-  query and reported; the Salesforce sync reports `partial` for this alone.
-- **Decline *reasons* are blocked; decline volume and timing are not.**
-  `Loss_Reason__c` was filled in on every closed-lost opportunity through
-  January 2025 and then abandoned — 0 of 133 in July 2026, 2 of 132 in August,
-  1 of 66 in September. A process change to raise with the client rather than a
-  gap to design around. Volume and timing come from
-  `csbs__Declined_Date_Time__c` and the Declined transitions.
+- **`Opportunity.csbs__Decline_Reason__c` does not exist**, and is no longer
+  mapped. It was kept mapped on purpose while the reason was unmeasured, so
+  validation would keep reporting it; the reason is now read from the submission
+  object, so the sync reports `succeeded` rather than `partial` forever.
+- **Decline reasons are measured at lender grain; a reason per *deal* is not.**
+  `Decline_Reason__c` on `csbs__Submission__c` carries them, at rising monthly
+  coverage. `Loss_Reason__c` on Opportunity was filled in on every closed-lost
+  deal through January 2025 and then abandoned — 0 of 133 in July 2026, 2 of 132
+  in August, 1 of 66 in September — and a deal declined by three lenders for
+  three reasons has no single reason in the CRM.
 - **Revenue bands on Opportunity stay blocked.** `Approved_MCA_Amount__c` and
   `Net_Funding_Amount__c` report 100% populated and hold six real values
   between them. Nothing reads them, and nothing should.
@@ -232,7 +280,14 @@ judgements), the band parser no longer drops a zero lower bound or reads the
   opaque codes. A decode key from the client converts those leads from
   undeterminable to an answer; guessing at it would not. Tracked as
   `mql_time_in_business_decode`.
-- **Call tracking.** Vendor not selected.
+- **Call tracking — the vendor is Aloware and it is live.** 30,093
+  `Aloware_Call__c` records in Salesforce, 12,000–15,000 a month since June
+  2026, each linked to a lead with a direction, disposition and duration. The
+  platform deliberately does not read them from Salesforce: a vendor-fed custom
+  object is a copy whose completeness depends on that integration. Planned as a
+  direct Aloware API connector with its own connection row, ledger and
+  reconciliation. The blocked state's reason still says "vendor not selected"
+  and should be corrected with that work.
 - Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
 
 ## Phase 4 progress
