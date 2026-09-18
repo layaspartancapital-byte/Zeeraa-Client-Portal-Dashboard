@@ -1120,3 +1120,165 @@ Until that connector exists the blocked state stays, and its reason should be
 corrected from "vendor not selected" to name Aloware and the planned connector.
 That correction is not made here because it belongs with the connector work
 rather than in a commit about submissions.
+
+---
+
+## §7 and §9 — call tracking, from Aloware directly
+
+**Added 18 September 2026.** Supersedes the planned-work note above it, which
+is now built, and corrects a blocked state that had been wrong for months.
+
+Call tracking rendered as `Waiting on client — call tracking vendor not yet
+selected`. The vendor was selected: Aloware is live and has been writing
+12,000–15,000 calls a month since June 2026. The blocked state was describing
+the engagement rather than the org, and nobody looked again once it was
+written.
+
+### Not from `Aloware_Call__c`
+
+The Salesforce org holds 30,093 `Aloware_Call__c` records, linked to leads,
+with direction, disposition, duration and a recording URL. Reading those would
+have been a day's work instead of a week's, and it is the wrong source: that
+object is a copy whose completeness depends on the vendor's own Salesforce
+integration, so a gap in that integration would be indistinguishable here from
+a quiet day on the phones. A metric this product publishes should not rest on a
+third party's sync of a third party.
+
+So calls come from Aloware: an export for the history, a webhook for
+everything after it, both through one normaliser, both upserting on Aloware's
+**Communication ID**. That key is what lets the two routes coexist — the seam
+of every export overlaps the webhook, and a re-delivery or a re-import lands on
+the same row.
+
+### What the import found
+
+29,115 rows in the export: **28,863 calls** and 252 SMS, which are skipped by
+`Type` and counted rather than silently included. 19 June to 17 September. No
+row was dropped and no disposition went unrecognised.
+
+**`completed` is not a conversation, and this is the finding that matters.**
+The vendor marks 26,311 of the 28,863 calls `completed`, which would be a 91%
+connect rate on outbound dialling. The talk time says otherwise:
+
+| Talk time of a completed call | Calls |
+| --- | ---: |
+| 0s | 2,956 |
+| 1–9s | 13,376 |
+| 10–29s | 6,476 |
+| 30s+ | 3,503 |
+
+So `connected` requires talk time past a threshold, and the threshold is a
+config row (`aloware.connectedMinTalkSeconds`, 30s) rendered on the card beside
+the figure it decides — because the sensitivity is steep: 23,355 calls are
+connected at one second, 9,979 at ten, 3,503 at thirty. A completed call under
+the threshold is `attempted` and flagged `answered_briefly`, so the 19,851 of
+them are not lost into a bucket.
+
+**Abandoned is its own outcome** — 2,002 calls the caller ended before anybody
+answered. Neither a conversation nor an attempt at one, so it is in neither of
+the other counts and outside the connect rate's denominator: the desk cannot
+connect a call that was hung up, and charging it against them measures the
+client's own marketing.
+
+### The join, and its coverage
+
+A call knows the number it dialled and nothing else about a lead, so the number
+is the join. `readPhone` in `packages/core` reduces both sides to ten digits,
+and is deliberately strict: no prefix matching, no partial matches, and
+placeholders like `0000000000` are refused because keyed they would collapse
+many leads onto one merchant. A number that cannot be keyed is counted by
+reason and shown.
+
+Leads had no phone number at all before this — `Phone` and `MobilePhone` are
+now mapped as ordered candidates, and the first that *keys* wins rather than
+the first that is populated.
+
+Measured over the 90-day window: **27,382 of 28,862 calls carry a lead
+(94.9%)**; 1,333 have a good number belonging to no lead in the CRM, and 147
+have no usable number. Coverage is the first figure on the card because every
+figure after it is computed over the matched subset.
+
+**An ambiguous number is left unmatched.** Where two leads share a number — a
+merchant who filled the form twice, an office switchboard, or one of the test
+numbers in this data — nothing says which lead the call belongs to. Assigning
+it to the newest would make speed to lead look measured when it is arbitrary.
+
+### Speed to lead, and attempts
+
+From the lead's creation to the **first outbound, non-abandoned** call to its
+number. Inbound is excluded — a merchant ringing in is not a response time —
+and so is any call stamped before its lead, which happens when the lead is
+created during the conversation: real, genuinely instant, and not a response to
+anything.
+
+The median, not the mean, because one lead called three weeks late moves a mean
+and says nothing about the desk; p90 is shown too, because the tail is what a
+client argues about. Quantiles are nearest-rank rather than interpolated: a
+median of 214.5 seconds when no call took that long is a figure nobody can go
+and check.
+
+Measured: median **11h 35m**, p90 11d 18h, over 2,654 of 3,823 leads created
+(69.4%). **15.1%** were called inside five minutes — of the leads that were
+called, not of every lead. Attempts per lead: mean 7.6, median 4, over 19,483
+attempts; 564 leads were reached on the first attempt and 1,158 were called
+more than once and never reached.
+
+### Two stale blocked states, and the bug that kept one alive
+
+Both `call_tracking` and `salesforce` carried reasons that had stopped being
+true. Salesforce was `degraded` over `csbs__Decline_Reason__c`, which is now
+read at lender grain from the submission object.
+
+Correcting call tracking exposed a seed bug worth recording: the connection
+upsert key includes `account_identifier`, so changing `pending` to `aloware`
+**inserted a second row** and left the first behind. The data quality card then
+faithfully rendered the stale one. `apply.ts` now prunes rows for the same
+platform under a different identifier, but only where they hold no credentials
+— an unauthenticated row is pure configuration and safe to drop, while one
+holding a credential blob may be a genuinely separate account. The identifier
+is a label; the credential is the identity.
+
+### PII
+
+The export holds merchants' phone numbers, names and emails, agents' names,
+note bodies and recording links. It lives in `data/private/`, which is
+gitignored, and **only what is needed is ingested**: the id, timestamp, type,
+direction, disposition, two durations, the contact number and id, and the
+agent's name. Names, emails, bodies, notes and recordings are not read.
+
+`calls.contact_number` and `calls.agent_name` are the only PII stored, both
+tenant-scoped with RLS, FORCE and the usual two policies, plus two mutations
+and three isolation tests — a leak here would tell one client whom another is
+calling and how often. **Neither is rendered on any screen**: the card shows
+counts, shares and durations. The import script prints only aggregates.
+
+### The webhook
+
+`POST /api/webhooks/aloware/{tenant}`, authenticated with
+`ALOWARE_WEBHOOK_SECRET` as a bearer token on the cron route's pattern:
+constant-time compare, 503 when the secret is unset, 404 rather than 401 when
+it does not match. Accepts a single event or a batch.
+
+**Idempotent by construction rather than by bookkeeping** — there is no "have I
+seen this?" lookup because the upsert key is the vendor's own id. A duplicate
+answers 200 rather than 409, because a webhook sender treats 409 as a failure
+and retries it forever. A rejected record — an SMS, or one with no id — also
+answers 200 with the reason in the body and a warning in the log: retrying it
+forever helps nobody, and a systematic rejection should be visible rather than
+a quiet gap.
+
+### Two other bugs this surfaced
+
+**`--since` never reached the sync.** `sync-salesforce` read the flag,
+documented it in its usage line, and passed it only to the click-ID backfill —
+so `--since 2024-01-01` looked like a full re-pull and quietly ran an ordinary
+incremental one off the watermark. Found while trying to backfill lead phone
+numbers, which is exactly the situation the flag exists for.
+
+**The export's timestamps have no timezone.** `2026-06-19 11:32:04`, read by
+`new Date()`, parses in the server's zone — UTC in a container — putting every
+call four or five hours before it happened. Speed to lead is a subtraction
+between a CRM timestamp and a call timestamp, so the error would not have
+looked like an error. It would have looked like a desk that never picks up the
+phone. `parseWallClock` reads it in the tenant's zone, as §16 requires, and is
+tested across a daylight-saving boundary.

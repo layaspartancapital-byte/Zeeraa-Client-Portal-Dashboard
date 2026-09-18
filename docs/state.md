@@ -146,7 +146,9 @@ outcome in the UI rather than that an event was queued.
    Production starts empty and the first sync fills it. The 90-day
    `click_view` window is the one thing with an expiry, so the first
    `run-scheduled nightly` against Neon should not wait.
-3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503).
+3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503),
+   and `ALOWARE_WEBHOOK_SECRET` likewise for the call webhook — both fail
+   closed, so an unset secret is a refusing endpoint rather than an open one.
    `NEXTAUTH_URL`, the OAuth and Resend credentials and `BLOB_READ_WRITE_TOKEN`
    are still unset for production. `INNGEST_*` are no longer used by anything.
 
@@ -238,6 +240,55 @@ Offer. The Salesforce sync reports `succeeded` again, the absent
 `csbs__Decline_Reason__c` having been dropped from the mapping now that the
 reason is read where it lives.
 
+## Call tracking, from Aloware (18 September 2026)
+
+Built as a direct Aloware integration, not by reading the 30,093
+`Aloware_Call__c` records in Salesforce: that object is a copy whose
+completeness depends on the vendor's own CRM integration, and a gap in it would
+look here like a quiet day on the phones. Full reasoning in
+`docs/brief-amendments.md`, "§7 and §9 — call tracking, from Aloware directly".
+
+**The blocked state was wrong, not merely stale.** It said the vendor had not
+been selected. Aloware has been live since June.
+
+| | |
+| --- | ---: |
+| Calls imported (19 Jun – 17 Sep) | 28,863 |
+| SMS skipped, counted not ingested | 252 |
+| Connected (talk time ≥ 30s) | 3,503 |
+| Attempted | 23,358 |
+| — of which answered, under the threshold | 19,852 |
+| Abandoned, excluded from both | 2,002 |
+| Calls matched to a lead | 27,382 of 28,862 (94.9%) |
+| Speed to lead, median | 11h 35m (p90 11d 18h) |
+| Called within five minutes | 15.1% of leads called |
+| Attempts per lead | mean 7.6, median 4 |
+
+`completed` is not a conversation: the vendor marks 26,311 calls completed and
+13,376 of those talked for under ten seconds. `connected` therefore requires
+talk time past `aloware.connectedMinTalkSeconds` — a config row, default 30s,
+rendered on the card because the sensitivity is steep (23,355 connected at 1s,
+9,979 at 10s, 3,503 at 30s).
+
+**The CSV lives in `data/private/`, which is gitignored, and is PII.** Only the
+columns needed are ingested; names, emails, note bodies and recordings are not
+read. The two PII columns stored — contact number and agent name — appear on no
+screen.
+
+**Going forward:** `POST /api/webhooks/aloware/{tenant}`, bearer-authenticated
+with `ALOWARE_WEBHOOK_SECRET`, idempotent on Communication ID because that is
+the upsert key. Verified end to end: a repeated post produces one row, an SMS
+is rejected with its reason, a bad body is a 400, a wrong secret is a 404.
+
+**Three bugs this surfaced and fixed.** `sync-salesforce --since` was read and
+documented but never passed to the sync, only to the click-ID backfill — so a
+"full re-pull" silently ran incrementally. The export's timestamps carry no
+timezone, and read as UTC every call would have landed four hours early, which
+would have looked like a slow desk rather than a bug. And the seed's connection
+upsert key includes the account identifier, so renaming one inserted a second
+row and left the stale one rendering — now pruned, but only for rows holding no
+credentials.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
@@ -280,14 +331,12 @@ reason is read where it lives.
   opaque codes. A decode key from the client converts those leads from
   undeterminable to an answer; guessing at it would not. Tracked as
   `mql_time_in_business_decode`.
-- **Call tracking — the vendor is Aloware and it is live.** 30,093
-  `Aloware_Call__c` records in Salesforce, 12,000–15,000 a month since June
-  2026, each linked to a lead with a direction, disposition and duration. The
-  platform deliberately does not read them from Salesforce: a vendor-fed custom
-  object is a copy whose completeness depends on that integration. Planned as a
-  direct Aloware API connector with its own connection row, ledger and
-  reconciliation. The blocked state's reason still says "vendor not selected"
-  and should be corrected with that work.
+- **Call tracking is built and no longer blocked.** Aloware, imported directly.
+  What remains is operational rather than a dependency: the webhook
+  subscription has to be pointed at
+  `/api/webhooks/aloware/spartan` in the Aloware console, and
+  `ALOWARE_WEBHOOK_SECRET` set on the deployment, before live calls flow. Until
+  then the record ends at the export's last call, 17 September 2026.
 - Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
 
 ## Phase 4 progress

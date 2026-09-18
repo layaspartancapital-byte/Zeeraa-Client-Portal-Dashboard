@@ -3,6 +3,7 @@ import {
   bucketLabel,
   evenBucketsIn,
   monthBucketsIn,
+  parseWallClock,
   previousRange,
   trailingMonths,
   trailingWindow,
@@ -85,5 +86,52 @@ describe('trailingMonths', () => {
 
   it('refuses a window of no months', () => {
     expect(() => trailingMonths('2026-09-18', 0)).toThrow();
+  });
+});
+
+describe('parseWallClock', () => {
+  it('reads a zoneless timestamp as tenant-local, not server-local', () => {
+    // Aloware's own format. 11:32 in New York during daylight time is 15:32Z;
+    // parsed as UTC it would be four hours early and speed to lead would read
+    // as four hours of neglect on every call.
+    const d = parseWallClock('2026-06-19 11:32:04', 'America/New_York');
+    expect(d?.toISOString()).toBe('2026-06-19T15:32:04.000Z');
+  });
+
+  it('follows the zone across a daylight-saving change', () => {
+    // Eastern standard time in January is UTC-5, daylight time in June UTC-4.
+    // A fixed offset would be wrong for one of these.
+    expect(parseWallClock('2026-01-15 09:00:00', 'America/New_York')?.toISOString()).toBe(
+      '2026-01-15T14:00:00.000Z',
+    );
+    expect(parseWallClock('2026-06-15 09:00:00', 'America/New_York')?.toISOString()).toBe(
+      '2026-06-15T13:00:00.000Z',
+    );
+  });
+
+  it('handles the hour either side of the spring transition', () => {
+    // 2026-03-08 02:30 does not exist in New York. It must still resolve to a
+    // real instant rather than to NaN or to an hour in the wrong offset.
+    const d = parseWallClock('2026-03-08 02:30:00', 'America/New_York');
+    expect(d).not.toBeNull();
+    expect(Number.isNaN(d!.getTime())).toBe(false);
+  });
+
+  it('accepts the ISO T separator and an absent seconds field', () => {
+    expect(parseWallClock('2026-06-19T11:32', 'America/New_York')?.toISOString()).toBe(
+      '2026-06-19T15:32:00.000Z',
+    );
+  });
+
+  it('returns null for anything that is not a wall clock', () => {
+    for (const text of ['', 'yesterday', '19/06/2026', 'null']) {
+      expect(parseWallClock(text, 'America/New_York')).toBeNull();
+    }
+  });
+
+  it('is the identity for UTC', () => {
+    expect(parseWallClock('2026-06-19 11:32:04', 'UTC')?.toISOString()).toBe(
+      '2026-06-19T11:32:04.000Z',
+    );
   });
 });

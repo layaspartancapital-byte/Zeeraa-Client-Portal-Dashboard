@@ -1,4 +1,4 @@
-import { and, eq, lt, notInArray, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, ne, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../src/client';
 import * as schema from '../src/schema/index';
 import type { TenantSeed } from './types';
@@ -221,6 +221,30 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
   }
 
   for (const c of seed.connections) {
+    /*
+     * A platform's account identifier can be corrected, and the upsert key
+     * includes it — so renaming one inserts a second row and leaves the first
+     * behind. That is how `call_tracking` came to hold both a `pending` row
+     * saying the vendor was unselected and an `aloware` row saying it was
+     * live, with the data quality card faithfully rendering the stale one.
+     *
+     * Stale rows for the same platform are pruned, but only where they hold no
+     * credentials: an unauthenticated row is pure configuration and safe to
+     * drop, while one holding a credential blob may be a genuinely separate
+     * account and is never touched. The identifier is a label; the credential
+     * is the identity.
+     */
+    await db
+      .delete(schema.connections)
+      .where(
+        and(
+          eq(schema.connections.tenantId, tenantId),
+          eq(schema.connections.platform, c.platform),
+          ne(schema.connections.accountIdentifier, c.accountIdentifier),
+          isNull(schema.connections.credentialsEncrypted),
+        ),
+      );
+
     await db
       .insert(schema.connections)
       .values({

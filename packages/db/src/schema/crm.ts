@@ -10,6 +10,9 @@ import {
 } from 'drizzle-orm/pg-core';
 import {
   attributionModelEnum,
+  callDirectionEnum,
+  callOutcomeEnum,
+  callSourceEnum,
   clickIdSourceEnum,
   mqlVerdictEnum,
   stageOriginEnum,
@@ -79,6 +82,17 @@ export const leads = pgTable(
       precision: 8,
       scale: 2,
     }),
+    /**
+     * The merchant's phone number, and its join key.
+     *
+     * Here because the dialer knows nothing about a lead except the number it
+     * called. `phone_key` is ten digits — normalised at ingest, like dates —
+     * and is what calls join on; `phone` keeps what the CRM actually held, so
+     * a number that cannot be keyed can still be investigated. PII, and
+     * rendered on no screen.
+     */
+    phone: text('phone'),
+    phoneKey: text('phone_key'),
     industry: text('industry'),
     state: text('state'),
     isDuplicate: boolean('is_duplicate').notNull().default(false),
@@ -101,6 +115,8 @@ export const leads = pgTable(
     uniqueIndex('leads_tenant_external_key').on(t.tenantId, t.externalId),
     index('leads_tenant_created_idx').on(t.tenantId, t.createdAt),
     index('leads_tenant_click_id_idx').on(t.tenantId, t.clickId),
+    // The call join runs over this on every speed-to-lead query.
+    index('leads_tenant_phone_key_idx').on(t.tenantId, t.phoneKey),
     index('leads_tenant_converted_opp_idx').on(t.tenantId, t.convertedOpportunityId),
   ],
 );
@@ -289,5 +305,77 @@ export const submissions = pgTable(
     index('submissions_tenant_opportunity_idx').on(t.tenantId, t.opportunityExternalId),
     index('submissions_tenant_outcome_idx').on(t.tenantId, t.outcome, t.submittedAt),
     index('submissions_tenant_lender_idx').on(t.tenantId, t.lenderExternalId, t.outcome),
+  ],
+);
+
+/**
+ * One call, from the dialer.
+ *
+ * Read from Aloware directly rather than from the `Aloware_Call__c` object in
+ * Salesforce. That object exists and holds 30,093 rows, but it is a copy whose
+ * completeness depends on the vendor's own Salesforce integration — and a gap
+ * in that integration would be indistinguishable here from a quiet day on the
+ * phones. A metric this product publishes should not rest on a third party's
+ * sync of a third party.
+ *
+ * **`external_id` is Aloware's Communication ID**, and the upsert key. A
+ * re-import of an overlapping export and a webhook re-delivery of the same call
+ * both land on the same row, which is the only reason those two routes can
+ * safely coexist.
+ *
+ * PII: `contact_number` is a real merchant's phone number and `agent_name` a
+ * real person's name. Both are tenant-scoped like everything else here, and
+ * neither is rendered on any screen — the UI shows aggregates, coverage and
+ * durations. Nothing about the call carries the recording, the transcript, the
+ * contact's name or their email, all of which the export contains and none of
+ * which this platform needs.
+ */
+export const calls = pgTable(
+  'calls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** Aloware's Communication ID. */
+    externalId: text('external_id').notNull(),
+    /** Normalised into the tenant timezone at ingest; the export has no offset. */
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    direction: callDirectionEnum('direction').notNull(),
+    outcome: callOutcomeEnum('outcome').notNull(),
+    /** The vendor's own status, verbatim, so a reclassification is a query. */
+    disposition: text('disposition'),
+    /**
+     * True for a completed call under the connected threshold — answered by
+     * something, over in seconds. Counted as attempted, kept visible because
+     * 13,376 of them is a finding about the list rather than about the desk.
+     */
+    answeredBriefly: boolean('answered_briefly').notNull().default(false),
+    talkTimeSeconds: numeric('talk_time_seconds', { precision: 10, scale: 0 }),
+    durationSeconds: numeric('duration_seconds', { precision: 10, scale: 0 }),
+    contactNumber: text('contact_number'),
+    /** Ten digits, or null where the number could not be keyed. The join key. */
+    contactKey: text('contact_key'),
+    contactExternalId: text('contact_external_id'),
+    agentName: text('agent_name'),
+    /**
+     * The lead this call was matched to, by phone number.
+     *
+     * Resolved in its own idempotent pass rather than at insert, because a call
+     * can arrive before the lead is synced and a lead's phone can arrive after
+     * the call. Null means unmatched, which is a coverage fact reported on
+     * screen — never a reason to drop the call from a volume.
+     */
+    leadExternalId: text('lead_external_id'),
+    source: callSourceEnum('source').notNull(),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('calls_upsert_key').on(t.tenantId, t.externalId),
+    index('calls_tenant_occurred_idx').on(t.tenantId, t.occurredAt),
+    index('calls_tenant_contact_idx').on(t.tenantId, t.contactKey),
+    index('calls_tenant_lead_idx').on(t.tenantId, t.leadExternalId, t.direction),
+    index('calls_tenant_outcome_idx').on(t.tenantId, t.outcome, t.occurredAt),
   ],
 );

@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import {
   buildStageHistoryQuery,
   buildSubmissionQuery,
@@ -21,6 +21,7 @@ import {
 } from '@zeeraa/connectors';
 import { qualifyLead, type QualificationBar } from '@zeeraa/core';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
+import { resolveCallLeads } from '../aloware/writer';
 import {
   closeSyncRun,
   lastSuccessfulWatermark,
@@ -107,6 +108,15 @@ export type SyncResult = {
     span: { earliest: Date | null; latest: Date | null };
     unclassified: Record<string, number>;
   } | null;
+  /**
+   * The call-to-lead join, re-run after the leads are written.
+   *
+   * Here because leads changing is exactly what invalidates it: a call
+   * imported before its lead existed stays unmatched until something resolves
+   * it again, and without this that something would have to be a person
+   * remembering to re-run the import. Null when the tenant has no calls.
+   */
+  callLeadMatches: { matched: number; unmatched: number; unkeyed: number } | null;
   status: 'succeeded' | 'partial' | 'failed';
 };
 
@@ -162,6 +172,7 @@ export async function runSalesforceSync(
       blocked: [],
       missingFields: [],
       submissions: null,
+      callLeadMatches: null,
       stageHistory: {
         rows: 0,
         events: 0,
@@ -372,6 +383,26 @@ export async function runSalesforceSync(
             syncRunId,
           );
         }
+      }
+
+      /*
+       * Re-resolve the call-to-lead join now that leads are current.
+       *
+       * Idempotent, and cheap: one grouped read over phone keys plus a batched
+       * update per 500 keys. Skipped entirely where the tenant has no calls,
+       * so a client without call tracking pays nothing for it.
+       */
+      const [callRow] = await tx
+        .select({ calls: sql<number>`count(*)::int` })
+        .from(schema.calls)
+        .where(eq(schema.calls.tenantId, context.tenantId));
+      if (Number(callRow?.calls ?? 0) > 0) {
+        const match = await resolveCallLeads(tx, context.tenantId);
+        result.callLeadMatches = {
+          matched: match.matched,
+          unmatched: match.unmatched,
+          unkeyed: match.unkeyed,
+        };
       }
 
       // --- Click IDs from the mapped Opportunity fields -----------------------

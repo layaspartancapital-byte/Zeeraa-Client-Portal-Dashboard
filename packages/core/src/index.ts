@@ -8,3 +8,5 @@ export * from './qualification';
 export * from './funnel';
 export * from './attribution';
 export * from './submissions';
+export * from './phone';
+export * from './calls';

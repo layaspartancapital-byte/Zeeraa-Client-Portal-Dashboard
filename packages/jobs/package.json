@@ -16,7 +16,8 @@
     "sync-google-ads": "tsx scripts/sync-google-ads.ts",
     "spend-to-funded": "tsx scripts/spend-to-funded.ts",
     "sync-salesforce": "tsx scripts/sync-salesforce.ts",
-    "run-scheduled": "tsx scripts/run-scheduled.ts"
+    "run-scheduled": "tsx scripts/run-scheduled.ts",
+    "import-aloware-calls": "tsx scripts/import-aloware-calls.ts"
   },
   "dependencies": {
     "@zeeraa/connectors": "workspace:*",

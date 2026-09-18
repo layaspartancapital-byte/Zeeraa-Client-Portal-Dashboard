@@ -17,3 +17,4 @@ apps/web/CLAUDE.md
 
 # cron job logs
 .cron-*.log
+data/private/

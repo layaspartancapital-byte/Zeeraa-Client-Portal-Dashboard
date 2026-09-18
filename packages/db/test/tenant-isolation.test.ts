@@ -52,6 +52,53 @@ describe('the runtime role', () => {
   });
 });
 
+describe('calls', () => {
+  /*
+   * Calls hold two kinds of PII — a merchant's phone number and an agent's
+   * name — and the join key is the phone number itself, so a leak here would
+   * also tell one client whom another is calling and how often.
+   */
+  it('are readable inside the tenant that owns them', async () => {
+    const rows = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) => tx.select().from(schema.calls),
+      app.db,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.externalId).toBe('A-CALL-1');
+  });
+
+  it('do not leak another tenant’s numbers from an unfiltered query', async () => {
+    const rows = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) => tx.select().from(schema.calls),
+      app.db,
+    );
+    expect(rows.map((r) => r.contactKey)).not.toContain('4155550222');
+    expect(rows.map((r) => r.agentName)).not.toContain('Rep B');
+  });
+
+  it('cannot be written into another tenant', async () => {
+    // The webhook is the reason this matters: it takes a tenant from the URL
+    // and a payload from a third party.
+    await expect(
+      withTenant(
+        { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+        (tx) =>
+          tx.insert(schema.calls).values({
+            tenantId: fx.tenantB,
+            externalId: 'X-CALL-1',
+            occurredAt: new Date('2026-08-02T12:00:00Z'),
+            direction: 'outbound',
+            outcome: 'attempted',
+            source: 'webhook',
+          }),
+        app.db,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
 describe('lender submissions', () => {
   /*
    * The newest tenant-scoped table, tested at both ends.

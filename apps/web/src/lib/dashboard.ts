@@ -143,6 +143,33 @@ export async function maxRateLeakage(session: TenantSession): Promise<number> {
   return typeof share === 'number' && share >= 0 && share <= 1 ? share : 0.02;
 }
 
+/**
+ * The talk-time threshold that separates a connected call from an attempt.
+ *
+ * A config row, because it is a judgement about what a conversation is rather
+ * than a property of the product — and a steep one: the dialer marks nearly
+ * every call completed, so at one second 23,355 of Spartan's calls are
+ * connected and at thirty seconds 3,503 are. Thirty by default, and rendered
+ * on the card beside the figure it decides.
+ */
+export async function alowareConnectedThreshold(session: TenantSession): Promise<number> {
+  const [row] = await queryTenant(session, (tx) =>
+    tx
+      .select({ value: schema.tenantConfig.value })
+      .from(schema.tenantConfig)
+      .where(
+        and(
+          eq(schema.tenantConfig.tenantId, session.tenant.id),
+          eq(schema.tenantConfig.key, 'aloware'),
+        ),
+      )
+      .limit(1),
+  );
+  const seconds = (row?.value as { connectedMinTalkSeconds?: number } | undefined)
+    ?.connectedMinTalkSeconds;
+  return typeof seconds === 'number' && seconds >= 0 ? seconds : 30;
+}
+
 export async function loadMetrics(session: TenantSession): Promise<Metrics> {
   const [rows, blocks] = await queryTenant(session, async (tx) => [
     await tx

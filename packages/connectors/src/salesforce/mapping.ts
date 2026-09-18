@@ -49,6 +49,19 @@ export type SalesforceFieldMapping = {
      * and reported as the blocker they are.
      */
     undecodableFields?: { field: string; why: string }[];
+    /**
+     * Ordered candidates for the merchant's phone number.
+     *
+     * A list because a CRM holds several — `Phone`, `MobilePhone`, a form
+     * field — and any one of them may be the only populated one on a given
+     * lead. Read in order; the first that yields a ten-digit key wins, so a
+     * field holding a switchboard extension does not shadow a mobile number
+     * that joins.
+     *
+     * This is the only thing the dialer can be joined on: a call knows the
+     * number it dialled and nothing else about a lead.
+     */
+    phones?: string[];
     industry?: string;
     state?: string;
   };
@@ -128,6 +141,11 @@ function collect(mapping: SalesforceFieldMapping) {
   // undecodable flag needs to say so, which means knowing it is there.
   for (const candidate of mapping.lead.undecodableFields ?? []) {
     lead.push([candidate.field, 'undecodable, pending a key']);
+  }
+  // Also a list the string loop above steps over, and an unselected phone
+  // field is a lead the dialer can never be joined to.
+  for (const field of mapping.lead.phones ?? []) {
+    lead.push([field, 'phone number']);
   }
 
   const opportunity: [string, string][] = Object.entries(mapping.opportunity.clickIds).map(

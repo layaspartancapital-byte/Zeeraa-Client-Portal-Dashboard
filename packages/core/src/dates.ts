@@ -135,3 +135,74 @@ export function trailingMonths(today: string, months: number): DateRange {
   for (let i = 1; i < months; i += 1) key = previousMonth(key);
   return { start: `${key}-01`, end: today };
 }
+
+/**
+ * A wall-clock timestamp with no zone, read as the tenant's local time.
+ *
+ * Aloware's export writes `2026-06-19 11:32:04` — no offset, no `Z`. Handing
+ * that to `new Date()` parses it in the *server's* zone, which in a container
+ * is UTC, so every call would land four or five hours late. Speed to lead is a
+ * subtraction between a CRM timestamp and a call timestamp, so a constant
+ * four-hour error does not look like an error: it looks like a desk that never
+ * answers the phone.
+ *
+ * §16 says dates are normalised into the tenant timezone at ingest. This is
+ * the function that does it for a vendor that exports without one.
+ *
+ * Two passes, which is the standard way to invert a zone lookup without a
+ * library: guess that the wall time is UTC, ask what that instant's offset
+ * actually is in the target zone, correct, then re-check — the second pass
+ * matters only for the hour either side of a DST transition, where the first
+ * guess can land on the wrong side of the shift.
+ */
+export function parseWallClock(text: string, timeZone: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(text.trim());
+  if (!match) return null;
+
+  const [, y, mo, d, h, mi, s] = match;
+  const asUtc = Date.UTC(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(s ?? '0'),
+  );
+  if (!Number.isFinite(asUtc)) return null;
+
+  let instant = asUtc;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const offset = zoneOffsetMs(new Date(instant), timeZone);
+    const next = asUtc - offset;
+    if (next === instant) break;
+    instant = next;
+  }
+  return new Date(instant);
+}
+
+/** How far ahead of UTC the zone is at this instant, in milliseconds. */
+function zoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+
+  const field = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? '0');
+  // `hour12: false` renders midnight as 24 in some engines.
+  const hour = field('hour') % 24;
+  const asIfUtc = Date.UTC(
+    field('year'),
+    field('month') - 1,
+    field('day'),
+    hour,
+    field('minute'),
+    field('second'),
+  );
+  return asIfUtc - instant.getTime();
+}

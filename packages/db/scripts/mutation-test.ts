@@ -30,8 +30,20 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop policy tenant_isolation on public.opportunities',
   },
   {
-    // The newest tenant-scoped table, and the first one holding a third
-    // party's name. A submission says which lender declined which merchant, so
+    // Calls hold a merchant's phone number and an agent's name, and arrive
+    // partly from a webhook that takes its tenant from a URL.
+    name: 'drop-calls-policy',
+    description: 'Drop the tenant_isolation policy on calls',
+    sql: 'drop policy tenant_isolation on public.calls',
+  },
+  {
+    name: 'unforce-calls',
+    description: 'Drop FORCE on calls, leaving the owner outside its policies',
+    sql: 'alter table public.calls no force row level security',
+  },
+  {
+    // A tenant-scoped table holding a third party's name. A submission says
+    // which lender declined which merchant. A submission says which lender declined which merchant, so
     // a leak here is commercially sensitive in a way a click id is not.
     name: 'drop-submissions-policy',
     description: 'Drop the tenant_isolation policy on submissions',

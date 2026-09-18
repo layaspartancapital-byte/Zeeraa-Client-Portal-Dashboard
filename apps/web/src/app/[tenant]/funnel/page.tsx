@@ -20,10 +20,17 @@ import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { StackedBars } from '@/components/charts/Bars';
-import { monthlyPerformance, platformLabel, submissionReport } from '@/lib/reporting';
+import {
+  callReport,
+  monthlyPerformance,
+  platformLabel,
+  submissionReport,
+} from '@/lib/reporting';
 import { DeclineCard } from '@/components/DeclineCard';
 import { LenderOutcomes } from '@/components/LenderOutcomes';
+import { CallTracking } from '@/components/CallTracking';
 import {
+  alowareConnectedThreshold,
   dataQuality,
   loadMetrics,
   maxRateLeakage,
@@ -75,7 +82,7 @@ export default async function Funnel({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const [data, quality, unread, buckets, metrics, submissions, leakageTolerance] =
+  const [data, quality, unread, buckets, metrics, submissions, leakageTolerance, calls] =
     await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
@@ -86,6 +93,7 @@ export default async function Funnel({
     loadMetrics(session),
     submissionReport(session, range),
     maxRateLeakage(session),
+    callReport(session, range, await alowareConnectedThreshold(session)),
   ]);
 
   /**
@@ -238,6 +246,8 @@ export default async function Funnel({
             maxLeakage={leakageTolerance}
           />
         </Card>
+
+        <CallTracking report={calls} span={12} />
 
         {/*
           The chart and the decline card share the left column rather than

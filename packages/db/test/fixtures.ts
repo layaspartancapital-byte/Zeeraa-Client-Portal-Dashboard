@@ -147,6 +147,34 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
     },
   ]);
 
+  // A call carries a merchant's phone number and an agent's name. Leaking one
+  // tenant's calls to another exposes both, plus who the other client is
+  // calling and how often.
+  await db.insert(schema.calls).values([
+    {
+      tenantId: a.id,
+      externalId: 'A-CALL-1',
+      occurredAt: new Date('2026-08-01T12:00:00Z'),
+      direction: 'outbound',
+      outcome: 'connected',
+      contactNumber: '(312) 555-0111',
+      contactKey: '3125550111',
+      agentName: 'Rep A',
+      source: 'csv_import',
+    },
+    {
+      tenantId: b.id,
+      externalId: 'B-CALL-1',
+      occurredAt: new Date('2026-08-01T12:00:00Z'),
+      direction: 'outbound',
+      outcome: 'connected',
+      contactNumber: '(415) 555-0222',
+      contactKey: '4155550222',
+      agentName: 'Rep B',
+      source: 'csv_import',
+    },
+  ]);
+
   return {
     tenantA: a.id,
     tenantB: b.id,

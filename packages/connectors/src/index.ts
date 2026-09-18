@@ -11,3 +11,5 @@ export * from './salesforce/sync';
 export * from './salesforce/inventory';
 export * from './salesforce/exclusion';
 export * from './google-ads/index';
+export * from './aloware/csv';
+export * from './aloware/calls';

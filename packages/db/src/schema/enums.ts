@@ -131,3 +131,23 @@ export const submissionOutcomeEnum = pgEnum('submission_outcome', [
   'declined',
   'undecided',
 ]);
+
+/**
+ * What happened on one call.
+ *
+ * `abandoned` is the one that must not be folded away: the caller ended it
+ * before anybody answered, so it is neither a conversation nor an agent's
+ * attempt at one — 2,002 of Spartan's 28,863 calls. Putting it in either of
+ * the others inflates that one, and putting it in the denominator of a connect
+ * rate measures the client's marketing rather than the desk.
+ *
+ * `connected` requires talk time past a configured threshold, not merely the
+ * vendor's `completed`: 26,311 calls are `completed` and 13,376 of those
+ * talked for under ten seconds. Answering machines are not conversations.
+ */
+export const callOutcomeEnum = pgEnum('call_outcome', ['connected', 'attempted', 'abandoned']);
+
+export const callDirectionEnum = pgEnum('call_direction', ['inbound', 'outbound', 'unknown']);
+
+/** How a call reached us: the historical export, or the live webhook. */
+export const callSourceEnum = pgEnum('call_source', ['csv_import', 'webhook']);

@@ -1,4 +1,4 @@
-import { qualifyLead, type QualificationBar } from '@zeeraa/core';
+import { qualifyLead, readPhone, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
 import { judgeQualificationBands } from './qualification-bands';
@@ -30,6 +30,9 @@ export type LeadRow = {
   selfReportedTimeInBusiness: number | null;
   industry: string | null;
   state: string | null;
+  /** As the CRM holds it, and as ten digits. Null when nothing keys. */
+  phone: string | null;
+  phoneKey: string | null;
   isConverted: boolean;
   convertedOpportunityId: string | null;
   /** Non-null when this lead was merged away into another. */
@@ -119,6 +122,31 @@ export const DEFAULT_PLATFORM_PRIORITY = [
   'linkedin_ads',
 ] as const;
 
+/**
+ * The first phone field that yields a join key.
+ *
+ * Ordered candidates, and the *first that keys* wins rather than the first
+ * that is populated: a lead whose `Phone` holds a switchboard with an
+ * extension and whose `MobilePhone` holds a real mobile should join on the
+ * mobile. `phone` keeps the raw text of whichever field was chosen, so an
+ * unjoinable number can still be investigated; when nothing keys, the first
+ * populated field is kept as evidence of what was there.
+ */
+function readLeadPhone(
+  record: SalesforceRecord,
+  mapping: SalesforceFieldMapping,
+): { phone: string | null; phoneKey: string | null } {
+  let firstPopulated: string | null = null;
+  for (const field of mapping.lead.phones ?? []) {
+    const raw = str(record, field);
+    if (raw === null) continue;
+    firstPopulated ??= raw;
+    const reading = readPhone(raw);
+    if (reading.key) return { phone: reading.raw, phoneKey: reading.key };
+  }
+  return { phone: firstPopulated, phoneKey: null };
+}
+
 export function normalizeLead(
   record: SalesforceRecord,
   mapping: SalesforceFieldMapping,
@@ -146,6 +174,7 @@ export function normalizeLead(
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),
     industry: str(record, mapping.lead.industry),
     state: str(record, mapping.lead.state),
+    ...readLeadPhone(record, mapping),
     isConverted: record.IsConverted === true,
     convertedOpportunityId: str(record, 'ConvertedOpportunityId'),
     mergedInto: str(record, 'MasterRecordId'),

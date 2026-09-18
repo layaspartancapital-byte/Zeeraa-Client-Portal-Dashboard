@@ -58,6 +58,8 @@ function lead(overrides: Partial<LeadRow> = {}): LeadRow {
     isConverted: true,
     convertedOpportunityId: '0061',
     mergedInto: null,
+    phone: '(312) 555-1234',
+    phoneKey: '3125551234',
     ...overrides,
   };
 }

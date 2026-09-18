@@ -1,16 +1,22 @@
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@zeeraa/db';
 import {
+  attemptsPerLead,
+  callVolume,
   channelCostPerDeal,
   previousMonth,
   rankReasonCitations,
   reasonCoverageByPeriod,
+  speedToLead,
   submissionOfferRate,
   type AttributionModel,
   type ChannelCostPerDeal,
   type DateRange,
   type ReasonCitations,
   type ReasonCoverage,
+  type AttemptsPerLead,
+  type CallVolume,
+  type SpeedToLead,
   type StageDefinition,
   type SubmissionOfferRate,
 } from '@zeeraa/core';
@@ -1100,6 +1106,260 @@ export async function submissionReport(
       })(),
       from: firstRow?.day ?? null,
       empty: byLender.length === 0 && firstRow?.day == null,
+    };
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Call tracking                                                             */
+/* ------------------------------------------------------------------------- */
+
+export type CallReport = {
+  range: DateRange;
+  /** Connected, attempted and abandoned over the window. */
+  volume: CallVolume;
+  /**
+   * Completed calls that talked for less than the connected threshold.
+   *
+   * Counted inside `attempted`, surfaced separately because the number is the
+   * finding: something answered and the call was over in seconds.
+   */
+  answeredBriefly: number;
+  /** The threshold that decides connected, so the figure carries its rule. */
+  connectedMinTalkSeconds: number;
+  /**
+   * How many calls could be attached to a lead, and why the rest could not.
+   *
+   * Coverage first, because every figure below it is computed over the matched
+   * subset and means nothing without it.
+   */
+  match: {
+    total: number;
+    matched: number;
+    /** A usable ten-digit key that belongs to no lead in the CRM. */
+    unmatchedNoLead: number;
+    /** A number that could not be reduced to a key at all. */
+    unkeyable: number;
+    /** Share of calls carrying a lead, or null with no calls. */
+    coverage: number | null;
+  };
+  /** Time from lead creation to first outbound call. */
+  speed: SpeedToLead;
+  /** Outbound attempts per lead, over leads that were called. */
+  attempts: AttemptsPerLead;
+  /** Calls per month, for the trend. */
+  monthly: { month: string; label: string; connected: number; attempted: number; abandoned: number }[];
+  /** The first call on record, as the horizon. */
+  from: string | null;
+  empty: boolean;
+};
+
+/**
+ * Calls for one window, with the lead join's coverage.
+ *
+ * Separate from `monthlyPerformance` for the same reason `submissionReport` is:
+ * it counts a different thing over a different population, and joining them in
+ * one query would invite dividing one by the other.
+ */
+export async function callReport(
+  session: TenantSession,
+  range: DateRange,
+  connectedMinTalkSeconds = 30,
+): Promise<CallReport> {
+  return queryTenant(session, async (tx) => {
+    const from = new Date(`${range.start}T00:00:00.000Z`);
+    const to = new Date(`${range.end}T23:59:59.999Z`);
+    const inWindow = and(
+      eq(schema.calls.tenantId, session.tenant.id),
+      gte(schema.calls.occurredAt, from),
+      lte(schema.calls.occurredAt, to),
+    );
+
+    const [outcomeRows, matchRows, speedRows, attemptRows, monthlyRows, [firstRow], [leadCount]] =
+      await Promise.all([
+        tx
+          .select({
+            outcome: schema.calls.outcome,
+            answeredBriefly: schema.calls.answeredBriefly,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(schema.calls)
+          .where(inWindow)
+          .groupBy(schema.calls.outcome, schema.calls.answeredBriefly),
+
+        tx
+          .select({
+            total: sql<number>`count(*)::int`,
+            matched: sql<number>`count(${schema.calls.leadExternalId})::int`,
+            unkeyable: sql<number>`count(*) filter (where ${schema.calls.contactKey} is null)::int`,
+          })
+          .from(schema.calls)
+          .where(inWindow),
+
+        /*
+         * Speed to lead, per lead: the first *outbound* call after the lead was
+         * created.
+         *
+         * Outbound only — an inbound call is the merchant ringing in, which is
+         * not a response time. And `> created_at`, so a call that predates its
+         * lead does not produce a negative interval that would flatter the
+         * desk; `speedToLead` drops those as well, belt and braces.
+         *
+         * The lead population is the window; the call may fall outside it,
+         * because a lead created on the last day of the window and called the
+         * next morning was still answered in fourteen hours.
+         */
+        tx
+          .select({
+            seconds: sql<number>`extract(epoch from (min(${schema.calls.occurredAt}) - ${schema.leads.createdAt}))::int`,
+          })
+          .from(schema.leads)
+          .innerJoin(
+            schema.calls,
+            and(
+              eq(schema.calls.tenantId, schema.leads.tenantId),
+              eq(schema.calls.leadExternalId, schema.leads.externalId),
+              eq(schema.calls.direction, 'outbound'),
+              sql`${schema.calls.occurredAt} > ${schema.leads.createdAt}`,
+              // Abandoned excluded, exactly as in `attempts` below: a call the
+              // dialer dropped before an agent was on it is not the desk
+              // responding to the lead. Both figures then describe the same
+              // population, so the card cannot show two different counts of
+              // "leads called".
+              sql`${schema.calls.outcome} <> 'abandoned'`,
+            ),
+          )
+          .where(
+            and(
+              eq(schema.leads.tenantId, session.tenant.id),
+              gte(schema.leads.createdAt, from),
+              lte(schema.leads.createdAt, to),
+            ),
+          )
+          .groupBy(schema.leads.externalId, schema.leads.createdAt),
+
+        // Attempts per lead: outbound, abandoned excluded — an abandoned call
+        // is not an attempt the desk made.
+        tx
+          .select({
+            attempts: sql<number>`count(*)::int`,
+            connected: sql<number>`count(*) filter (where ${schema.calls.outcome} = 'connected')::int`,
+            firstOutcome: sql<string>`(array_agg(${schema.calls.outcome} order by ${schema.calls.occurredAt}))[1]`,
+          })
+          .from(schema.leads)
+          .innerJoin(
+            schema.calls,
+            and(
+              eq(schema.calls.tenantId, schema.leads.tenantId),
+              eq(schema.calls.leadExternalId, schema.leads.externalId),
+              eq(schema.calls.direction, 'outbound'),
+            ),
+          )
+          .where(
+            and(
+              eq(schema.leads.tenantId, session.tenant.id),
+              gte(schema.leads.createdAt, from),
+              lte(schema.leads.createdAt, to),
+              sql`${schema.calls.outcome} <> 'abandoned'`,
+            ),
+          )
+          .groupBy(schema.leads.externalId),
+
+        tx
+          .select({
+            month: sql<string>`to_char(${schema.calls.occurredAt}, 'YYYY-MM')`,
+            outcome: schema.calls.outcome,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(schema.calls)
+          .where(eq(schema.calls.tenantId, session.tenant.id))
+          .groupBy(sql`1`, schema.calls.outcome)
+          .orderBy(sql`1`),
+
+        tx
+          .select({
+            day: sql<string | null>`to_char(min(${schema.calls.occurredAt}), 'YYYY-MM-DD')`,
+          })
+          .from(schema.calls)
+          .where(eq(schema.calls.tenantId, session.tenant.id)),
+
+        // Every lead in the window, for speed-to-lead coverage: the ones with
+        // no outbound call are the denominator's other half.
+        tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(schema.leads)
+          .where(
+            and(
+              eq(schema.leads.tenantId, session.tenant.id),
+              gte(schema.leads.createdAt, from),
+              lte(schema.leads.createdAt, to),
+            ),
+          ),
+      ]);
+
+    const tally = { connected: 0, attempted: 0, abandoned: 0 };
+    let answeredBriefly = 0;
+    for (const row of outcomeRows) {
+      tally[row.outcome] += Number(row.count);
+      if (row.answeredBriefly) answeredBriefly += Number(row.count);
+    }
+
+    const total = Number(matchRows[0]?.total ?? 0);
+    const matched = Number(matchRows[0]?.matched ?? 0);
+    const unkeyable = Number(matchRows[0]?.unkeyable ?? 0);
+
+    const speeds = speedRows
+      .map((r) => ({ seconds: Number(r.seconds) }))
+      .filter((r) => Number.isFinite(r.seconds));
+    const leadsInWindow = Number(leadCount?.n ?? 0);
+
+    const monthly = (() => {
+      const months = new Map<string, { connected: number; attempted: number; abandoned: number }>();
+      for (const row of monthlyRows) {
+        const entry =
+          months.get(row.month) ??
+          months.set(row.month, { connected: 0, attempted: 0, abandoned: 0 }).get(row.month)!;
+        entry[row.outcome] += Number(row.count);
+      }
+      return [...months]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, counts]) => {
+          const [year, m] = month.split('-');
+          return {
+            month,
+            label: new Date(Date.UTC(Number(year), Number(m) - 1, 1)).toLocaleDateString('en-US', {
+              month: 'short',
+              year: '2-digit',
+              timeZone: 'UTC',
+            }),
+            ...counts,
+          };
+        });
+    })();
+
+    return {
+      range,
+      volume: callVolume(tally),
+      answeredBriefly,
+      connectedMinTalkSeconds,
+      match: {
+        total,
+        matched,
+        unmatchedNoLead: total - matched - unkeyable,
+        unkeyable,
+        coverage: total === 0 ? null : matched / total,
+      },
+      speed: speedToLead(speeds, Math.max(0, leadsInWindow - speeds.length)),
+      attempts: attemptsPerLead(
+        attemptRows.map((r) => ({
+          attempts: Number(r.attempts),
+          connected: Number(r.connected) > 0,
+          connectedOnFirst: r.firstOutcome === 'connected',
+        })),
+      ),
+      monthly,
+      from: firstRow?.day ?? null,
+      empty: total === 0 && firstRow?.day == null,
     };
   });
 }

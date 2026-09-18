@@ -240,6 +240,20 @@ export const spartan: TenantSeed = {
       value: { minimum: 10 },
     },
     {
+      key: 'aloware',
+      description:
+        'How to read an Aloware call export, and what counts as connected. ' +
+        'Merged over the connector defaults, so only the differences live ' +
+        'here. connectedMinTalkSeconds is the judgement: the vendor marks ' +
+        '26,311 of 28,863 calls `completed`, and 13,376 of those talked for ' +
+        'under ten seconds — answering machines and immediate hang-ups. ' +
+        'Treating `completed` alone as a conversation reports a 91% connect ' +
+        'rate on outbound dialling. At 30s, 3,503 calls are connected; at ' +
+        '10s, 9,979; at 1s, 23,355. The sensitivity is why the number is a ' +
+        'row and is shown beside the figure it decides.',
+      value: { connectedMinTalkSeconds: 30 },
+    },
+    {
       key: 'max_rate_leakage',
       description:
         'How much of a later funnel stage may have skipped the earlier one ' +
@@ -405,12 +419,21 @@ export const spartan: TenantSeed = {
       // Resolved 17 September 2026: the Opportunity click-ID fields exist and
       // the conversion mapping carries all six. What remains is field-level and
       // surfaced as blocked dependencies rather than as a broken connection.
-      status: 'degraded',
-      blockedReason:
-        'Opportunity.csbs__Decline_Reason__c does not exist in the org, so decline ' +
-        'reasons cannot be ingested and the sync reports partial. Lead.TTCLID__c ' +
-        'has no Opportunity counterpart. Everything else syncs. ' +
-        'See docs/salesforce-fields.md.',
+      /*
+       * Corrected 18 September 2026. This was `degraded` because
+       * Opportunity.csbs__Decline_Reason__c does not exist — but the reason is
+       * now read at lender grain from csbs__Submission__c, where it lives, and
+       * the absent field is no longer in the mapping. The sync reports
+       * `succeeded`.
+       *
+       * What remains outstanding is one unused field, which is a dependency on
+       * a decision rather than on a fix, so it is stated without degrading the
+       * connection. A connection that is permanently amber teaches everybody
+       * to ignore the colour.
+       */
+      status: 'healthy',
+      // No blockedReason: the field is optional and absent means nothing is
+      // outstanding, which is stronger than an empty string.
       config: {
         audience: 'https://login.salesforce.com',
         /**
@@ -486,6 +509,16 @@ export const spartan: TenantSeed = {
             // `pi__url__c` is Account Engagement's own capture and the
             // best-covered field in the inventory.
             landingPage: 'pi__url__c', // 79.6%
+            /*
+             * The join to the dialer, in priority order.
+             *
+             * A call record knows the number it dialled and nothing else about
+             * a lead, so without these there is no call tracking at all —
+             * every call would be unmatched and speed to lead unmeasurable.
+             * `Phone` first because Spartan's web forms write it; `MobilePhone`
+             * catches the leads where they did not.
+             */
+            phones: ['Phone', 'MobilePhone'],
             industry: 'Industry', // 34.5%
             state: 'State', // 29.3%
           },
@@ -635,10 +668,20 @@ export const spartan: TenantSeed = {
     { platform: 'search_console', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'semrush', accountIdentifier: 'pending', status: 'not_configured' },
     {
+      /*
+       * Corrected 18 September 2026. This said the vendor had not been
+       * selected, which was wrong for months: Aloware is live and has been
+       * writing 12,000–15,000 calls a month since June. The blocked state was
+       * describing the engagement rather than the org.
+       *
+       * `healthy` with no blockedReason. The history is imported from an
+       * export and everything after it arrives on the webhook, so there is no
+       * outstanding dependency on the client — only on us, to keep the
+       * subscription pointed at the endpoint.
+       */
       platform: 'call_tracking',
-      accountIdentifier: 'pending',
-      status: 'waiting_on_client',
-      blockedReason: 'Call tracking vendor not yet selected. No connector can be configured until it is.',
+      accountIdentifier: 'aloware',
+      status: 'healthy',
     },
   ],
 

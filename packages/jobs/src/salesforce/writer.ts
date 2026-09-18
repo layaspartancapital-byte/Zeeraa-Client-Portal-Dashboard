@@ -91,7 +91,7 @@ export async function upsertLeads(
 
   const deduped = byUpsertKey(rows, (row) => row.externalId);
 
-  return inBatches(deduped, batchSize(21), async (batch) => {
+  return inBatches(deduped, batchSize(23), async (batch) => {
     const written = await tx
       .insert(schema.leads)
       .values(
@@ -125,6 +125,8 @@ export async function upsertLeads(
             : false,
           industry: row.industry,
           state: row.state,
+          phone: row.phone,
+          phoneKey: row.phoneKey,
           convertedOpportunityId: row.convertedOpportunityId,
           mergedInto: row.mergedInto,
           syncRunId,
@@ -160,6 +162,8 @@ export async function upsertLeads(
             else excluded.mql_undeterminable_reason end`,
           industry: sql`excluded.industry`,
           state: sql`excluded.state`,
+          phone: sql`excluded.phone`,
+          phoneKey: sql`excluded.phone_key`,
           convertedOpportunityId: sql`excluded.converted_opportunity_id`,
           mergedInto: sql`excluded.merged_into`,
           syncRunId: sql`excluded.sync_run_id`,

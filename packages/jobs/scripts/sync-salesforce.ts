@@ -64,7 +64,16 @@ try {
   const runInTenant = <T,>(fn: (tx: Database) => Promise<T>) => withJobTenant(tenantId, fn);
 
   console.log('\n  ── pass 1: incremental sync ──');
-  const sync = await runSalesforceSync(context, { trigger: 'manual' });
+  /*
+   * `since` reaches pass 1 as well as pass 2.
+   *
+   * It did not until 18 September 2026: the flag was read, documented in the
+   * usage line above, and then passed only to the click-ID backfill — so
+   * `--since 2024-01-01` looked like a full re-pull and quietly ran an
+   * ordinary incremental one off the watermark. That is the shape of bug that
+   * makes a backfill appear to have run.
+   */
+  const sync = await runSalesforceSync(context, { trigger: 'manual', since });
   console.log(`  leads:                 ${sync.leads}`);
   console.log(`  opportunities:         ${sync.opportunities}`);
   console.log(`  stage events:          ${sync.stageEvents}`);
@@ -118,6 +127,14 @@ try {
       console.log('  UNCLASSIFIED statuses (add to the mapping; counted as undecided):');
       for (const [v, n] of Object.entries(sub.unclassified)) console.log(`    ${v}: ${n}`);
     }
+  }
+
+  if (sync.callLeadMatches) {
+    const m = sync.callLeadMatches;
+    console.log('\n  ── call-to-lead join (re-resolved) ──');
+    console.log(`  calls newly matched:       ${m.matched}`);
+    console.log(`  unmatched (keyed number):  ${m.unmatched}`);
+    console.log(`  unjoinable number:         ${m.unkeyed}`);
   }
 
   console.log('\n  ── pass 2: click ids from converted leads ──');
