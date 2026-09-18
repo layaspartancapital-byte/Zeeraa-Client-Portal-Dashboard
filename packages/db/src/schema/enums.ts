@@ -95,3 +95,19 @@ export const clickIdSourceEnum = pgEnum('click_id_source', [
   /** Recovered through Lead.ConvertedOpportunityId by the backfill. */
   'lead_conversion',
 ]);
+
+/**
+ * The outcome of evaluating a tenant's qualification bar against one lead.
+ *
+ * Three states, not two. `undeterminable` is the one that matters: the answers
+ * arrive as bands (`< $15,000`, `0 - 1 Years`) and a band that contains the
+ * threshold cannot be resolved either way. Folding those into `unqualified`
+ * would understate the MQL rate by however many forms answered in a straddling
+ * band — 4.3% of the population that has both inputs at all, plus every lead
+ * whose only time-in-business field is one nobody can decode.
+ */
+export const mqlVerdictEnum = pgEnum('mql_verdict', [
+  'qualified',
+  'unqualified',
+  'undeterminable',
+]);

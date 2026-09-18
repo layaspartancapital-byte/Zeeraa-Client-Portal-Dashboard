@@ -65,6 +65,30 @@ export type Metrics = {
   target: (key: string) => number | null;
 };
 
+/**
+ * The smallest denominator a rate may be compared against, from configuration.
+ *
+ * Ten by default, and a config row rather than a constant because it is a
+ * judgement about this client's volumes. The rate itself is never suppressed —
+ * only the delta, which is the part that needs two meaningful populations.
+ */
+export async function minRateDenominator(session: TenantSession): Promise<number> {
+  const [row] = await queryTenant(session, (tx) =>
+    tx
+      .select({ value: schema.tenantConfig.value })
+      .from(schema.tenantConfig)
+      .where(
+        and(
+          eq(schema.tenantConfig.tenantId, session.tenant.id),
+          eq(schema.tenantConfig.key, 'min_rate_denominator'),
+        ),
+      )
+      .limit(1),
+  );
+  const minimum = (row?.value as { minimum?: number } | undefined)?.minimum;
+  return typeof minimum === 'number' && minimum > 0 ? minimum : 10;
+}
+
 export async function loadMetrics(session: TenantSession): Promise<Metrics> {
   const rows = await queryTenant(session, (tx) =>
     tx
@@ -218,10 +242,14 @@ export async function windowBuckets(
           ),
         ),
 
+      // The verdict is part of the grouping because a lead-grain stage may be
+      // the whole population (`leads`) or the part of it that passes the bar
+      // (`qualified_leads`), and both are counted from these rows.
       tx
         .select({
           day: sql<string>`to_char(${schema.leads.createdAt}, 'YYYY-MM-DD')`,
           clickIdType: schema.leads.clickIdType,
+          verdict: schema.leads.mqlVerdict,
           count: sql<number>`count(*)::int`,
         })
         .from(schema.leads)
@@ -232,7 +260,7 @@ export async function windowBuckets(
             lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
           ),
         )
-        .groupBy(sql`1`, schema.leads.clickIdType),
+        .groupBy(sql`1`, schema.leads.clickIdType, schema.leads.mqlVerdict),
 
       tx
         .select({ day: sql<string | null>`min(${schema.dailyMetrics.date})::text` })
@@ -297,7 +325,9 @@ export async function windowBuckets(
       [firstStage[0]?.day, firstLead[0]?.day].filter((d): d is string => Boolean(d)).sort()[0] ??
       null;
 
-    const leadStageKeys = stages.filter((s) => s.source === 'leads').map((s) => s.key);
+    const leadGrainStages = stages
+      .filter((s) => s.source === 'leads' || s.source === 'qualified_leads')
+      .map((s) => ({ key: s.key, qualifiedOnly: s.source === 'qualified_leads' }));
     const settledBefore = addDays(range.end, -6);
 
     return spans.map((span) => {
@@ -330,8 +360,24 @@ export async function windowBuckets(
           (bucket.spendByPlatform[row.platform] ?? 0) + spend;
       }
 
+      /*
+       * One deal counted once per stage per bucket.
+       *
+       * The rows are distinct on (day, stage, opportunity, platform), so a
+       * deal that reaches a stage on two days inside one bucket arrives twice
+       * — and a stage that recurs by nature makes that common rather than
+       * exotic. Declines were 555 over a window in which only 554 deals have
+       * ever been declined, which is the tell: the figure was counting
+       * deal-days under a label that says deals.
+       */
+      const seenInBucket = new Set<string>();
+
       for (const row of stageRows) {
         if (row.day < span.start || row.day > span.end) continue;
+        const key = `${row.stage}\u0000${row.opportunityExternalId}`;
+        if (seenInBucket.has(key)) continue;
+        seenInBucket.add(key);
+
         bucket.stages[row.stage] = (bucket.stages[row.stage] ?? 0) + 1;
         if (row.platform) {
           const counts = (bucket.stagesByPlatform[row.platform] ??= {});
@@ -354,14 +400,14 @@ export async function windowBuckets(
       for (const row of leadRows) {
         if (row.day < span.start || row.day > span.end) continue;
         const count = Number(row.count);
-        for (const stageKey of leadStageKeys) {
-          bucket.stages[stageKey] = (bucket.stages[stageKey] ?? 0) + count;
+        for (const { key, qualifiedOnly } of leadGrainStages) {
+          if (qualifiedOnly && row.verdict !== 'qualified') continue;
+          bucket.stages[key] = (bucket.stages[key] ?? 0) + count;
           if (row.clickIdType) {
             const counts = (bucket.stagesByPlatform[row.clickIdType] ??= {});
-            counts[stageKey] = (counts[stageKey] ?? 0) + count;
+            counts[key] = (counts[key] ?? 0) + count;
           } else {
-            bucket.unattributedStages[stageKey] =
-              (bucket.unattributedStages[stageKey] ?? 0) + count;
+            bucket.unattributedStages[key] = (bucket.unattributedStages[key] ?? 0) + count;
           }
         }
       }

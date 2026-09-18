@@ -108,3 +108,53 @@ export async function lastSuccessfulWatermark(
     .limit(1);
   return row?.startedAt ?? null;
 }
+
+/**
+ * The window a windowed source can speak for.
+ *
+ * Some facts are only knowable inside a horizon. Salesforce field history
+ * begins when tracking was switched on and ages out by retention, so a stage
+ * derived from it is measured *and* incomplete — and the incompleteness moves
+ * forward on its own as old rows expire. Recording the observed window on every
+ * run keeps the coverage note honest without anybody remembering to update a
+ * constant.
+ *
+ * `asOf` here is the earliest moment the source can answer for, not the latest
+ * it was refreshed. That is the opposite of its meaning for a point-in-time
+ * fact, so the `factKey` says `window:` to make the reading unambiguous.
+ */
+export async function recordSourceWindow(
+  tx: Database,
+  tenantId: string,
+  factKey: string,
+  platform: string,
+  earliest: Date,
+  syncRunId: string,
+): Promise<void> {
+  await tx
+    .insert(schema.dataSources)
+    .values({ tenantId, factKey: `window:${factKey}`, kind: 'api', platform, syncRunId, asOf: earliest })
+    .onConflictDoUpdate({
+      target: [schema.dataSources.tenantId, schema.dataSources.factKey],
+      set: { asOf: earliest, syncRunId, platform, kind: 'api' },
+    });
+}
+
+/** Reads a window recorded by `recordSourceWindow`. Null when none exists. */
+export async function readSourceWindow(
+  tx: Database,
+  tenantId: string,
+  factKey: string,
+): Promise<Date | null> {
+  const [row] = await tx
+    .select({ asOf: schema.dataSources.asOf })
+    .from(schema.dataSources)
+    .where(
+      and(
+        eq(schema.dataSources.tenantId, tenantId),
+        eq(schema.dataSources.factKey, `window:${factKey}`),
+      ),
+    )
+    .limit(1);
+  return row?.asOf ?? null;
+}

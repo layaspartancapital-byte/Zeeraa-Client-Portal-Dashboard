@@ -28,6 +28,7 @@ import {
   dataQuality,
   ingestionStart,
   loadMetrics,
+  minRateDenominator,
   unreadNotifications,
   windowBuckets,
   type WindowBucket,
@@ -99,7 +100,7 @@ export default async function ExecutiveView({
   const prior = previousRange(range);
   const currency = session.tenant.currency;
 
-  const [data, previous, buckets, heroBuckets, metrics, quality, unread, ingestion] =
+  const [data, previous, buckets, heroBuckets, metrics, quality, unread, ingestion, rateFloor] =
     await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, prior, model),
@@ -112,6 +113,7 @@ export default async function ExecutiveView({
     dataQuality(session),
     unreadNotifications(session),
     ingestionStart(session),
+    minRateDenominator(session),
   ]);
 
   /**
@@ -210,6 +212,15 @@ export default async function ExecutiveView({
     const denominator = source.total.stages[offerFrom] ?? 0;
     return denominator === 0 ? null : (source.total.stages[offerTo] ?? 0) / denominator;
   };
+  /**
+   * Whether the comparison period can carry a rate at all.
+   *
+   * Not whether it has one — it does — but whether it has enough behind it to
+   * compare against. The baseline here held one approval, so its offer rate was
+   * 200% and the delta read as a 70% collapse caused by a single opportunity.
+   */
+  const offerBaseline = previous.total.stages[offerFrom] ?? 0;
+  const offerComparable = offerBaseline >= rateFloor;
 
   const attributedShare = (source: typeof data) => {
     const total = dealsIn(source.total.stages);
@@ -421,9 +432,13 @@ export default async function ExecutiveView({
             !offerBlocked && offerRate(data) !== null ? (
               <Delta
                 current={offerRate(data)!}
-                baseline={crmComparable ? offerRate(previous) : null}
+                baseline={crmComparable && offerComparable ? offerRate(previous) : null}
                 direction={metrics.direction('offer_rate')}
-                unavailable={notIngested(ingestion.crmFrom)}
+                unavailable={
+                  crmComparable
+                    ? `previous period had only ${formatCount(offerBaseline)} to divide by`
+                    : notIngested(ingestion.crmFrom)
+                }
               />
             ) : (
               <NoDelta />

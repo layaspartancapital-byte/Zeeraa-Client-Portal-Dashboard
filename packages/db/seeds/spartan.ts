@@ -37,7 +37,16 @@ export const spartan: TenantSeed = {
      * ingest, so nothing here needs to re-filter it.
      */
     { position: 1, key: 'lead', label: 'Lead', source: 'leads' },
-    { position: 2, key: 'mql', label: 'MQL' },
+    /**
+     * Lead grain, narrowed to the leads that pass the bar.
+     *
+     * Not `stage_events`: an MQL event is stamped against an opportunity, so
+     * counting the stage that way counts only the qualified leads that went on
+     * to convert — 26 of 649 in the trailing 90 days. That number is real, but
+     * it is not the MQL count, and putting it over every lead produced a
+     * qualification rate of 0.7% against a measured 17.0%.
+     */
+    { position: 2, key: 'mql', label: 'MQL', source: 'qualified_leads' },
     /**
      * What used to be called Lead. An application is an opportunity record
      * existing at all, which is what `opportunity_created` actually stamps.
@@ -197,6 +206,18 @@ export const spartan: TenantSeed = {
   ],
 
   config: [
+    {
+      key: 'min_rate_denominator',
+      description:
+        'The smallest denominator a rate may be *compared* against. The rate ' +
+        'itself still renders below this — a small population is still a real ' +
+        'measurement — but it gets no delta, because a comparison needs both ' +
+        'sides to mean something. Unblocking UW approved produced an offer rate ' +
+        'of 58.8% (67 of 114) against a previous period of 200% (2 of 1), and ' +
+        'the resulting "−70.6%, a regression" was a statement about one ' +
+        'opportunity.',
+      value: { minimum: 10 },
+    },
     {
       key: 'mql_bar',
       description:
@@ -385,6 +406,38 @@ export const spartan: TenantSeed = {
             selfReportedRevenue: 'csbs__Estimated_Monthly_Revenue__c',
             selfReportedAnnualRevenue: 'AnnualRevenue',
             selfReportedTimeInBusinessMonths: 'Time_in_Business_Months__c',
+            // Ordered by how often each is populated on inbound leads, measured
+            // 18 September 2026 over 7,291 of them. The first resolvable
+            // reading wins, so a straddling band in one field does not shadow a
+            // clean answer in the next.
+            revenueBands: [
+              { field: 'Average_Monthly_Revenue_Text2__c', period: 'monthly' }, // 49.8%
+              { field: 'Average_Monthly_Revenue__c', period: 'monthly' },       // 23.3%
+              { field: 'Monthly_Revenue_Text__c', period: 'monthly' },          // 23.3%
+              { field: 'csbs__Estimated_Monthly_Revenue__c', period: 'monthly' }, // 9.5%
+              { field: 'csbs__Monthly_Revenue__c', period: 'monthly' },         // 9.5%
+              { field: 'AnnualRevenue', period: 'annual' },                     // 6.6%
+              { field: 'Monthly_Revenue__c', period: 'monthly' },               // 4.7%
+              { field: 'Annual_Revenue_Text__c', period: 'annual' },            // 4.6%
+            ],
+            timeInBusinessBands: [
+              'Years_in_Business__c',        // 23.2%
+              'Time_in_Business__c',         // 12.2%
+              'Years_In_Business_Text__c',   // 8.1%
+              'Time_in_Business_SEM_Value__c', // 4.6%
+              'Time_in_Business_Months__c',  // 0.4%, and the only numeric one
+            ],
+            undecodableFields: [
+              {
+                field: 'MIYB_Years_in_Business__c',
+                why:
+                  'The best-populated time-in-business field in the org (53% of ' +
+                  'inbound leads) holds 0000, 1000, 1100, 1111 and 1110. Those ' +
+                  'are not durations, and no key for them exists on our side. ' +
+                  'Reading them would be an invention; it is the single biggest ' +
+                  'reason MQL coverage falls short.',
+              },
+            ],
             // Rates below are within the inbound population (n = 7,196), which
             // is the only population this platform counts. See `lead_exclusion`.
             utmSource: 'utm_source__c', // 58.4%
@@ -433,7 +486,13 @@ export const spartan: TenantSeed = {
           },
           stages: {
             sql: 'csbs__Underwriting_Date_Time__c',
-            uw_approved: 'csbs__Approved_Date_Time__c',
+            // `uw_approved` is deliberately absent here.
+            // `csbs__Approved_Date_Time__c` exists and is empty on every
+            // opportunity in the org, so mapping it produced a stage with no
+            // source. The transitions are in `OpportunityFieldHistory` instead
+            // and are read by `extractStageHistoryEvents`; leaving the field
+            // mapped as well would add a column of nulls to every query for
+            // nothing.
             offer: 'Offer_Received_Date_Time__c',
             funded: 'csbs__Funded_Date_Time__c',
           },
@@ -502,65 +561,54 @@ export const spartan: TenantSeed = {
    */
   blockedDependencies: [
     {
-      key: 'mql_stage',
-      subjectKind: 'funnel_stage',
-      subjectKey: 'mql',
-      label: 'MQL',
-      reason:
-        'MQL is derived from monthly revenue and time in business, and both are ' +
-        'close to empty on inbound leads. Time in business is recorded on 0.4% ' +
-        'of them. A count here would be the handful of leads that happen to ' +
-        'carry both attributes, not the number of qualified leads.',
-      needed:
-        'A monthly-revenue and a time-in-business question on the web forms, ' +
-        'posting into csbs__Estimated_Monthly_Revenue__c and ' +
-        'Time_in_Business_Months__c. Both fields already exist in Salesforce; ' +
-        'nothing needs creating.',
-      evidence:
-        'Inbound leads, 17 September 2026: time in business 0.4% (32 of 7,196), ' +
-        'monthly revenue 8.8% (635), annual revenue 6.7% (482). Of the 652 leads ' +
-        'that converted, two carry a time in business. The populated values are ' +
-        'also selected rather than sampled \u2014 every one is 12 months or more, ' +
-        'minimum exactly 12 \u2014 so a rate computed over them would measure a list ' +
-        'vendor\u2019s filter rather than lead quality.',
-    },
-    {
-      key: 'uw_approved_stage',
-      subjectKind: 'funnel_stage',
-      subjectKey: 'uw_approved',
-      label: 'UW approved',
-      reason:
-        'The approval timestamp is never written. csbs__Approved_Date_Time__c ' +
-        'exists on Opportunity and is empty on all 712 of them, so there is no ' +
-        'source for this stage \u2014 the conversion rate into and out of it would ' +
-        'read zero for every period.',
-      needed:
-        'Either the stage starts being stamped in Salesforce, or UW approved ' +
-        'comes out of funnel_stages and SQL \u2192 Offer becomes the measured ' +
-        'transition. A configuration decision either way.',
-      evidence:
-        'csbs__Approved_Date_Time__c: 0 of 712 opportunities. For contrast, ' +
-        'csbs__Declined_Date_Time__c is populated on 487 and 25 opportunities ' +
-        'are won, so approvals are happening and are simply not stamped.',
-    },
-    {
       key: 'decline_reason_breakdown',
       subjectKind: 'breakdown',
       subjectKey: 'decline_reason',
       label: 'Decline reasons',
       reason:
-        'Loss_Reason__c stopped being filled in. Every recorded reason predates ' +
-        'February 2026, and the last 180 days hold none at all. A breakdown ' +
-        'would describe the 2024 loss mix and present it as current.',
+        'Loss_Reason__c was filled in on every closed-lost opportunity through ' +
+        'January 2025 — 68 of 68 that month, 23 of 23 in December 2024 — and then ' +
+        'abandoned: 0 of 133 in July 2026, 2 of 132 in August, 1 of 66 in ' +
+        'September. No other field on Opportunity carries a reason: ' +
+        'Competitor_Lost_To__c and Do_Not_Call_Reason__c are empty on all 716. ' +
+        'So the reason is not recoverable. How many declined and when is — that ' +
+        'is the Declined stage, measured from csbs__Declined_Date_Time__c on 89% ' +
+        'of closed-lost deals plus the stage transitions.',
       needed:
         'The reason field filled in on closed-lost opportunities again. The ' +
         'picklist already exists and already has sensible values.',
       evidence:
-        '107 of 525 closed-lost opportunities carry a reason; all 107 closed ' +
-        'before February 2026. Closed-lost in the last 180 days: 0 of 414. The ' +
+        '110 of 543 closed-lost opportunities carry a reason, and every one of ' +
+        'them closed before February 2026. Closed-lost since: 0 of 133 in July ' +
+        '2026, 2 of 132 in August, 1 of 66 in September. The ' +
         'mapping also points at csbs__Decline_Reason__c, which does not exist in ' +
         'the org \u2014 left in place deliberately so validateMapping keeps failing ' +
         'visibly rather than writing nulls into a column that looks like data.',
+    },
+    {
+      // Not a blocked stage: MQL is computed and renders with its coverage.
+      // What is blocked is the coverage itself, and this is the single biggest
+      // reason it falls short — so it is a dependency on the client, stated as
+      // one, rather than a caveat buried beside a number.
+      key: 'mql_time_in_business_decode',
+      subjectKind: 'metric',
+      subjectKey: 'mql_coverage',
+      label: 'MQL coverage — time in business',
+      reason:
+        'The best-populated time-in-business field, MIYB_Years_in_Business__c, ' +
+        'holds 0000, 1000, 1100, 1111 and 1110 on 53% of inbound leads. Those ' +
+        'are not durations and no key for them exists on our side, so those ' +
+        'leads cannot be evaluated against the 12-month condition — 1,075 of ' +
+        'them, the largest single cause of undeterminable MQL.',
+      needed:
+        'Either the key to those five values, or the web forms writing a ' +
+        'duration into a field that holds one. Both are one change on the ' +
+        'client side and either would move MQL coverage materially.',
+      evidence:
+        'Measured 18 September 2026 over 7,293 inbound leads: 16.5% qualified, ' +
+        '39.8% unqualified, 43.6% undeterminable. Of the undeterminable, 1,075 ' +
+        'carry only the undecodable field, 1,617 carry no answer at all, and ' +
+        '175 answer in a band that spans the $10,000 bar.',
     },
     {
       key: 'revenue_band_breakdown',

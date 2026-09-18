@@ -115,9 +115,22 @@ export function PerformanceTable({
                       observed one.
                     </InfoTip>
                   )}
+                  {data.stageStatus[stage.key]?.coverage && (
+                    <InfoTip label={`What limits ${stage.label} coverage`} align="end">
+                      Read from {data.stageStatus[stage.key]!.coverage!.source}, which starts on{' '}
+                      {data.stageStatus[stage.key]!.coverage!.from.toISOString().slice(0, 10)}.
+                      Transitions inside that window are recorded facts; anything earlier cannot be
+                      read, so an earlier period is understated rather than low.
+                    </InfoTip>
+                  )}
                 </span>
                 {data.stageStatus[stage.key]?.origin === 'computed' && (
                   <span className="mt-0.5 block text-[11px] font-normal text-text-3">computed</span>
+                )}
+                {data.stageStatus[stage.key]?.coverage && (
+                  <span className="mt-0.5 block text-[11px] font-normal tabular text-text-3">
+                    from {data.stageStatus[stage.key]!.coverage!.from.toISOString().slice(0, 10)}
+                  </span>
                 )}
               </th>
             ))}

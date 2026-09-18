@@ -100,6 +100,8 @@ export async function upsertLeads(
           createdAt: row.createdAt,
           clickId: row.clickId,
           clickIdType: row.clickIdType,
+          mqlVerdict: row.mqlVerdict,
+          mqlUndeterminableReason: row.mqlUndeterminableReason,
           utmSource: row.utmSource,
           utmMedium: row.utmMedium,
           utmCampaign: row.utmCampaign,
@@ -143,6 +145,18 @@ export async function upsertLeads(
           selfReportedAnnualRevenue: sql`excluded.self_reported_annual_revenue`,
           selfReportedTimeInBusiness: sql`excluded.self_reported_time_in_business`,
           revenueFiguresDisagree: sql`excluded.revenue_figures_disagree`,
+          // A null verdict means the bar was not run, never that it ran and
+          // found nothing — with a bar supplied, `normalizeLead` always returns
+          // one of the three answers, and "inputs absent" is `undeterminable`.
+          // So an unjudged re-upsert must not erase a judgement: that would
+          // turn a measured fact into a silent gap on the funnel. The reason
+          // travels with the verdict it belongs to rather than being coalesced
+          // on its own, which would otherwise pair a fresh verdict with a
+          // stale explanation.
+          mqlVerdict: sql`coalesce(excluded.mql_verdict, ${schema.leads}.mql_verdict)`,
+          mqlUndeterminableReason: sql`case when excluded.mql_verdict is null
+            then ${schema.leads}.mql_undeterminable_reason
+            else excluded.mql_undeterminable_reason end`,
           industry: sql`excluded.industry`,
           state: sql`excluded.state`,
           convertedOpportunityId: sql`excluded.converted_opportunity_id`,

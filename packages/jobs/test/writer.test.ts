@@ -40,6 +40,8 @@ function lead(overrides: Partial<LeadRow> = {}): LeadRow {
   return {
     externalId: '00Q1',
     createdAt: new Date('2026-08-01T12:00:00Z'),
+    mqlVerdict: null,
+    mqlUndeterminableReason: null,
     clickId: 'gclid-1',
     clickIdType: 'google_ads',
     utmSource: 'google',
@@ -147,6 +149,75 @@ describe('leads', () => {
     expect(Number(row?.selfReportedAnnualRevenue)).toBe(15_000);
     // $15k/month against $15k/year is the classic mistyped field.
     expect(row?.revenueFiguresDisagree).toBe(true);
+  });
+
+  it('keeps a stored MQL verdict when a re-upsert carries none', async () => {
+    // `upsertLeads` takes the bar optionally, so a caller can re-write a lead
+    // without judging it. A null verdict there means "not assessed", and
+    // overwriting with it would quietly turn a measured MQL into a gap — the
+    // funnel would show the stage shrinking with no cause anybody could name.
+    await withJobTenant(
+      tenantId,
+      (tx) =>
+        upsertLeads(
+          tx,
+          tenantId,
+          [lead({ mqlVerdict: 'undeterminable', mqlUndeterminableReason: 'a band spanning the bar' })],
+          syncRunId,
+          BAR,
+        ),
+      jobs,
+    );
+    await withJobTenant(
+      tenantId,
+      (tx) =>
+        upsertLeads(
+          tx,
+          tenantId,
+          [lead({ state: 'NJ', mqlVerdict: null, mqlUndeterminableReason: null })],
+          syncRunId,
+        ),
+      jobs,
+    );
+
+    const [row] = await readLeads();
+    // The rest of the record still updates; only the judgement is preserved.
+    expect(row?.state).toBe('NJ');
+    expect(row?.mqlVerdict).toBe('undeterminable');
+    expect(row?.mqlUndeterminableReason).toBe('a band spanning the bar');
+  });
+
+  it('replaces the reason along with the verdict it belongs to', async () => {
+    // The reason is not coalesced on its own: a lead that becomes qualified
+    // must not keep the explanation of why it once could not be judged.
+    await withJobTenant(
+      tenantId,
+      (tx) =>
+        upsertLeads(
+          tx,
+          tenantId,
+          [lead({ mqlVerdict: 'undeterminable', mqlUndeterminableReason: 'no revenue answer' })],
+          syncRunId,
+          BAR,
+        ),
+      jobs,
+    );
+    await withJobTenant(
+      tenantId,
+      (tx) =>
+        upsertLeads(
+          tx,
+          tenantId,
+          [lead({ mqlVerdict: 'qualified', mqlUndeterminableReason: null })],
+          syncRunId,
+          BAR,
+        ),
+      jobs,
+    );
+
+    const [row] = await readLeads();
+    expect(row?.mqlVerdict).toBe('qualified');
+    expect(row?.mqlUndeterminableReason).toBeNull();
   });
 
   it('does not flag figures that agree', async () => {

@@ -1,5 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import {
+  buildStageHistoryQuery,
+  extractStageHistoryEvents,
   buildIncrementalQuery,
   countLeadClassification,
   extractStageEvents,
@@ -17,7 +19,12 @@ import {
 } from '@zeeraa/connectors';
 import { qualifyLead, type QualificationBar } from '@zeeraa/core';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
-import { closeSyncRun, lastSuccessfulWatermark, openSyncRun } from '../sync-runs';
+import {
+  closeSyncRun,
+  lastSuccessfulWatermark,
+  openSyncRun,
+  recordSourceWindow,
+} from '../sync-runs';
 import {
   applyReconciliation,
   upsertLeads,
@@ -68,6 +75,21 @@ export type SyncResult = {
    * because a column of nulls is indistinguishable from no data once it lands.
    */
   missingFields: string[];
+  /**
+   * What `OpportunityFieldHistory` gave up this run.
+   *
+   * `span` is the retained window actually observed, which is a coverage limit
+   * on every stage read from it — history begins when tracking was switched on
+   * and nothing before it exists. `unrecognised` is stage labels the alias map
+   * has never seen; a new picklist value lands there instead of vanishing.
+   */
+  stageHistory: {
+    rows: number;
+    events: number;
+    counts: Record<string, number>;
+    span: { earliest: Date | null; latest: Date | null };
+    unrecognised: Record<string, number>;
+  };
   status: 'succeeded' | 'partial' | 'failed';
 };
 
@@ -122,6 +144,13 @@ export async function runSalesforceSync(
       },
       blocked: [],
       missingFields: [],
+      stageHistory: {
+        rows: 0,
+        events: 0,
+        counts: {},
+        span: { earliest: null, latest: null },
+        unrecognised: {},
+      },
       status: 'succeeded',
     };
 
@@ -163,7 +192,7 @@ export async function runSalesforceSync(
         buildIncrementalQuery(context.mapping, 'Lead', since, exclusion, omitLead),
       );
       const leads = leadRecords.map((r) =>
-        normalizeLead(r, context.mapping, context.clickIdPriority),
+        normalizeLead(r, context.mapping, context.clickIdPriority, context.bar),
       );
       result.leads = await upsertLeads(tx, context.tenantId, leads, syncRunId, context.bar);
 
@@ -179,7 +208,7 @@ export async function runSalesforceSync(
           context.bar,
         );
         if (q.revenueDisagreement) result.revenueDisagreements += 1;
-        if (q.qualified === null) result.qualificationUndetermined += 1;
+        if (lead.mqlVerdict === 'undeterminable') result.qualificationUndetermined += 1;
       }
 
       // --- Opportunities and stage events ------------------------------------
@@ -214,17 +243,11 @@ export async function runSalesforceSync(
       // marked computed so nothing downstream can present it as observed.
       if (context.mqlStageKey) {
         for (const [opportunityId, lead] of leadByOpportunity) {
-          const q = qualifyLead(
-            {
-              revenue: {
-                monthly: lead.selfReportedRevenue,
-                annual: lead.selfReportedAnnualRevenue,
-              },
-              timeInBusinessMonths: lead.selfReportedTimeInBusiness,
-            },
-            context.bar,
-          );
-          if (q.qualified !== true) continue;
+          // The verdict resolved at ingest from whatever bands the lead
+          // carries, not a numeric comparison — the inputs are bands and the
+          // numbers are mostly absent. `undeterminable` produces no event:
+          // guessing either way moves a headline conversion rate.
+          if (lead.mqlVerdict !== 'qualified') continue;
           stageEvents.push({
             opportunityExternalId: opportunityId,
             stage: context.mqlStageKey,
@@ -232,6 +255,52 @@ export async function runSalesforceSync(
             origin: 'computed',
           });
         }
+      }
+
+      /**
+       * Stages whose timestamp field nobody fills in, read from field history.
+       *
+       * `csbs__Approved_Date_Time__c` is empty on every opportunity in the org,
+       * so UW approved had no source through its mapped field. History tracking
+       * on `StageName` does hold the transitions, so the stage is observable —
+       * just not where the mapping looked. Only stages the alias map elects are
+       * emitted, so this cannot double-count a stage that already has a stamped
+       * field.
+       *
+       * Read unbounded, unlike everything else in this sync.
+       *
+       * Field history is immutable and bounded by retention — about 1,300 rows
+       * for this org's whole window, one page, well inside the hourly budget.
+       * So the entire window is cheaper to re-read than to keep a second
+       * watermark for, and re-reading self-heals any gap a missed run left. The
+       * upsert key is (opportunity, stage, occurredAt), so a row that arrives
+       * twice is the same row.
+       */
+      const historyRows = await context.client.query<SalesforceRecord>(
+        buildStageHistoryQuery(),
+      );
+      const history = extractStageHistoryEvents(historyRows);
+      result.stageHistory = {
+        rows: historyRows.length,
+        events: history.events.length,
+        counts: history.counts,
+        span: history.span,
+        unrecognised: history.unrecognised,
+      };
+      stageEvents.push(...history.events);
+
+      // The horizon travels with the stages read from it. Measured every run,
+      // so it rolls forward as retention expires the oldest rows rather than
+      // going quietly stale in a constant.
+      if (history.span.earliest) {
+        await recordSourceWindow(
+          tx,
+          context.tenantId,
+          'salesforce:stage_history',
+          'salesforce',
+          history.span.earliest,
+          syncRunId,
+        );
       }
 
       result.stageEvents = await upsertStageEvents(

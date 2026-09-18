@@ -1,6 +1,7 @@
 import { qualifyLead, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
+import { judgeQualificationBands } from './qualification-bands';
 import { inboundClause, NO_LEAD_EXCLUSION, type LeadExclusionConfig } from './exclusion';
 
 /**
@@ -33,6 +34,13 @@ export type LeadRow = {
   convertedOpportunityId: string | null;
   /** Non-null when this lead was merged away into another. */
   mergedInto: string | null;
+  /**
+   * The qualification bar's verdict, resolved from whatever bands the lead
+   * carries. Null when no bar was supplied to the normaliser.
+   */
+  mqlVerdict: 'qualified' | 'unqualified' | 'undeterminable' | null;
+  /** Why the verdict is `undeterminable`. Null otherwise. */
+  mqlUndeterminableReason: string | null;
 };
 
 export type OpportunityRow = {
@@ -115,6 +123,11 @@ export function normalizeLead(
   record: SalesforceRecord,
   mapping: SalesforceFieldMapping,
   platformPriority: readonly string[] = DEFAULT_PLATFORM_PRIORITY,
+  /**
+   * The qualification bar. Supplied, the verdict is resolved here from the
+   * band fields; omitted, it stays null and nothing downstream claims one.
+   */
+  bar?: QualificationBar,
 ): LeadRow {
   const { clickId, clickIdType } = pickClickId(record, mapping.lead.clickIds, platformPriority);
   return {
@@ -136,6 +149,18 @@ export function normalizeLead(
     isConverted: record.IsConverted === true,
     convertedOpportunityId: str(record, 'ConvertedOpportunityId'),
     mergedInto: str(record, 'MasterRecordId'),
+    // The verdict, not a number. `selfReportedRevenue` above stays what the
+    // merchant actually said in a numeric field — it does not acquire a band's
+    // lower bound, which would be read as revenue by anything banding leads.
+    ...(bar
+      ? (() => {
+          const judged = judgeQualificationBands(record, mapping, bar);
+          return {
+            mqlVerdict: judged.verdict,
+            mqlUndeterminableReason: judged.reason,
+          };
+        })()
+      : { mqlVerdict: null, mqlUndeterminableReason: null }),
   };
 }
 
@@ -270,6 +295,12 @@ const MERGE_LOOKUP_BATCH = 200;
 const MERGEABLE = new Set(['Lead', 'Account', 'Contact', 'Case']);
 
 export type Reconciliation = {
+  /**
+   * Set when the requested window reached further back than `getDeleted`
+   * serves, carrying the start that was asked for. Deletions before the clamp
+   * were not checked and cannot be: unknowable rather than absent.
+   */
+  clampedFrom?: Date | null;
   /** Hard-deleted; remove the local row. */
   deletedIds: string[];
   /**
@@ -294,11 +325,44 @@ export async function reconcileDeletesAndMerges(
   since: Date,
   until: Date = new Date(),
 ): Promise<Reconciliation> {
-  const deleted = await client.getDeleted(object, since, until);
+  /**
+   * `getDeleted` is bounded at both ends, and either bound is a 400 that throws
+   * the whole sync — so the run records `failed` and the watermark never
+   * advances. Both are clamped here rather than left to fail.
+   *
+   * **Narrower than a minute**: `startDate must be at least one minute greater
+   * than endDate`. Reachable as soon as a sync can run twice inside a minute,
+   * which "Sync now" and the hourly endpoint both allow. The start is pulled
+   * back rather than the pass skipped — `getDeleted` is idempotent, so a few
+   * extra seconds cost nothing, while skipping would let a deletion in the
+   * narrow window go unseen.
+   *
+   * **Older than thirty days**: `startDate cannot be more than 30 days ago`.
+   * This is the documented limit on how long the sync may be broken before
+   * deletions are lost for good, and it is reached by any catch-up run with a
+   * `since` older than a month. Clamping keeps the run alive and `clamped`
+   * says the older part of the window went unchecked, which is the honest
+   * report: those deletions are not absent, they are unknowable.
+   */
+  const MIN_WINDOW_MS = 61_000;
+  const MAX_LOOKBACK_MS = 29 * 24 * 60 * 60 * 1000;
+  const earliestAllowed = new Date(until.getTime() - MAX_LOOKBACK_MS);
+  let start = since;
+  let clamped: Date | null = null;
+  if (start < earliestAllowed) {
+    clamped = start;
+    start = earliestAllowed;
+  }
+  if (until.getTime() - start.getTime() < MIN_WINDOW_MS) {
+    start = new Date(until.getTime() - MIN_WINDOW_MS);
+  }
+
+  const deleted = await client.getDeleted(object, start, until);
+  const clampedFrom = clamped;
   const deletedIds = deleted.deletedRecords.map((r) => r.id);
 
-  if (deletedIds.length === 0) return { deletedIds: [], merges: [] };
-  if (!MERGEABLE.has(object)) return { deletedIds, merges: [] };
+  if (deletedIds.length === 0) return { deletedIds: [], merges: [], clampedFrom };
+  if (!MERGEABLE.has(object)) return { deletedIds, merges: [], clampedFrom };
 
   // Merged losers keep a row, soft-deleted, pointing at the survivor. Only
   // queryAll can see them, and every merge also shows up in getDeleted — so the
@@ -327,5 +391,5 @@ export async function reconcileDeletesAndMerges(
     .map((row) => ({ loserId: row.Id, survivorId: row.MasterRecordId! }));
   const mergedIds = new Set(merges.map((m) => m.loserId));
 
-  return { deletedIds: deletedIds.filter((id) => !mergedIds.has(id)), merges };
+  return { deletedIds: deletedIds.filter((id) => !mergedIds.has(id)), merges, clampedFrom };
 }

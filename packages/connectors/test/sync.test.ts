@@ -252,12 +252,46 @@ describe('deletes and merges', () => {
       reconcileDeletesAndMerges(
         stub(['00Q1', '00Q2'], [{ Id: '00Q2', MasterRecordId: '00Q9' }]),
         'Lead',
-        new Date('2026-08-18T00:00:00Z'),
+        new Date('2026-09-10T00:00:00Z'),
+        // An explicit `until`, so the window does not widen as the wall clock
+        // moves and trip the thirty-day clamp on some future day.
+        new Date('2026-09-17T00:00:00Z'),
       ),
     ).resolves.toEqual({
       deletedIds: ['00Q1'],
       merges: [{ loserId: '00Q2', survivorId: '00Q9' }],
+      clampedFrom: null,
     });
+  });
+
+  it('clamps a window reaching past what getDeleted serves, and says so', async () => {
+    // `startDate cannot be more than 30 days ago` is a 400, and a 400 here
+    // throws the whole sync — so the run records `failed` and the watermark
+    // never advances. Clamping keeps the run alive; `clampedFrom` is how the
+    // unchecked older span stops being invisible.
+    const asked = new Date('2024-01-01T00:00:00Z');
+    const result = await reconcileDeletesAndMerges(
+      stub(['00Q1'], []),
+      'Lead',
+      asked,
+      new Date('2026-09-17T00:00:00Z'),
+    );
+    expect(result.clampedFrom).toEqual(asked);
+    expect(result.deletedIds).toEqual(['00Q1']);
+  });
+
+  it('widens a window narrower than a minute rather than failing it', async () => {
+    // Reachable the moment a sync can run twice inside a minute, which "Sync
+    // now" and the hourly endpoint both allow.
+    const until = new Date('2026-09-17T00:00:00Z');
+    const result = await reconcileDeletesAndMerges(
+      stub([], []),
+      'Lead',
+      new Date(until.getTime() - 20_000),
+      until,
+    );
+    expect(result.clampedFrom).toBeNull();
+    expect(result.deletedIds).toEqual([]);
   });
 
   it('does not process a merged record twice', async () => {

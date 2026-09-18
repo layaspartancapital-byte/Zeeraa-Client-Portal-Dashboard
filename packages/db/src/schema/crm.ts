@@ -8,7 +8,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { attributionModelEnum, clickIdSourceEnum, stageOriginEnum } from './enums';
+import { attributionModelEnum, clickIdSourceEnum, mqlVerdictEnum, stageOriginEnum } from './enums';
 import { tenants } from './tenancy';
 import { campaigns } from './ads';
 import { syncRuns } from './provenance';
@@ -48,6 +48,27 @@ export const leads = pgTable(
      * silently reconciled, because it is a correctable data-entry error.
      */
     revenueFiguresDisagree: boolean('revenue_figures_disagree').notNull().default(false),
+    /**
+     * The qualification bar's verdict on this lead, resolved at ingest.
+     *
+     * The verdict rather than a resolved number, deliberately. The inputs are
+     * bands, and the only number a band yields is one of its bounds — which
+     * reproduces the verdict correctly but is not the merchant's revenue. Put
+     * in `self_reported_revenue` it would be read as one by anything banding
+     * leads by revenue, so the judgement is stored and the bound is not.
+     *
+     * Null means the bar has not been evaluated for this lead yet, which is
+     * distinct from `undeterminable` — that is an answer.
+     */
+    mqlVerdict: mqlVerdictEnum('mql_verdict'),
+    /**
+     * Why the verdict is `undeterminable`, in the interface's voice.
+     *
+     * Coverage without a cause is a number nobody can act on: "31% of leads
+     * cannot be evaluated" invites a guess, while "the best-populated
+     * time-in-business field is an undecoded flag" names the thing to fix.
+     */
+    mqlUndeterminableReason: text('mql_undeterminable_reason'),
     selfReportedTimeInBusiness: numeric('self_reported_time_in_business', {
       precision: 8,
       scale: 2,

@@ -37,6 +37,7 @@ import {
   dataQuality,
   ingestionStart,
   loadMetrics,
+  minRateDenominator,
   unreadNotifications,
   windowBuckets,
   type WindowBucket,
@@ -99,7 +100,8 @@ export default async function Performance({
 
   const currency = session.tenant.currency;
 
-  const [data, previous, buckets, metrics, quality, unread, ingestion] = await Promise.all([
+  const [data, previous, buckets, metrics, quality, unread, ingestion, rateFloor] =
+    await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, baseline, model),
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
@@ -107,6 +109,7 @@ export default async function Performance({
     dataQuality(session),
     unreadNotifications(session),
     ingestionStart(session),
+    minRateDenominator(session),
   ]);
 
   // Paid media was first pulled long after the CRM history begins, so the two
@@ -136,6 +139,15 @@ export default async function Performance({
     const denominator = source.total.stages[offerFrom] ?? 0;
     return denominator === 0 ? null : (source.total.stages[offerTo] ?? 0) / denominator;
   };
+  /**
+   * Whether the comparison period can carry a rate at all.
+   *
+   * Not whether it has one — it does — but whether it has enough behind it to
+   * compare against. The baseline here held one approval, so its offer rate was
+   * 200% and the delta read as a 70% collapse caused by a single opportunity.
+   */
+  const offerBaseline = previous.total.stages[offerFrom] ?? 0;
+  const offerComparable = offerBaseline >= rateFloor;
 
   const mini = (
     pick: (bucket: WindowBucket) => number | null,
@@ -423,10 +435,14 @@ export default async function Performance({
             !offerBlocked && offerRate(data) !== null ? (
               <Delta
                 current={offerRate(data)!}
-                baseline={crmComparable ? offerRate(previous) : null}
+                baseline={crmComparable && offerComparable ? offerRate(previous) : null}
                 direction={metrics.direction('offer_rate')}
                 comparison={compare === 'year' ? 'vs last year' : 'vs previous period'}
-                unavailable={notIngested(ingestion.crmFrom)}
+                unavailable={
+                  crmComparable
+                    ? `previous period had only ${formatCount(offerBaseline)} to divide by`
+                    : notIngested(ingestion.crmFrom)
+                }
               />
             ) : (
               <NoDelta />

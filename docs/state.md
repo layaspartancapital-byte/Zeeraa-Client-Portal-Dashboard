@@ -150,6 +150,48 @@ outcome in the UI rather than that an event was queued.
    `NEXTAUTH_URL`, the OAuth and Resend credentials and `BLOB_READ_WRITE_TOKEN`
    are still unset for production. `INNGEST_*` are no longer used by anything.
 
+## Three unmeasured items became measured (18 September 2026)
+
+Four things on the funnel rendered `Not measured`. Three were recoverable from
+data already in the org; the reasoning and the coverage limits are in
+`docs/brief-amendments.md`, "§8 and §9.3 — three of the four unmeasured items
+are now measured".
+
+| Stage | Figure, trailing 90 days | Coverage limit shown on screen |
+| --- | ---: | --- |
+| UW approved | 114 | Field history begins 2026-03-20; silent before it |
+| Offer rate | 58.8% (67 of 114) | Gated below a denominator of 10 |
+| MQL | 649 | 57.6% of leads assessable |
+| Declines | 362 deals (389 transitions) | 89% of closed-lost deals |
+
+Over all 7,296 inbound leads the bar reads 1,206 qualified (16.5%), 2,903
+unqualified (39.8%), 3,184 undeterminable (43.6%). The single largest
+obstruction is `MIYB_Years_in_Business__c`, 1,075 leads.
+
+**Three numbers on screen were wrong and are corrected.** Each was caught by
+the figure looking implausible, and each had a different cause:
+
+1. **MQL read 26 and a 0.7% qualification rate.** The stage was counted from
+   `stage_events`, which are keyed by opportunity, so it counted the qualified
+   leads that went on to convert. MQL is a judgement about a *lead*; migration
+   0010 adds `qualified_leads` as a stage source and the rate is 17.0%.
+2. **MQL → Application read 1,696%, then 68%.** The first was caught by a guard
+   that fires when a ratio exceeds 100%. The second is the same non-nested
+   populations at the right grain, looking perfectly plausible — applications
+   are not drawn from MQLs, because the bar is computed from what a lead
+   reported rather than being a gate. Nesting is now declared on the stage, not
+   inferred from the arithmetic.
+3. **Declines read 555 against 362 actual deals.** Bucket rows are distinct per
+   *day*, so a re-underwritten deal counted twice, and the window total summed
+   every month that overlapped the range. Buckets now count one deal once per
+   stage per bucket, and a window total is a distinct count.
+
+Also fixed while wiring it up: the writer no longer overwrites a stored MQL
+verdict with a null one (a re-upsert without the bar would have erased
+judgements), the band parser no longer drops a zero lower bound or reads the
+`m` in "Months" as "million", and `reconcileDeletesAndMerges` clamps both
+`getDeleted` window bounds instead of throwing the whole sync.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
@@ -174,8 +216,22 @@ outcome in the UI rather than that an event was queued.
   engagement; leave it or create the field deliberately.
 - **`Opportunity.csbs__Decline_Reason__c` does not exist.** Dropped from the
   query and reported; the Salesforce sync reports `partial` for this alone.
-- **MQL is undetermined for most leads.** The bar's two inputs are close to
-  empty on inbound leads.
+- **Decline *reasons* are blocked; decline volume and timing are not.**
+  `Loss_Reason__c` was filled in on every closed-lost opportunity through
+  January 2025 and then abandoned — 0 of 133 in July 2026, 2 of 132 in August,
+  1 of 66 in September. A process change to raise with the client rather than a
+  gap to design around. Volume and timing come from
+  `csbs__Declined_Date_Time__c` and the Declined transitions.
+- **Revenue bands on Opportunity stay blocked.** `Approved_MCA_Amount__c` and
+  `Net_Funding_Amount__c` report 100% populated and hold six real values
+  between them. Nothing reads them, and nothing should.
+- **MQL is measured, with 43.6% of leads undeterminable.** The bar reads banded
+  picklist answers as of 18 September 2026 — 16.5% qualified, 39.8%
+  unqualified. What remains blocked is one field: `MIYB_Years_in_Business__c`
+  holds the only time-in-business answer for 1,075 leads and its values are
+  opaque codes. A decode key from the client converts those leads from
+  undeterminable to an answer; guessing at it would not. Tracked as
+  `mql_time_in_business_decode`.
 - **Call tracking.** Vendor not selected.
 - Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
 
@@ -211,10 +267,9 @@ Done:
   it cannot drift from what is displayed. Blocked stages export as an empty cell
   with the reason in a notes column, never as a zero; the unattributed row has
   no spend or cost-per-deal cells at all.
-- **"Sync now"** at `/api/sync/{tenant}?platform=`, `zeeraa_admin` only, sending
-  the same Inngest event the nightly schedule sends. Until the app is registered
-  with Inngest it reports that plainly and names `run-scheduled` as the path
-  that works today.
+- **"Sync now"** at `/api/sync/{tenant}?platform=`, `zeeraa_admin` only, running
+  the same incremental sync the hourly Vercel Cron endpoint runs, waiting for it
+  and reporting the real per-platform outcome, duration and remedy.
 
 - **The separation rule is in the UI, not only the arithmetic.** Channel and
   unattributed figures are different TypeScript shapes, so a component cannot
@@ -248,8 +303,10 @@ Done:
 
 Next, in order:
 
-1. **Deploy, and register with Inngest.** The cron fallback above is running the
-   pipeline; the durable-step version is what should run it in the end.
+1. **Finish the Vercel environment.** The hourly cron is the schedule now
+   (Inngest is gone); what remains is setting the connection strings, secrets
+   and `CRON_SECRET` in the project, and running the first backfill against
+   Neon.
 2. **Phase 5: the workspace.** Uploads to blob storage under
    `tenant/{tenant_id}/`, signed and authorisation-checked URLs, versioning,
    the mention picker, and the approval flow. The board, the columns, the drop
@@ -291,9 +348,11 @@ gh api "/user/codespaces/$CODESPACE_NAME" --jq .idle_timeout_minutes
 
 So the crontab is real and correct and will run whenever the Codespace happens
 to be awake at the hour — which is a convenience, not a schedule. The only
-unattended schedule is the Inngest one, and it needs the app deployed and
-registered. Until then: run `pnpm --filter @zeeraa/jobs run-scheduled nightly`
-by hand at the end of any working session, which takes about eight seconds.
+unattended schedule is the hourly Vercel Cron entry in `vercel.json`, and it
+needs the app deployed with `CRON_SECRET` set (Inngest is gone as of
+18 September 2026). Until then: run
+`pnpm --filter @zeeraa/jobs run-scheduled nightly` by hand at the end of any
+working session, which takes about eight seconds.
 
 ## The nightly fan-out was a silent no-op until 17 September 2026
 
@@ -333,6 +392,19 @@ pnpm --filter @zeeraa/jobs sync-google-ads  spartan [--days 90]
 pnpm --filter @zeeraa/jobs sync-salesforce  spartan [--since YYYY-MM-DD] [--limit N]
 pnpm --filter @zeeraa/jobs spend-to-funded  spartan [--days 90]
 ```
+
+The mutation test **drops and rebuilds the schema it points at**, so it needs a
+throwaway database rather than the development one:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa_mut \
+DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa_mut \
+  npx tsx packages/db/scripts/mutation-test.ts
+```
+
+`zeeraa_mut` exists on the local cluster for this. It takes a few minutes — it
+re-migrates and runs the whole isolation suite once per mutation. 16 of 16
+killed as of 18 September 2026.
 
 Looking at the UI locally: neither sign-in provider works without credentials,
 so `/api/dev-signin?email=admin@zeeraa.com` mints a real session for a seeded

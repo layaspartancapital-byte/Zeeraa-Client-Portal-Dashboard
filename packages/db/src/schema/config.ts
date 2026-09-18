@@ -44,12 +44,18 @@ export const funnelStages = pgTable(
      * rows in `leads` — the inbound population, since cold outreach is excluded
      * at ingest — and attributes them by `leads.click_id_type`, because a lead
      * that never converted has no opportunity to attribute through.
+     * `qualified_leads` is that same population narrowed to leads passing the
+     * tenant's bar, for a stage that is a judgement about a lead rather than
+     * an event in a CRM.
      *
      * Configuration rather than a special case for the word "lead": a funnel
      * whose first stage is genuinely an opportunity keeps the default, and one
      * that starts further up the pipe says so here.
      */
-    source: text('source').notNull().default('stage_events').$type<'stage_events' | 'leads'>(),
+    source: text('source')
+      .notNull()
+      .default('stage_events')
+      .$type<'stage_events' | 'leads' | 'qualified_leads'>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

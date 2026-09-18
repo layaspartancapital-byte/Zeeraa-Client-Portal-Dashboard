@@ -36,6 +36,17 @@ export const PLATFORM_LABELS: Record<string, string> = {
   call_tracking: 'Call tracking',
 };
 
+/**
+ * Stages whose only source is `OpportunityFieldHistory`.
+ *
+ * `uw_approved` has a mapped field, `csbs__Approved_Date_Time__c`, that is
+ * empty on every opportunity in the org, so the transitions in field history
+ * are the whole of its evidence — and its horizon is therefore the stage's.
+ * `declined` has both a stamped field and history, so it is not listed: the
+ * field reaches further back than tracking does.
+ */
+const HISTORY_SOURCED_STAGES = new Set(['uw_approved']);
+
 export function platformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] ?? platform;
 }
@@ -57,6 +68,19 @@ export type StageStatus = {
   key: string;
   blocked: { label: string; reason: string; needed: string | null; since: Date } | null;
   origin: 'observed' | 'computed';
+  /**
+   * A horizon on the source, where one exists.
+   *
+   * UW approved is read from Salesforce field history, which begins when
+   * tracking was switched on and ages out by retention. The transitions inside
+   * that window are observed facts; approvals before it are not absent, they
+   * are unreadable — and a rate computed across a period that predates the
+   * window understates it. So the limit travels with the stage rather than
+   * being something to discover later.
+   *
+   * Measured on every sync, so it rolls forward as retention expires rows.
+   */
+  coverage: { from: Date; source: string } | null;
 };
 
 export type ChannelRow = {
@@ -131,6 +155,47 @@ export type MonthlyPerformance = {
   total: TotalRow;
   /** Completion time of the most recent sync feeding this. Null when none has run. */
   dataThrough: Date | null;
+  /**
+   * Declines in the window.
+   *
+   * `deals` is distinct opportunities; `events` is transitions into the stage.
+   * They are both here because they are different facts and the difference is
+   * the interesting part: a deal can be declined, revived and declined again,
+   * so `events` above `deals` is re-underwriting rather than a data error.
+   * Declined is not a funnel stage — it is an outcome, not a step — so it has
+   * no column in `stages`.
+   */
+  declines: { deals: number; events: number };
+  /**
+   * How much of the qualification bar could be evaluated, over the leads in
+   * this window.
+   *
+   * MQL is a computed stage, and its count is only as meaningful as the share
+   * of the population the bar could actually be run against. The inputs arrive
+   * as bands, and a band containing the threshold resolves to neither answer —
+   * so the count must never render without this beside it.
+   */
+  qualification: {
+    total: number;
+    qualified: number;
+    unqualified: number;
+    undeterminable: number;
+    /**
+     * Leads carrying no verdict at all.
+     *
+     * Distinct from `undeterminable`, which is a verdict: the bar ran and the
+     * answer spans the threshold. This is the bar never having run — a lead
+     * ingested before the verdict column existed, or between a change to the
+     * bar and the re-evaluation. It is not assessable either, so it stays in
+     * `total` and out of `coverage`, but it must not be described as a band
+     * problem, because the fix is a re-sync rather than a form field.
+     */
+    unevaluated: number;
+    /** Determinable share of the population. */
+    coverage: number | null;
+    /** The most common obstruction, for the note. */
+    topReason: string | null;
+  };
 };
 
 const BLENDED_NOT_COMPUTED =
@@ -192,12 +257,26 @@ export async function monthlyPerformance(
      * population is already inbound — cold outreach is excluded at ingest — so
      * nothing here re-filters it.
      */
-    const leadStages = stages.filter((s) => s.source === 'leads');
-    const leadCountsByPlatform = new Map<string, number>();
-    let unattributedLeadCount = 0;
+    const leadStages = stages.filter(
+      (s) => s.source === 'leads' || s.source === 'qualified_leads',
+    );
+    /** Per lead-grain stage: attributed counts by platform, and the rest. */
+    const leadCounts = new Map<
+      string,
+      { byPlatform: Map<string, number>; unattributed: number }
+    >();
 
-    if (leadStages.length > 0) {
-      const leadRows = await tx
+    for (const stage of leadStages) {
+      /*
+       * `qualified_leads` is the same population narrowed to leads that pass
+       * the bar. It is a separate source rather than a filter applied later
+       * because the grain is the point: a qualified lead is a property of a
+       * *lead*, and counting it from `stage_events` would count only the ones
+       * that went on to become opportunities — a different, much smaller
+       * number wearing the name MQL, and the numerator of a rate whose
+       * denominator is every lead.
+       */
+      const rows = await tx
         .select({
           clickIdType: schema.leads.clickIdType,
           count: sql<number>`count(*)::int`,
@@ -208,20 +287,26 @@ export async function monthlyPerformance(
             eq(schema.leads.tenantId, tenantId),
             gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
             lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+            ...(stage.source === 'qualified_leads'
+              ? [eq(schema.leads.mqlVerdict, 'qualified')]
+              : []),
           ),
         )
         .groupBy(schema.leads.clickIdType);
 
-      for (const row of leadRows) {
+      const byPlatformCounts = new Map<string, number>();
+      let unattributed = 0;
+      for (const row of rows) {
         if (row.clickIdType) {
-          leadCountsByPlatform.set(
+          byPlatformCounts.set(
             row.clickIdType,
-            (leadCountsByPlatform.get(row.clickIdType) ?? 0) + Number(row.count),
+            (byPlatformCounts.get(row.clickIdType) ?? 0) + Number(row.count),
           );
         } else {
-          unattributedLeadCount += Number(row.count);
+          unattributed += Number(row.count);
         }
       }
+      leadCounts.set(stage.key, { byPlatform: byPlatformCounts, unattributed });
     }
 
     const spendRows = await tx
@@ -294,6 +379,79 @@ export async function monthlyPerformance(
       }
     }
 
+    // The window each windowed source can speak for, keyed as `window:*` by
+    // `recordSourceWindow`.
+    const windowRows = await tx
+      .select({ factKey: schema.dataSources.factKey, asOf: schema.dataSources.asOf })
+      .from(schema.dataSources)
+      .where(eq(schema.dataSources.tenantId, tenantId));
+    const stageHistoryWindow =
+      windowRows.find((r) => r.factKey === 'window:salesforce:stage_history')?.asOf ?? null;
+
+    /**
+     * The bar's verdicts over the leads created in this window.
+     *
+     * Lead grain on purpose: this is the share of the *population* the bar
+     * could be evaluated against, which is what qualifies the MQL count. The
+     * stage count itself is opportunity grain, and mixing the two would be the
+     * denominator error this codebase keeps guarding against — so they render
+     * as two facts, not as one ratio.
+     */
+    const verdictRows = await tx
+      .select({
+        verdict: schema.leads.mqlVerdict,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.leads)
+      .where(
+        and(
+          eq(schema.leads.tenantId, tenantId),
+          gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
+          lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+        ),
+      )
+      .groupBy(schema.leads.mqlVerdict);
+
+    const [declineRow] = await tx
+      .select({
+        deals: sql<number>`count(distinct ${schema.stageEvents.opportunityExternalId})::int`,
+        events: sql<number>`count(*)::int`,
+      })
+      .from(schema.stageEvents)
+      .where(
+        and(
+          eq(schema.stageEvents.tenantId, tenantId),
+          eq(schema.stageEvents.stage, 'declined'),
+          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
+          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+        ),
+      );
+
+    const [topReasonRow] = await tx
+      .select({
+        reason: schema.leads.mqlUndeterminableReason,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.leads)
+      .where(
+        and(
+          eq(schema.leads.tenantId, tenantId),
+          eq(schema.leads.mqlVerdict, 'undeterminable'),
+          gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
+          lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+        ),
+      )
+      .groupBy(schema.leads.mqlUndeterminableReason)
+      .orderBy(sql`count(*) desc`)
+      .limit(1);
+
+    const verdictCount = (key: string) =>
+      Number(verdictRows.find((r) => r.verdict === key)?.count ?? 0);
+    const qualified = verdictCount('qualified');
+    const unqualified = verdictCount('unqualified');
+    const undeterminable = verdictCount('undeterminable');
+    const verdictTotal = verdictRows.reduce((sum, r) => sum + Number(r.count), 0);
+
     const [latestSync] = await tx
       .select({ finishedAt: schema.syncRuns.finishedAt })
       .from(schema.syncRuns)
@@ -327,11 +485,13 @@ export async function monthlyPerformance(
     }
 
     for (const stage of leadStages) {
-      for (const [platform, count] of leadCountsByPlatform) {
+      const counts = leadCounts.get(stage.key);
+      if (!counts) continue;
+      for (const [platform, count] of counts.byPlatform) {
         const target = byPlatform.get(platform) ?? byPlatform.set(platform, {}).get(platform)!;
         target[stage.key] = count;
       }
-      unattributedStages[stage.key] = unattributedLeadCount;
+      unattributedStages[stage.key] = counts.unattributed;
     }
 
     const sumAmounts = (ids: Iterable<string>) =>
@@ -342,7 +502,7 @@ export async function monthlyPerformance(
       ...new Set([
         ...spendRows.map((r) => r.platform),
         ...byPlatform.keys(),
-        ...leadCountsByPlatform.keys(),
+        ...[...leadCounts.values()].flatMap((c) => [...c.byPlatform.keys()]),
       ]),
     ].sort((a, b) => platformLabel(a).localeCompare(platformLabel(b)));
 
@@ -416,6 +576,12 @@ export async function monthlyPerformance(
                   }
                 : null,
               origin: computedStages.has(stage.key) ? 'computed' : 'observed',
+              // Only the stages with no stamped field of their own are read
+              // from history, so only they carry its horizon.
+              coverage:
+                stageHistoryWindow && HISTORY_SOURCED_STAGES.has(stage.key)
+                  ? { from: stageHistoryWindow, source: 'Salesforce field history' }
+                  : null,
             } satisfies StageStatus,
           ];
         }),
@@ -444,6 +610,19 @@ export async function monthlyPerformance(
         costPerDealAbsentBecause: BLENDED_NOT_COMPUTED,
       },
       dataThrough: latestSync?.finishedAt ?? null,
+      declines: {
+        deals: Number(declineRow?.deals ?? 0),
+        events: Number(declineRow?.events ?? 0),
+      },
+      qualification: {
+        total: verdictTotal,
+        qualified,
+        unqualified,
+        undeterminable,
+        unevaluated: verdictTotal - qualified - unqualified - undeterminable,
+        coverage: verdictTotal === 0 ? null : (qualified + unqualified) / verdictTotal,
+        topReason: topReasonRow?.reason ?? null,
+      },
     };
   });
 }

@@ -4,6 +4,7 @@ import {
   formatCount,
   formatRate,
   tenantDay,
+  trailingMonths,
   trailingWindow,
   type AttributionModel,
 } from '@zeeraa/core';
@@ -20,7 +21,8 @@ import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { StackedBars } from '@/components/charts/Bars';
 import { monthlyPerformance, platformLabel } from '@/lib/reporting';
-import { dataQuality, unreadNotifications } from '@/lib/dashboard';
+import { DeclineCard } from '@/components/DeclineCard';
+import { dataQuality, unreadNotifications, windowBuckets } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 
 export const metadata = { title: 'Funnel' };
@@ -66,11 +68,31 @@ export default async function Funnel({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const [data, quality, unread] = await Promise.all([
+  const [data, quality, unread, buckets] = await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
     unreadNotifications(session),
+    // `declined` is a stage event but not a configured funnel stage, so it is
+    // absent from the stage totals and has to be read from the buckets.
+    windowBuckets(session, trailingMonths(today, 12), 'month', model),
   ]);
+
+  /**
+   * Declines per month, for the timing.
+   *
+   * The series comes from the bucket query and the window total from
+   * `data.declines`, because `declined` is deliberately not a funnel stage —
+   * it is an outcome, not a step — so it never appears in `total.stages`. The
+   * total is a distinct count over the whole window rather than a sum of these
+   * bars: a deal declined in June and again in August is one deal in the
+   * window and a bar in each month.
+   */
+  const declinePoints = buckets.map((b) => ({
+    label: b.label,
+    value: b.crmIngested ? (b.stages.declined ?? 0) : null,
+    provisional: b.provisional,
+  }));
+  const declineReason = quality.find((q) => q.key === 'blocked:decline_reason_breakdown') ?? null;
 
   const populations = [
     { key: 'all', label: 'All sources', counts: data.total.stages },
@@ -186,7 +208,15 @@ export default async function Funnel({
           />
         </Card>
 
-        <Card span={8} selfStart>
+        {/*
+          The chart and the decline card share the left column rather than
+          each taking their own grid row. Data quality is the taller card, so
+          a decline card placed after it started a new row and left a void the
+          height of the chart under the chart — which reads as a screen that
+          failed to finish loading.
+        */}
+        <div className="col-span-12 flex flex-col gap-6 lg:col-span-8">
+          <Card selfStart className="w-full">
           <CardHeader
             title="Stage by channel"
             subtitle="Unattributed is its own segment, never folded into a channel"
@@ -209,7 +239,16 @@ export default async function Funnel({
               height={280}
             />
           </CardBody>
-        </Card>
+          </Card>
+
+          <DeclineCard
+            points={declinePoints}
+            total={data.declines.deals}
+            events={data.declines.events}
+            range={range}
+            reason={declineReason}
+          />
+        </div>
 
         <DataQualityCard items={quality} span={4} />
 

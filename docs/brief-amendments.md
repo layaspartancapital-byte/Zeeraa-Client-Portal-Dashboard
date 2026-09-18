@@ -755,3 +755,179 @@ The "Sync now" button does not use the bearer. It posts to
 via `requireRole`, and which calls the same `runIncrementalSync` scoped to one
 tenant. It waits for the result and reports the real per-platform outcome,
 duration and remedy, instead of reporting that an event was queued.
+
+---
+
+## §8 and §9.3 — three of the four unmeasured items are now measured
+
+**Added 18 September 2026.** This supersedes the conclusion of "§8 and §9.3 —
+MQL cannot be measured in this org" above, and extends §9.3's stage flow. The
+earlier entry is left in place because its reasoning still holds for the fields
+it examined; what it got wrong was treating those fields as the whole of the
+evidence.
+
+Four things rendered as `Not measured`. Three turned out to be recoverable from
+data already in the org, and the fourth genuinely is not:
+
+| | Was | Now |
+| --- | --- | --- |
+| UW approved | blocked — `csbs__Approved_Date_Time__c` empty on every opportunity | 114 in the trailing 90 days, from field history |
+| Offer rate | blocked, because its denominator was | 58.8% (67 of 114) |
+| MQL | blocked — the two numeric inputs are ~0.4% populated | 649 in the window, 57.6% of leads assessable |
+| Decline volume and timing | folded into "decline reasons", blocked | 362 deals, 389 transitions, monthly series |
+| Decline reasons | blocked, reason given as "sparse" | still blocked, with the real reason |
+| Revenue bands | blocked | still blocked, and correctly so |
+
+### UW approved comes from `OpportunityFieldHistory`, not from a stamped field
+
+Field history tracking is on for `Opportunity.StageName`, and the approval
+transitions are in it: 119 events across 115 opportunities. The retired
+picklist values are handled by a value-alias map in
+`packages/connectors/src/salesforce/stage-history.ts`, which maps every label
+ever observed to a funnel stage key or to `null` for
+recognised-but-not-emitted. An unrecognised label is counted and reported
+rather than dropped silently, so a new picklist value shows up as a number in
+the sync record instead of as a quiet undercount.
+
+**History has a horizon, and the horizon is part of the metric.** Nothing in
+`OpportunityFieldHistory` predates **2026-03-20**, because that is when
+tracking was switched on. The stage is complete inside that window and silent
+before it, which is a different statement from zero. The funnel renders
+`from 2026-03-20` on the figure itself — not in a footnote — for exactly the
+stages whose only source is history. `HISTORY_SOURCED_STAGES` in
+`apps/web/src/lib/reporting.ts` holds that set, and `declined` is deliberately
+not in it: it has a stamped field as well, and the field reaches further back
+than tracking does.
+
+### Decline: how many and when is a different question from why
+
+Splitting them is the whole point. "Why are we losing deals" could not be
+answered, and that was allowed to suppress "how many did we lose", which could
+be answered all along from `csbs__Declined_Date_Time__c` and the Declined
+transitions — 89% coverage of closed-lost deals between them.
+
+**Volume is a deal count, not an event count.** 362 deals declined in the
+trailing 90 days across 389 transitions into Declined. The gap is
+re-underwriting: a deal declined, revived and declined again is one deal and
+two transitions, and both numbers are on screen because a reader comparing this
+card against a CRM report will otherwise hit the difference and distrust the
+screen.
+
+**There is no decline rate.** Deals declining in a window include deals that
+applied before it, so dividing the two window counts compares two cohorts — it
+came out at 124.7%. A real decline rate follows one cohort forward and is a
+different query; until it exists the card shows a volume and says why there is
+no share.
+
+**Decline reasons stay blocked, with the true reason.** `Loss_Reason__c` was
+filled in on *every* closed-lost opportunity through January 2025 — 68 of 68
+that month, 23 of 23 in December 2024 — and then abandoned: 0 of 133 in July
+2026, 2 of 132 in August, 1 of 66 in September. That is a process change to
+raise with the client, not sparse data to design around, and the blocked state
+now says so. `csbs__Decline_Reason__c`, which the mapping asked for, does not
+exist in the org at all.
+
+### MQL: the answers are there, in bands
+
+The earlier amendment measured `csbs__Estimated_Monthly_Revenue__c` (8.8%),
+`AnnualRevenue` (6.7%) and `Time_in_Business_Months__c` (0.4%) and concluded
+the bar could not be evaluated. What it missed is that the forms mostly do not
+ask for numbers — they ask for a **band**, and the answers are in picklist
+fields the connector was not selecting. So the primitive is a band reader:
+
+`packages/core/src/bands.ts` turns a literal into an interval and compares the
+interval with the bar three ways — passes, fails, or **straddles**. A band that
+contains the threshold is `undeterminable`, never a pass and never a fail:
+`$10K - $25K` against a $10,000 bar is not an answer, and rounding it either
+way would be inventing one. 215 leads (4.3% of the 5,049 with both inputs
+present) sit in such a band.
+
+Two parser bugs are worth recording because both produced plausible wrong
+answers rather than errors:
+
+* **Zero was being dropped** as falsy, so `0 - 1 Years` collapsed to a point
+  value of one year and *passed* a twelve-month bar.
+* **The unit suffix matched a prefix**, so the `m` in `< 12 Months` read as
+  "million" and the band became twelve million months. Fixed with a word
+  boundary; 34 tests in `packages/core/test/bands.test.ts` are built from
+  literals taken out of the live org, including `&lt; $10,000`,
+  `Menos de 15.000 dólares` and `x12_Months_plus`.
+
+**The verdict is stored; the resolved number is not.** Migration 0009 adds
+`leads.mql_verdict` (`qualified | unqualified | undeterminable`) and
+`leads.mql_undeterminable_reason`. Band resolution stays in the connector,
+which is where every other field mapping lives, and `self_reported_revenue`
+keeps *no* value for a banded answer — writing the low end of `$10K - $25K`
+into a numeric column would create a $10,000 figure that no lead ever stated
+and that every downstream average would treat as measured. A band is evidence
+about a threshold, not a quantity.
+
+`mql_verdict` being null means the bar has not been run, which is not the same
+as `undeterminable` and is not counted as it: the writer coalesces rather than
+overwriting a stored verdict with a null one, the reason travels with the
+verdict it belongs to, and the funnel names the unevaluated share separately.
+
+**What the bar now says, over 7,296 inbound leads:** 1,206 qualified (16.5%),
+2,903 unqualified (39.8%), 3,184 undeterminable (43.6%). The largest single
+obstruction is `MIYB_Years_in_Business__c` — 1,075 leads whose only
+time-in-business answer is in a field whose values are opaque codes. It is
+declared unusable pending a decode key rather than guessed at, and that is the
+one remaining blocked dependency on MQL. `New Business` and `Not Started`
+*fail* the time-in-business test rather than being undeterminable: a business
+that has not started has not been trading for twelve months.
+
+**MQL never renders as a bare count.** The stage carries
+`57.6% of leads assessable` and an ⓘ giving the three verdict counts and the
+top obstruction. A count of qualified leads without its coverage implies the
+other 42.4% were assessed and failed.
+
+### MQL is counted at lead grain, and that was a second bug
+
+An MQL stage event is stamped against an opportunity, so counting the stage
+from `stage_events` counted the qualified leads that went on to convert — 26 of
+649 — under the label MQL, and divided *that* by every inbound lead to report a
+qualification rate of **0.7%** against a measured **17.0%**.
+
+A qualified lead is a judgement about a lead, so migration 0010 adds
+`qualified_leads` as a third value for `funnel_stages.source`: the `leads`
+population narrowed by one predicate. Configuration, not a branch on the word
+"MQL" — a tenant whose second stage is a different judgement declares it the
+same way.
+
+**Nesting is now declared rather than inferred from the arithmetic.** A
+conversion rate presumes the later population is drawn from the earlier one,
+and the funnel used to test that by checking whether the ratio exceeded 100%.
+That test caught MQL → Application while MQL was at the wrong grain (1,696%).
+At the right grain the same transition reads 441 of 649 — 68%, comfortably
+under 100%, and still not a conversion rate, because the bar is computed from
+what a lead reported rather than being a gate it passes through: a lead that
+misses the bar can and does still apply. So a stage sourced from
+`qualified_leads` declares that the stage after it is not drawn from it, the
+rate renders as an em dash, and the ⓘ says which of the two reasons applies. A
+guard that only fires when the arithmetic embarrasses itself is not a guard.
+
+### A related correction: stage counts were deal-days, not deals
+
+The bucket query selects distinct `(day, stage, opportunity, platform)`, so a
+deal reaching a stage on two days inside one month arrived twice. For stages
+that do not recur this never showed; for declines it inflated the window total
+to 555 against 362 actual deals — partly through double counting and partly
+because the window total summed every month that *overlapped* the range rather
+than the range itself. Buckets now count one deal once per stage per bucket,
+and a window total is a distinct count over the window rather than a sum of
+bars.
+
+### Revenue bands stay blocked, and two fields must not be used
+
+`Approved_MCA_Amount__c` and `Net_Funding_Amount__c` report as 100% populated
+and hold **six** real values between them; the rest is a default. They are
+named here because a population check passes on them, which is precisely how a
+default gets mistaken for data. Nothing in this repository reads them.
+
+### What each unblocked item cost in configuration
+
+Nothing client-specific entered the code. The alias map and the band literals
+are connector configuration, the qualification bar and the decode dependency
+are `tenant_config` rows, the stage grain is a `funnel_stages` column, and
+`min_rate_denominator` — added because an offer rate computed over one approval
+reported a −70.6% regression — is a config row read by the delta logic.

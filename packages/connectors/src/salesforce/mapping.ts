@@ -22,6 +22,32 @@ export type SalesforceFieldMapping = {
     /** Annual gross. Either may be present; both are read, monthly wins. */
     selfReportedAnnualRevenue?: string;
     selfReportedTimeInBusinessMonths?: string;
+    /**
+     * Ordered candidates for the qualification bar's revenue input.
+     *
+     * A list rather than a field because the answer is spread across eight
+     * columns in three vocabularies, and no single one is populated on more
+     * than half the leads. Read in order; the first *resolvable* reading wins,
+     * so a field holding a straddling band does not shadow a later field that
+     * answers cleanly.
+     *
+     * `period` says what the field means, not what the label says — a field
+     * named for annual revenue holding `Less than $180,000` is $15,000 a month.
+     */
+    revenueBands?: { field: string; period: 'monthly' | 'annual' }[];
+    /** The same, for time in business. Units come from each label. */
+    timeInBusinessBands?: string[];
+    /**
+     * Fields excluded from the bar pending a decode key.
+     *
+     * `MIYB_Years_in_Business__c` is the best-populated time-in-business field
+     * in the org at 53%, and its five values are `0000 | 1000 | 1100 | 1111 |
+     * 1110`. Those are not durations. Reading them as numbers would be an
+     * invention; ignoring them silently would hide the single biggest reason
+     * MQL coverage is short of its ceiling. So they are named here, counted,
+     * and reported as the blocker they are.
+     */
+    undecodableFields?: { field: string; why: string }[];
     industry?: string;
     state?: string;
   };
@@ -76,6 +102,21 @@ function collect(mapping: SalesforceFieldMapping) {
   for (const [key, field] of Object.entries(mapping.lead)) {
     if (key === 'clickIds' || typeof field !== 'string') continue;
     lead.push([field, key]);
+  }
+  // The band candidates are lists rather than single fields, so the loop above
+  // steps over them — and a field that is never selected is a field the
+  // qualification bar cannot see. Validation runs off this too, so an absent
+  // band field is reported and dropped rather than failing the whole query.
+  for (const candidate of mapping.lead.revenueBands ?? []) {
+    lead.push([candidate.field, `revenue band (${candidate.period})`]);
+  }
+  for (const field of mapping.lead.timeInBusinessBands ?? []) {
+    lead.push([field, 'time-in-business band']);
+  }
+  // Selected in order to be *counted*: a lead whose only duration answer is an
+  // undecodable flag needs to say so, which means knowing it is there.
+  for (const candidate of mapping.lead.undecodableFields ?? []) {
+    lead.push([candidate.field, 'undecodable, pending a key']);
   }
 
   const opportunity: [string, string][] = Object.entries(mapping.opportunity.clickIds).map(

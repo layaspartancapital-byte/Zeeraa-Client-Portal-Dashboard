@@ -22,7 +22,7 @@ export type StageDefinition = {
    * crosses a grain boundary — leads into applications — is a different kind of
    * statement from one inside a grain, and the funnel says so where it happens.
    */
-  source?: 'stage_events' | 'leads';
+  source?: 'stage_events' | 'leads' | 'qualified_leads';
 };
 
 export type StageEvent = {

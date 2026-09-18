@@ -84,6 +84,20 @@ try {
     for (const b of sync.blocked) console.log(`    - ${b}`);
   }
 
+  console.log('\n  ── stage history (OpportunityFieldHistory) ──');
+  const h = sync.stageHistory;
+  console.log(`  history rows read:         ${h.rows}`);
+  console.log(`  stage events emitted:      ${h.events}`);
+  for (const [stage, n] of Object.entries(h.counts)) console.log(`    ${stage}: ${n}`);
+  console.log(
+    `  retained window observed:  ${h.span.earliest?.toISOString().slice(0, 10) ?? '(none)'} .. ` +
+      `${h.span.latest?.toISOString().slice(0, 10) ?? '(none)'}`,
+  );
+  if (Object.keys(h.unrecognised).length > 0) {
+    console.log('  UNRECOGNISED stage labels (add to the alias map):');
+    for (const [v, n] of Object.entries(h.unrecognised)) console.log(`    ${v}: ${n}`);
+  }
+
   console.log('\n  ── pass 2: click ids from converted leads ──');
   const backfill = await backfillClickIdsFromConvertedLeads({
     tenantId,

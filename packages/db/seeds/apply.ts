@@ -1,4 +1,4 @@
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, lt, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../src/client';
 import * as schema from '../src/schema/index';
 import type { TenantSeed } from './types';
@@ -294,6 +294,33 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
           evidence: b.evidence ?? null,
         },
       });
+  }
+
+  /**
+   * A dependency dropped from the seed is unblocked.
+   *
+   * §9.5 wants unblocking to be a delete rather than a deploy, and an upsert
+   * alone cannot express removal: UW approved gained a source in
+   * `OpportunityFieldHistory`, its seed entry went away, and the row sat in the
+   * database still telling the client the stage was not measured. Pruning here
+   * makes the seed the whole statement of what is outstanding.
+   *
+   * Scoped to this tenant, and only to keys the seed governs.
+   */
+  const seededKeys = seed.blockedDependencies.map((b) => b.key);
+  const stale = await db
+    .delete(schema.blockedDependencies)
+    .where(
+      seededKeys.length > 0
+        ? and(
+            eq(schema.blockedDependencies.tenantId, tenantId),
+            notInArray(schema.blockedDependencies.key, seededKeys),
+          )
+        : eq(schema.blockedDependencies.tenantId, tenantId),
+    )
+    .returning({ key: schema.blockedDependencies.key });
+  for (const row of stale) {
+    console.log(`  unblocked (no longer in the seed): ${row.key}`);
   }
 
   return tenantId;
