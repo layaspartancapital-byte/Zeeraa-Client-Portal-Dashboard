@@ -19,7 +19,7 @@ import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import { KpiCard } from '@/components/KpiCard';
 import { LenderOfferRateCard } from '@/components/LenderOfferRateCard';
-import { HeroCard, type SecondaryFigure } from '@/components/HeroCard';
+import { HeroCard, type HeroChannel } from '@/components/HeroCard';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { ChannelSnapshot } from '@/components/ChannelSnapshot';
 import { coverageExplanation } from '@/components/CostPerDeal';
@@ -148,13 +148,11 @@ export default async function ExecutiveView({
   const valueKey = valueStage?.key ?? null;
   const valueLabel = valueStage?.label ?? 'Funded';
 
-  // The channel carrying the most spend in the window is the one the hero
-  // speaks for. Named explicitly, never implied — and when a second channel
-  // arrives this is where the blended figure will replace it.
-  const lead = [...data.channels].sort((a, b) => b.spend - a.spend)[0] ?? null;
-  const leadPrevious = lead
-    ? (previous.channels.find((c) => c.platform === lead.platform) ?? null)
-    : null;
+  // Every connected channel, ordered by spend. There is no lead channel: the
+  // hero renders one panel per channel and nothing across them. Ordering by
+  // spend is presentation — the largest budget reads first — and carries no
+  // arithmetic, because no figure here combines two channels.
+  const channels = [...data.channels].sort((a, b) => b.spend - a.spend);
 
   const dealsIn = (stages: Record<string, number>) => (valueKey ? (stages[valueKey] ?? 0) : 0);
   const attributedDeals = (source: typeof data) =>
@@ -168,29 +166,27 @@ export default async function ExecutiveView({
       unattributedDeals: valueKey ? (bucket.unattributedStages[valueKey] ?? 0) : 0,
     });
 
-  const heroPoints = heroBuckets.map((bucket) => ({
-    label: bucket.label,
-    value: !bucket.spendIngested || !lead ? null : bucketCost(bucket, lead.platform).value,
-    provisional: bucket.provisional,
+  /**
+   * One channel's series, computed from that channel's own buckets.
+   *
+   * Never a share of a combined series: a bucket where this channel had spend
+   * and no attributed deal has no cost per deal, and that is a different fact
+   * from a bucket where it spent nothing.
+   */
+  const heroChannels: HeroChannel[] = channels.map((channel) => ({
+    platform: channel.platform,
+    label: channel.label,
+    cost: channel.costPerDeal,
+    previousCost: spendComparable
+      ? (previous.channels.find((c) => c.platform === channel.platform)?.costPerDeal ?? null)
+      : null,
+    points: heroBuckets.map((bucket) => ({
+      label: bucket.label,
+      value: !bucket.spendIngested ? null : bucketCost(bucket, channel.platform).value,
+      provisional: bucket.provisional,
+    })),
+    provisional: heroBuckets.at(-1)?.provisional ?? false,
   }));
-
-  // The last four months of the metric, each against the month before it.
-  const monthlyCost = buckets.map((bucket) =>
-    !bucket.spendIngested || !lead ? null : bucketCost(bucket, lead.platform).value,
-  );
-  const secondary: SecondaryFigure[] = buckets
-    .map((bucket, i): SecondaryFigure => {
-      const value = monthlyCost[i] ?? null;
-      const baseline = monthlyCost[i - 1] ?? null;
-      return {
-        label: bucket.label,
-        value: value === null ? null : formatCurrency(value, currency),
-        current: value,
-        baseline,
-      };
-    })
-    .filter((figure) => figure.value !== null)
-    .slice(-4);
 
   /**
    * A mini series. `source` decides which ingestion boundary blanks a bucket:
@@ -240,14 +236,13 @@ export default async function ExecutiveView({
         dealsIn(data.total.stages),
       )} ${valueLabel.toLowerCase()} deals in this window.`,
     },
-    ...(lead
-      ? [
-          {
-            heading: 'Coverage and range',
-            body: coverageExplanation(lead.costPerDeal, currency, lead.label),
-          },
-        ]
-      : []),
+    // One note per channel. A single "coverage and range" note across two
+    // channels would have to average two different coverages to say anything,
+    // and the difference between them is the point.
+    ...channels.map((channel) => ({
+      heading: `Coverage and range · ${channel.label}`,
+      body: coverageExplanation(channel.costPerDeal, currency, channel.label),
+    })),
     ...quality.map((item) => ({
       heading: item.name,
       body: item.detail || item.summary,
@@ -281,25 +276,13 @@ export default async function ExecutiveView({
       </PageMeta>
 
       <Grid>
-        {lead ? (
+        {heroChannels.length > 0 ? (
           <HeroCard
             metricLabel={metrics.northStar?.label ?? `Cost per ${valueLabel.toLowerCase()} deal`}
-            channelLabel={lead.label}
-            cost={lead.costPerDeal}
-            previousCost={spendComparable ? (leadPrevious?.costPerDeal ?? null) : null}
+            channels={heroChannels}
             comparisonUnavailable={notIngested(ingestion.spendFrom)}
             currency={currency}
             direction={metrics.direction('cost_per_funded_deal')}
-            points={heroPoints}
-            target={
-              metrics.target('cost_per_funded_deal') !== null
-                ? {
-                    value: metrics.target('cost_per_funded_deal')!,
-                    label: `Target ${formatCurrency(metrics.target('cost_per_funded_deal')!, currency)}`,
-                  }
-                : null
-            }
-            secondary={secondary}
             periodToggle={
               <Segmented
                 label="Chart period"
@@ -307,9 +290,18 @@ export default async function ExecutiveView({
                 options={segments(base, activeParams, 'hero', HERO_MONTHS)}
               />
             }
-            provisional={heroBuckets.at(-1)?.provisional ?? false}
             definition={metrics.northStar?.definition ?? null}
             blendedNote={BLENDED_NOTE(valueLabel)}
+            target={
+              metrics.target('cost_per_funded_deal') !== null
+                ? {
+                    label: `Target ${formatCurrency(metrics.target('cost_per_funded_deal')!, currency)}`,
+                    note:
+                      'The engagement states one target. It is not a per-channel figure, so it ' +
+                      'is shown once here rather than drawn across each channel’s chart.',
+                  }
+                : null
+            }
           />
         ) : (
           <DataQualityCard

@@ -1508,3 +1508,48 @@ with a different denominator, and two channels out of six is not every channel.
 **`spend-to-funded` now discovers its channels instead of naming one.** It
 previously hardcoded `google_ads`, which would have silently omitted Meta from
 the only script that reports the metric the engagement turns on.
+
+---
+
+## §12 — the executive hero is one panel per channel, and there is still no blended figure
+
+Changed 19 September 2026, when Meta made the old behaviour a distortion rather
+than a simplification.
+
+The hero used to render **one** channel's cost per funded deal, chosen as
+whichever spent most, with an ⓘ explaining that a blended figure was not
+computable. With one connected channel that was honest. With two it put Google
+Ads' USD 8,797 above the fold under a heading the client reads as *what a deal
+costs us*, while Meta's USD 17,857 — **twice the price, on a fifth of the
+spend** — sat two screens down in a table. The label was accurate and the screen
+was misleading, which is the failure mode this product exists to avoid.
+
+There is now **no lead channel**. The hero renders one panel per connected
+channel, side by side, each carrying its own figure, its own coverage line, its
+own range and its own series. Channels are ordered by spend, which is
+presentation and carries no arithmetic, because no figure on the card combines
+two channels.
+
+**And still no blended figure.** The arithmetic is available and it would be
+wrong: blended cost per funded deal is total marketing spend over total
+marketing-sourced deals, a different denominator from any channel's, and two of
+six channels summed under a blended label is right arithmetic with the wrong
+noun.
+
+Three details that follow from the rule rather than from taste:
+
+- **The range is per panel, not per card.** Meta's range is USD 1,488–17,857
+  because one deal carries its whole spend; Google's is 3,959–8,797 because nine
+  do. Averaging them would hide precisely the difference worth seeing.
+- **The method drawer carries one coverage note per channel.** A single note
+  across two channels would have to average two coverages to say anything.
+- **The target is stated once and drawn on neither chart.** The engagement
+  states one number and configuration carries no per-channel target, so a line
+  across both panels would assert that each channel is independently held to it
+  — a claim nobody has made. It renders as a figure in the card header with the
+  reason in its ⓘ.
+
+The four-month secondary strip is gone. It was one channel's, and showing it for
+each channel inside a half-width panel would have crowded the figure the card
+exists for. The same series is on the monthly performance screen, per channel,
+with more room.

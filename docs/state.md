@@ -579,10 +579,13 @@ Next, in order:
 4. Campaign and keyword-tier drill-down on the performance table. The breakdown
    tab set is on screen with each dimension's blocker stated; campaign is the
    one that is Zeeraa build work rather than a CRM gap.
-5. **Decide the north star now that there are two channels.** The executive
-   hero is configured as cost per funded deal · Google Ads. That was the only
-   channel when it was set; it is now one of two, and which channel the client
-   wants above the fold is their call rather than a default worth guessing.
+5. **Reconcile the cost-per-funded-deal target.** The executive hero now shows
+   every connected channel side by side rather than one, so there is no north
+   star channel left to choose. What is still outstanding is the target: the
+   engagement states one number, configuration carries no per-channel target,
+   and it currently renders once in the card header rather than against either
+   channel. Decide whether it is a blended target, a Google Ads target, or one
+   per channel.
 
 ## Scheduling: where it really stands (17 September 2026)
 
