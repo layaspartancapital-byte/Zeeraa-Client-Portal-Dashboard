@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 18 September 2026, end of session.**
+**Last updated: 19 September 2026, end of session.**
 
 ---
 
@@ -24,8 +24,11 @@ v2, and the product rules that survived it unchanged, are in
 `docs/brief-amendments.md`, "§12 — replaced in full by design spec v2".
 
 Executive, monthly performance, funnel, delivery, connections, reconciliation
-and the workspace shell are all built. Workspace *content* — uploads,
-versioning, mentions, approvals — is still phase 5.
+and the workspace are all built. **Delivery tracking is real as of 19 September
+2026**: work is uploaded to S3, tagged to one of the eleven configured
+commitments and a period, approved or sent back by the client, and approved
+artifacts are what the delivered figure counts. Mentions, the activity rail and
+asset comments are still out — they are collaboration, not delivery tracking.
 
 ## Done
 
@@ -149,8 +152,12 @@ outcome in the UI rather than that an event was queued.
 3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503),
    and `ALOWARE_WEBHOOK_SECRET` likewise for the call webhook — both fail
    closed, so an unset secret is a refusing endpoint rather than an open one.
-   `NEXTAUTH_URL`, the OAuth and Resend credentials and `BLOB_READ_WRITE_TOKEN`
-   are still unset for production. `INNGEST_*` are no longer used by anything.
+   `NEXTAUTH_URL` and the OAuth and Resend credentials are still unset for
+   production, as are `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and
+   `S3_SECRET_ACCESS_KEY` — without those four the workspace renders
+   `Storage not configured` and the upload endpoints answer 503 naming them,
+   rather than failing obscurely. `BLOB_READ_WRITE_TOKEN` and `INNGEST_*` are no
+   longer used by anything.
 
 ## Three unmeasured items became measured (18 September 2026)
 
@@ -289,6 +296,64 @@ upsert key includes the account identifier, so renaming one inserted a second
 row and left the stale one rendering — now pruned, but only for rows holding no
 credentials.
 
+## The workspace, and delivery counts that come from it (19 September 2026)
+
+Delivery read `Not recorded` against all eleven commitments because nothing
+wrote to `assets` or `deliverable_records`. The loop is now closed: upload →
+tag to a commitment and a period → client approves or sends back → the delivered
+figure moves. Full reasoning in `docs/brief-amendments.md`, "§10 and §14 — asset
+storage is S3, and a delivered count is derived from approvals".
+
+**Storage is AWS S3, not Vercel Blob.** The client's decision. One private
+bucket, all public access blocked, keys `tenant/{tenant_id}/assets/{id}/v{n}/…`,
+uploads by presigned PUT straight from the browser and downloads by a signed GET
+produced per request behind an RLS-checked read. The application's IAM policy
+carries no `s3:ListBucket` — so a leaked credential cannot enumerate what other
+tenants hold — and no `s3:DeleteObject`, which makes "old versions are never
+deleted" a property of the credentials. Bucket, CORS and IAM in
+`docs/asset-storage.md`; `BLOB_READ_WRITE_TOKEN` is gone from `.env.example`.
+
+**Three states, not two.** `Not recorded` where no artifact exists and no count
+was written; `0` once an artifact is in front of the client but none is approved
+yet; the approved count thereafter. A draft in Zeeraa's own column triggers
+nothing. Approved artifacts decide the figure wherever they exist, and a
+hand-recorded count — for backlinks, tracked prompts, concurrent tests, which
+produce no artifact — is used only where there are none. Where both exist the
+tally is stated beside the figure and never added to it.
+
+**A superseded version counts toward nothing**, so one article approved at v1
+and again at v2 is one article delivered. Migration 0013 adds the partial unique
+index that keeps a version chain a chain.
+
+**Only a client admin can approve, and that is a trigger rather than a hidden
+button.** `app.enforce_asset_review_authority()` on `assets`: into `approved` or
+`changes_requested` requires `client_admin`, into `submitted`/`published`
+requires a Zeeraa role, and the approver column must name the user in context. A
+Zeeraa admin holds every other power in this product and deliberately not this
+one — a delivered figure Zeeraa could raise on its own behalf is not a
+compliance record. Thirteen tests in `packages/db/test/asset-review.test.ts`;
+six new mutations, **26 of 26 killed**.
+
+**Two bugs found and fixed while building it.**
+
+1. The correlated subquery that asks "does a later version of this row exist"
+   rendered the outer column unqualified, so it bound to the inner alias and the
+   condition became `later.supersedes_asset_id = later.id` — never true, no
+   error, every row reported as not superseded. It would have double-counted the
+   first article approved at v1 and again at v2. It is now one named constant in
+   `apps/web/src/lib/asset-sql.ts` with a test on its generated SQL.
+2. `Items delivered` on the delivery view summed every commitment's delivered
+   figure — pieces plus pages plus links. Invisible while everything read `Not
+   recorded`; with real counts it reported 37. Replaced by `Artifacts approved`,
+   which is one unit.
+
+Verified end to end against a local MinIO standing in for S3: upload, submit,
+a Zeeraa admin refused at approval, the client admin approving, a rejection with
+its reason, a v2 replacing a sent-back v1, the delivered figure moving 1 → 2 and
+not 1 → 3, the object returning 403 to an anonymous GET, and the signed
+redirect serving the file. Screenshots at 1440px and 390px, no horizontal page
+scroll at either.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
@@ -411,10 +476,12 @@ Next, in order:
    (Inngest is gone); what remains is setting the connection strings, secrets
    and `CRON_SECRET` in the project, and running the first backfill against
    Neon.
-2. **Phase 5: the workspace.** Uploads to blob storage under
-   `tenant/{tenant_id}/`, signed and authorisation-checked URLs, versioning,
-   the mention picker, and the approval flow. The board, the columns, the drop
-   zone and the activity rail are built and read real rows; there are none yet.
+2. **The rest of phase 5.** Uploads, versioning and the approval flow are done
+   (19 September 2026). What remains is collaboration: the mention picker,
+   `@mentions`, asset comments, the activity rail and notifications. Also
+   unbuilt: recording a hand-kept count from the UI — the `manual` rows are
+   written by hand in SQL today, which is fine for backlinks and prompts but
+   will not stay fine.
 3. Chase the Opportunity click-ID fields and the decline-reason field.
 4. Campaign and keyword-tier drill-down on the performance table. The breakdown
    tab set is on screen with each dimension's blocker stated; campaign is the

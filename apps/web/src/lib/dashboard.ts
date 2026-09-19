@@ -1,10 +1,14 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { schema } from '@zeeraa/db';
+import { supersededByLaterVersion, supersedingAssetId } from '@/lib/asset-sql';
 import {
   addDays,
   bucketLabel,
+  commitmentPeriodLabel,
   evenBucketsIn,
   monthBucketsIn,
+  resolveDelivered,
   type AttributionModel,
   type DateRange,
   type DayBucket,
@@ -814,8 +818,18 @@ export type CommitmentRow = {
   delivered: number | null;
   /** How the delivered count was established, where there is one. */
   source: 'manual' | 'derived_from_assets' | null;
+  /**
+   * A hand-recorded count that disagrees with the approved artifacts. Stated
+   * beside the figure, never added to it — see `resolveDelivered`.
+   */
+  recordedByHand: number | null;
   /** Assets submitted against this commitment and still awaiting approval. */
   awaitingApproval: number;
+  /** Assets the client sent back, still with this commitment and period. */
+  changesRequested: number;
+  /** The period this row's figures cover, as a date. */
+  periodStart: string;
+  periodLabel: string;
 };
 
 export type SlaRow = {
@@ -837,7 +851,26 @@ export type DeliveryStatus = {
   approvalsPending: number;
   /** Assets that exist at all. Zero here is a measurement; the table is empty. */
   assetsTotal: number;
+  /**
+   * Approved artifacts in the period, latest version only.
+   *
+   * Deliberately not a sum of every commitment's delivered figure. Those
+   * figures carry different units — creatives, pages, pieces, links, tracked
+   * prompts — and adding them produces a number whose movement is dominated by
+   * whichever commitment happens to be counted in the largest unit. One
+   * artifact is one artifact, which is a thing that can be added up.
+   */
+  artifactsApproved: number;
 };
+
+/** One record per source, by the upsert key; absent means no figure of that kind. */
+function quantityOf(
+  records: { source: string; deliveredQuantity: string }[],
+  source: 'manual' | 'derived_from_assets',
+): number | null {
+  const row = records.find((r) => r.source === source);
+  return row ? Number(row.deliveredQuantity) : null;
+}
 
 export async function deliveryStatus(
   session: TenantSession,
@@ -889,38 +922,64 @@ export async function deliveryStatus(
       tx
         .select({
           commitmentKey: schema.assets.commitmentKey,
+          periodStart: schema.assets.periodStart,
           status: schema.assets.status,
+          // A superseded version is not still awaiting a decision and is not
+          // still sent back: a later version has taken its place. Counting one
+          // would leave "1 sent back" on a commitment whose rework has already
+          // been approved.
+          superseded: supersededByLaterVersion,
           count: sql<number>`count(*)::int`,
         })
         .from(schema.assets)
         .where(eq(schema.assets.tenantId, tenantId))
-        .groupBy(schema.assets.commitmentKey, schema.assets.status),
+        .groupBy(
+          schema.assets.commitmentKey,
+          schema.assets.periodStart,
+          schema.assets.status,
+          supersededByLaterVersion,
+        ),
     ]);
 
-    const pendingByCommitment = new Map<string, number>();
+    // Keyed by commitment *and* period: a quarterly commitment counts assets
+    // tagged to the quarter, and a monthly one to the month, so a single
+    // per-commitment tally would mix the two.
+    const pending = new Map<string, number>();
+    const sentBack = new Map<string, number>();
     let approvalsPending = 0;
     let assetsTotal = 0;
+    let artifactsApproved = 0;
     for (const row of assets) {
       assetsTotal += Number(row.count);
-      if (row.status === 'submitted') {
+      if (row.superseded) continue;
+      const bucket = `${row.commitmentKey ?? ''}|${row.periodStart ?? ''}`;
+      if (row.status === 'submitted' || row.status === 'in_review') {
         approvalsPending += Number(row.count);
-        if (row.commitmentKey) {
-          pendingByCommitment.set(
-            row.commitmentKey,
-            (pendingByCommitment.get(row.commitmentKey) ?? 0) + Number(row.count),
-          );
-        }
+        pending.set(bucket, (pending.get(bucket) ?? 0) + Number(row.count));
+      }
+      if (row.status === 'changes_requested') {
+        sentBack.set(bucket, (sentBack.get(bucket) ?? 0) + Number(row.count));
+      }
+      if (
+        (row.status === 'approved' || row.status === 'published') &&
+        (row.periodStart === periodStart || row.periodStart === quarterStart)
+      ) {
+        artifactsApproved += Number(row.count);
       }
     }
 
     const commitmentRows = commitments.map((row): CommitmentRow => {
       const start = row.period === 'quarterly' ? quarterStart : periodStart;
-      const mine = records.filter(
-        (r) => r.commitmentKey === row.key && r.periodStart === start,
-      );
-      const delivered = mine.length
-        ? mine.reduce((sum, r) => sum + Number(r.deliveredQuantity), 0)
-        : null;
+      const mine = records.filter((r) => r.commitmentKey === row.key && r.periodStart === start);
+      const bucket = `${row.key}|${start}`;
+
+      // Approved artifacts and a hand-recorded count are alternatives, never
+      // addends. Which one wins, and what happens when neither exists, is one
+      // tested function in `@zeeraa/core` rather than a reduce here.
+      const figure = resolveDelivered({
+        derived: quantityOf(mine, 'derived_from_assets'),
+        manual: quantityOf(mine, 'manual'),
+      });
 
       return {
         key: row.key,
@@ -930,9 +989,13 @@ export async function deliveryStatus(
         unit: row.unit,
         period: row.period,
         requiresClientApproval: row.requiresClientApproval,
-        delivered,
-        source: mine[0]?.source ?? null,
-        awaitingApproval: pendingByCommitment.get(row.key) ?? 0,
+        delivered: figure?.quantity ?? null,
+        source: figure?.source ?? null,
+        recordedByHand: figure?.recordedByHand ?? null,
+        awaitingApproval: pending.get(bucket) ?? 0,
+        changesRequested: sentBack.get(bucket) ?? 0,
+        periodStart: start,
+        periodLabel: commitmentPeriodLabel(row.period, start),
       };
     });
 
@@ -970,6 +1033,7 @@ export async function deliveryStatus(
       slas: slaRows,
       approvalsPending,
       assetsTotal,
+      artifactsApproved,
     };
   });
 }
@@ -986,14 +1050,38 @@ export type WorkspaceCard = {
   status: string;
   commitmentKey: string | null;
   commitmentLabel: string | null;
+  /** The period the asset counts toward, and the label the screen shows. */
+  periodStart: string | null;
+  periodLabel: string | null;
   assigneeName: string | null;
   comments: number;
   version: number;
   updatedAt: Date;
+  /** True where a later version replaces this one: it counts toward nothing. */
+  superseded: boolean;
+  hasFile: boolean;
+  fileName: string | null;
+  externalUrl: string | null;
+  /** The audit trail, on the card, because that is what settles a dispute. */
+  approvedByName: string | null;
+  approvedAt: Date | null;
+  changesRequestedByName: string | null;
+  changesRequestedAt: Date | null;
+  changesRequestedReason: string | null;
+};
+
+export type WorkspaceCommitmentOption = {
+  key: string;
+  label: string;
+  period: 'monthly' | 'quarterly';
+  unit: string;
+  requiresClientApproval: boolean;
 };
 
 export type WorkspaceBoard = {
   types: { key: string; label: string }[];
+  /** The tenant's configured commitments, which is what an upload may tag. */
+  commitments: WorkspaceCommitmentOption[];
   columns: { status: string; label: string; cards: WorkspaceCard[] }[];
   total: number;
 };
@@ -1006,6 +1094,13 @@ const BOARD_COLUMNS: { status: string; label: string }[] = [
   { status: 'approved', label: 'Approved' },
   { status: 'published', label: 'Published' },
 ];
+
+/**
+ * `users` twice more, aliased: a card names who approved it and who sent it
+ * back, and those are different people from the one who uploaded it.
+ */
+const approver = alias(schema.users, 'approver');
+const rejecter = alias(schema.users, 'rejecter');
 
 export async function workspaceBoard(session: TenantSession): Promise<WorkspaceBoard> {
   return queryTenant(session, async (tx) => {
@@ -1022,9 +1117,13 @@ export async function workspaceBoard(session: TenantSession): Promise<WorkspaceB
         .select({
           key: schema.deliverableCommitments.key,
           label: schema.deliverableCommitments.label,
+          period: schema.deliverableCommitments.period,
+          unit: schema.deliverableCommitments.unit,
+          requiresClientApproval: schema.deliverableCommitments.requiresClientApproval,
         })
         .from(schema.deliverableCommitments)
-        .where(eq(schema.deliverableCommitments.tenantId, tenantId)),
+        .where(eq(schema.deliverableCommitments.tenantId, tenantId))
+        .orderBy(asc(schema.deliverableCommitments.position)),
 
       tx
         .select({
@@ -1033,12 +1132,26 @@ export async function workspaceBoard(session: TenantSession): Promise<WorkspaceB
           type: schema.assets.type,
           status: schema.assets.status,
           commitmentKey: schema.assets.commitmentKey,
+          periodStart: schema.assets.periodStart,
           version: schema.assets.version,
           uploadedAt: schema.assets.uploadedAt,
           assigneeName: schema.users.name,
+          fileKey: schema.assets.fileKey,
+          fileName: schema.assets.fileName,
+          externalUrl: schema.assets.externalUrl,
+          approvedAt: schema.assets.approvedAt,
+          approvedByName: approver.name,
+          changesRequestedAt: schema.assets.changesRequestedAt,
+          changesRequestedByName: rejecter.name,
+          changesRequestedReason: schema.assets.changesRequestedReason,
+          // A later version existing is what makes this one uncountable, so it
+          // is read from the chain rather than stored on the row it retires.
+          supersededByAssetId: supersedingAssetId,
         })
         .from(schema.assets)
         .leftJoin(schema.users, eq(schema.users.id, schema.assets.uploadedByUserId))
+        .leftJoin(approver, eq(approver.id, schema.assets.approvedByUserId))
+        .leftJoin(rejecter, eq(rejecter.id, schema.assets.changesRequestedByUserId))
         .where(eq(schema.assets.tenantId, tenantId))
         .orderBy(desc(schema.assets.uploadedAt)),
 
@@ -1053,29 +1166,43 @@ export async function workspaceBoard(session: TenantSession): Promise<WorkspaceB
     ]);
 
     const typeLabels = new Map(types.map((t) => [t.key, t.label]));
-    const commitmentLabels = new Map(commitments.map((c) => [c.key, c.label]));
+    const commitmentsByKey = new Map(commitments.map((c) => [c.key, c]));
     const comments = new Map(commentCounts.map((c) => [c.assetId, Number(c.count)]));
 
-    const cards = rows.map(
-      (row): WorkspaceCard => ({
+    const cards = rows.map((row): WorkspaceCard => {
+      const commitment = row.commitmentKey ? commitmentsByKey.get(row.commitmentKey) : undefined;
+      return {
         id: row.id,
         title: row.title,
         type: row.type,
         typeLabel: typeLabels.get(row.type) ?? row.type,
         status: row.status,
         commitmentKey: row.commitmentKey,
-        commitmentLabel: row.commitmentKey
-          ? (commitmentLabels.get(row.commitmentKey) ?? row.commitmentKey)
-          : null,
+        commitmentLabel: commitment?.label ?? row.commitmentKey,
+        periodStart: row.periodStart,
+        periodLabel:
+          commitment && row.periodStart
+            ? commitmentPeriodLabel(commitment.period, row.periodStart)
+            : null,
         assigneeName: row.assigneeName,
         comments: comments.get(row.id) ?? 0,
         version: row.version,
         updatedAt: row.uploadedAt,
-      }),
-    );
+        superseded: row.supersededByAssetId !== null,
+        hasFile: row.fileKey !== null,
+        fileName: row.fileName,
+        externalUrl: row.externalUrl,
+        approvedByName: row.approvedByName,
+        approvedAt: row.approvedAt,
+        changesRequestedByName: row.changesRequestedByName,
+        changesRequestedAt: row.changesRequestedAt,
+        changesRequestedReason: row.changesRequestedReason,
+      };
+    });
 
     return {
       types,
+      commitments,
       columns: BOARD_COLUMNS.map((column) => ({
         ...column,
         cards: cards.filter((c) => c.status === column.status),

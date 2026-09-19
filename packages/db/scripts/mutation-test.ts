@@ -173,6 +173,46 @@ const MUTATIONS: Mutation[] = [
             USING (app.is_maintenance()) WITH CHECK (app.is_maintenance())`,
   },
   {
+    // A client's unreleased creatives, and the approval record behind every
+    // delivered figure.
+    name: 'drop-assets-policy',
+    description: 'Drop the tenant_isolation policy on assets',
+    sql: 'drop policy tenant_isolation on public.assets',
+  },
+  {
+    name: 'unforce-assets',
+    description: 'Drop FORCE on assets, leaving the owner outside its policies',
+    sql: 'alter table public.assets no force row level security',
+  },
+  {
+    // The delivery view is a compliance record, which it only is while the
+    // figure is one Zeeraa cannot raise on its own behalf.
+    name: 'asset-review-trigger-dropped',
+    description: 'Drop the trigger that decides who may approve an asset',
+    sql: 'drop trigger assets_review_authority on public.assets',
+  },
+  {
+    name: 'asset-approval-open-to-any-role',
+    description: 'Let any role in the tenant approve work, not only the client admin',
+    sql: `create or replace function app.enforce_asset_review_authority() returns trigger
+            language plpgsql security definer
+            set search_path = public, pg_temp
+            as $fn$ begin return new; end; $fn$`,
+  },
+  {
+    name: 'asset-version-chain-forkable',
+    description: 'Drop the constraint that keeps a version chain a chain',
+    sql: 'drop index public.assets_supersedes_unique',
+  },
+  {
+    // Platforms restate; so do people. An append here would let one
+    // commitment accumulate a row per approval and a figure that climbed with
+    // the number of clicks.
+    name: 'delivery-records-appendable',
+    description: 'Drop the upsert key on deliverable_records',
+    sql: 'drop index public.deliverable_records_upsert_key',
+  },
+  {
     name: 'activity-log-rewritable',
     description: 'Drop the append-only restriction on the audit trail',
     sql: `drop policy activity_log_append_only on public.activity_log;

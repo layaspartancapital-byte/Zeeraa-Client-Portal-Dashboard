@@ -25,13 +25,17 @@ export function Badge({
   tone = 'neutral',
   children,
   className = '',
+  title,
 }: {
   tone?: BadgeTone;
   children: ReactNode;
   className?: string;
+  /** The full text, where the caller lets a long label truncate. */
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-[2px] text-[12px] font-semibold leading-[18px] ${TONES[tone]} ${className}`}
     >
       {children}

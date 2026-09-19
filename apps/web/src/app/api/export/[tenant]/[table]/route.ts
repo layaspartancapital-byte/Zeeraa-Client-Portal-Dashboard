@@ -135,9 +135,12 @@ export async function GET(
         'Committed max',
         'Unit',
         'Period',
+        'Period start',
         'Delivered',
         'Source',
+        'Recorded by hand',
         'Awaiting approval',
+        'Changes requested',
         'Client approval required',
         'Notes',
       ],
@@ -147,13 +150,23 @@ export async function GET(
         row.committedMax,
         row.unit,
         row.period,
+        row.periodStart,
         // Null, not zero: no record written for the period is not a delivery of
         // none, and the two must not be the same cell in a spreadsheet.
         row.delivered,
         row.source,
+        // Never added to `Delivered` — a separate column, because a hand-kept
+        // tally that disagrees with the approved artifacts is something the
+        // reader should see rather than something to reconcile silently.
+        row.recordedByHand,
         row.awaitingApproval,
+        row.changesRequested,
         row.requiresClientApproval ? 'yes' : 'no',
-        row.delivered === null ? 'No delivery record written for this period' : '',
+        row.delivered === null
+          ? 'No delivery record written for this period'
+          : row.recordedByHand !== null
+            ? `${row.delivered} approved ${row.delivered === 1 ? 'artifact' : 'artifacts'}; ${row.recordedByHand} recorded by hand`
+            : '',
       ]),
       [],
       ['Service level', 'Commitment', 'Events recorded', 'Met', 'Compliance'],

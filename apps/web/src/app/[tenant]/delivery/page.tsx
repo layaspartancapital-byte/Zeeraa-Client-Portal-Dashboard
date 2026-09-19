@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react';
+import { Download, Paperclip, PencilLine } from 'lucide-react';
 import { formatCount, formatRate, tenantDay } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
@@ -15,9 +15,13 @@ import { requireTenant } from '@/lib/tenant';
 export const metadata = { title: 'Delivery' };
 
 const NOT_RECORDED =
-  'No delivery record has been written for this period. Counts appear when an approved asset ' +
-  'is published against a commitment, or when a count is recorded by hand where there is no ' +
-  'artifact. That is not a delivery of none.';
+  'No delivery record has been written for this period. A count appears once an artifact is ' +
+  'in front of the client in the workspace, or where a count is recorded by hand because the ' +
+  'commitment produces no artifact. That is not a delivery of none.';
+
+const HOW_DELIVERED =
+  'Approved artifacts, latest version only. Where a commitment produces no artifact — ' +
+  'backlinks, tracked prompts, concurrent tests — the count is recorded by hand instead.';
 
 /**
  * A compliance record, not an achievement.
@@ -41,7 +45,6 @@ export default async function Delivery({ params }: { params: Promise<{ tenant: s
   const monthly = delivery.commitments.filter((c) => c.period === 'monthly');
   const recorded = delivery.commitments.filter((c) => c.delivered !== null);
   const met = recorded.filter((c) => c.delivered! >= c.committed);
-  const itemsDelivered = recorded.reduce((sum, c) => sum + (c.delivered ?? 0), 0);
 
   const slasMeasured = delivery.slas.filter((s) => s.compliance !== null);
   const slaCompliance =
@@ -54,6 +57,16 @@ export default async function Delivery({ params }: { params: Promise<{ tenant: s
       heading: 'Committed and delivered',
       body: NOT_RECORDED,
       detail: `${delivery.commitments.length} commitments are configured for this client; ${recorded.length} have a record for ${delivery.periodLabel}.`,
+    },
+    {
+      heading: 'Where a delivered count comes from',
+      body: HOW_DELIVERED,
+      detail:
+        'The two are alternatives and are never added together. Where artifacts exist they ' +
+        'decide the figure, and a hand-recorded count that disagrees is stated beside it rather ' +
+        'than folded in. Only the client can approve, so the figure is not one Zeeraa can raise ' +
+        'on its own behalf, and a superseded version counts toward nothing — one article ' +
+        'approved twice is one article delivered.',
     },
     {
       heading: 'Ranges',
@@ -102,13 +115,12 @@ export default async function Delivery({ params }: { params: Promise<{ tenant: s
           info={NOT_RECORDED}
         />
         <KpiCard
-          label="Items delivered"
-          value={recorded.length === 0 ? null : formatCount(itemsDelivered)}
-          notMeasured={`Nothing recorded for ${delivery.periodLabel}`}
-          context="Across every commitment in the period"
+          label="Artifacts approved"
+          value={formatCount(delivery.artifactsApproved)}
+          context={`${formatCount(recorded.length)} of ${formatCount(delivery.commitments.length)} commitments have a record`}
           points={[]}
           variant="bars"
-          info={NOT_RECORDED}
+          info="Approved artifacts in this period, latest version only. Not a sum of the delivered column: those figures are in different units — creatives, pages, links, tracked prompts — and adding them would produce a number nothing measures."
         />
         <KpiCard
           label="SLA compliance"
@@ -150,7 +162,7 @@ export default async function Delivery({ params }: { params: Promise<{ tenant: s
                     <span className="inline-flex items-center gap-1.5">
                       Delivered
                       <InfoTip label="How delivered is established" align="center">
-                        {NOT_RECORDED}
+                        {HOW_DELIVERED}
                       </InfoTip>
                     </span>
                   </th>
@@ -171,12 +183,7 @@ export default async function Delivery({ params }: { params: Promise<{ tenant: s
               </tbody>
             </table>
           </div>
-          <CardBody className="pt-3">
-            <p className="text-[12px] text-text-3">
-              Delivered counts come from published approved assets, or from a recorded count where
-              there is no artifact.
-            </p>
-          </CardBody>
+
         </Card>
 
         <Card span={4}>
@@ -245,7 +252,7 @@ function CommitmentTableRow({ row }: { row: CommitmentRow }) {
             </InfoTip>
           </span>
         ) : (
-          <span className="flex min-w-[140px] items-center gap-2">
+          <span className="flex min-w-[170px] items-center gap-2">
             <Progress
               // Measured against the commitment, which for a range is its lower
               // bound. Over-delivery runs past 100% in the soft tone.
@@ -255,6 +262,27 @@ function CommitmentTableRow({ row }: { row: CommitmentRow }) {
             <span className="shrink-0 text-[12px] tabular text-text">
               {formatCount(row.delivered)}/{committedLabel}
             </span>
+            {/* Provenance on the figure, not in a footnote: approved artifacts
+                and a hand-kept tally are different claims. */}
+            <span
+              className="shrink-0 text-text-3"
+              title={
+                row.source === 'derived_from_assets'
+                  ? 'From approved artifacts in the workspace'
+                  : 'Recorded by hand: this commitment produces no artifact'
+              }
+            >
+              {row.source === 'derived_from_assets' ? (
+                <Paperclip aria-label="From approved artifacts" className="h-3.5 w-3.5" />
+              ) : (
+                <PencilLine aria-label="Recorded by hand" className="h-3.5 w-3.5" />
+              )}
+            </span>
+            {row.recordedByHand !== null && (
+              <InfoTip label={`${row.label}: the hand-recorded count differs`} align="center">
+                {`${formatCount(row.delivered)} approved ${row.delivered === 1 ? 'artifact stands' : 'artifacts stand'} behind this figure, against ${formatCount(row.recordedByHand)} recorded by hand. The artifacts decide it; the two are never added.`}
+              </InfoTip>
+            )}
           </span>
         )}
       </td>
@@ -262,15 +290,21 @@ function CommitmentTableRow({ row }: { row: CommitmentRow }) {
         {row.period === 'monthly' ? 'Monthly' : 'Quarterly'}
       </td>
       <td className="px-5 py-3">
-        {row.requiresClientApproval ? (
-          row.awaitingApproval > 0 ? (
+        <span className="flex flex-wrap items-center gap-1.5">
+          {row.awaitingApproval > 0 && (
             <Badge tone="warn">{formatCount(row.awaitingApproval)} awaiting approval</Badge>
-          ) : (
-            <Badge tone="neutral">Client approval required</Badge>
-          )
-        ) : (
-          <span className="text-[13px] text-text-3">—</span>
-        )}
+          )}
+          {row.changesRequested > 0 && (
+            <Badge tone="neutral">{formatCount(row.changesRequested)} sent back</Badge>
+          )}
+          {row.awaitingApproval === 0 && row.changesRequested === 0 && (
+            row.requiresClientApproval ? (
+              <Badge tone="neutral">Client approval required</Badge>
+            ) : (
+              <span className="text-[13px] text-text-3">—</span>
+            )
+          )}
+        </span>
       </td>
     </tr>
   );

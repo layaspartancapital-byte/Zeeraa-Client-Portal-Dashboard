@@ -64,16 +64,37 @@ export const assets = pgTable(
     }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     changesRequestedReason: text('changes_requested_reason'),
+    /**
+     * A rejection is as much of an audit record as an approval. Without these
+     * the workspace could say who signed a piece off and not who sent it back.
+     */
+    changesRequestedByUserId: uuid('changes_requested_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    changesRequestedAt: timestamp('changes_requested_at', { withTimezone: true }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     publishedUrl: text('published_url'),
     version: integer('version').notNull().default(1),
-    /** Old versions are never deleted; the chain stays visible. */
+    /**
+     * Old versions are never deleted; the chain stays visible. At most one
+     * asset may supersede a given predecessor (a partial unique index, 0013),
+     * so the chain cannot fork and count one piece of work twice.
+     */
     supersedesAssetId: uuid('supersedes_asset_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('assets_tenant_status_idx').on(t.tenantId, t.status),
     index('assets_tenant_commitment_period_idx').on(t.tenantId, t.commitmentKey, t.periodStart),
+    index('assets_tenant_commitment_period_status_idx').on(
+      t.tenantId,
+      t.commitmentKey,
+      t.periodStart,
+      t.status,
+    ),
+    uniqueIndex('assets_supersedes_unique')
+      .on(t.tenantId, t.supersedesAssetId)
+      .where(sql`${t.supersedesAssetId} is not null`),
   ],
 );
 

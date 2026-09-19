@@ -1282,3 +1282,106 @@ between a CRM timestamp and a call timestamp, so the error would not have
 looked like an error. It would have looked like a desk that never picks up the
 phone. `parseWallClock` reads it in the tenant's zone, as §16 requires, and is
 tested across a daylight-saving boundary.
+
+---
+
+## §10 and §14 — asset storage is S3, and a delivered count is derived from approvals
+
+**The brief names Vercel Blob (§14, `BLOB_READ_WRITE_TOKEN`). Storage is AWS S3
+instead.** The decision is the client's and was made on 19 September 2026. It
+changes nothing about the rule §10 states — blob keys prefixed
+`tenant/{tenant_id}/`, no public objects, every URL signed and
+authorisation-checked — only where the bytes live. `BLOB_READ_WRITE_TOKEN` is
+removed from `.env.example`; the replacement variables and the exact bucket and
+IAM settings are in `docs/asset-storage.md`.
+
+Two properties of the IAM policy are worth stating because they are load-bearing
+rather than incidental. The application's credentials carry **no
+`s3:ListBucket`**, so a leaked key cannot enumerate what other tenants hold —
+the application only ever addresses a key it already read off a row through row
+level security. And they carry **no `s3:DeleteObject`**, which makes §10's "old
+versions are never deleted" a property of the credentials rather than a
+convention in the code.
+
+### The delivered count is `resolveDelivered`, and it is not a sum
+
+§9.4 says a delivered figure comes from approved assets "or a recorded count
+where there is no artifact". The word that needed a decision is *or*. A
+commitment can have both — twelve approved articles and a spreadsheet tally of
+twenty — and adding them double-counts the moment somebody uploads work they had
+already counted.
+
+**Approved artifacts decide the figure wherever they exist.** A hand-recorded
+count is for the commitments that produce no artifact at all — backlinks,
+tracked GEO prompts, concurrent A/B tests — and where one exists *alongside*
+artifacts it is rendered beside the figure, in the ⓘ and in its own CSV column,
+never folded in. Preferring the tally would be measuring data entry, which this
+product has already retired one metric for (§8, offer rate).
+
+Three states, not two, and the middle one is the reason this is written down:
+
+| Artifacts tagged to the commitment | Delivered renders as |
+| --- | --- |
+| None, and no hand-recorded count | `Not recorded` |
+| At least one submitted, none approved yet | `0`, with the awaiting-approval count |
+| At least one approved | the count of approved, latest-version artifacts |
+
+A zero appears only once an artifact is in front of the client. Before that
+there is nothing to count, and `0 of 20` would read as a failure to deliver
+rather than as nothing to report. A draft in Zeeraa's own column does not
+trigger it either: work in progress is not a claim about delivery.
+
+**A superseded version counts toward nothing.** One article approved at v1 and
+approved again at v2 is one article delivered. `assets.supersedes_asset_id`
+carries the chain and migration 0013 adds the partial unique index that keeps it
+a chain rather than a fork — two rows replacing the same predecessor would count
+one piece of work three times.
+
+### Approving is a database control, not a hidden button
+
+§10 says only `client_admin` approves. That was true of `canApproveAssets` in
+`packages/core`, which decides what to render — and rendering is not access
+control, because the endpoint is reachable without the button.
+
+Migration 0013 adds `app.enforce_asset_review_authority()`, a `BEFORE INSERT OR
+UPDATE` trigger on `assets`: a transition into `approved` or
+`changes_requested` requires `app.effective_role() = 'client_admin'`, a
+transition into `submitted`, `in_review` or `published` requires a Zeeraa role,
+and `approved_by_user_id` / `changes_requested_by_user_id` must name the user in
+context rather than whoever the request claimed. SECURITY DEFINER with a pinned
+`search_path`, reading membership through `app.membership_index` like every
+other policy helper, so it needs no elevation and sets no session flag.
+
+A Zeeraa admin holds every other power in this product and deliberately not this
+one. **A delivered figure Zeeraa could raise on its own behalf is not a
+compliance record**, and the delivery view is a compliance record.
+
+The check is skipped where no user is in context. That is the seam between the
+two ways this database is written to, not a hole: every application write goes
+through `withTenant`, which always sets a user, and a write with no user is a
+seed or a maintenance repair running as a role the application is not a member
+of. Four mutations in `scripts/mutation-test.ts` cover the trigger, the version
+chain and the `deliverable_records` upsert key; 26 of 26 mutations are killed.
+
+### §12 — "Items delivered" was a category error and is now "Artifacts approved"
+
+The delivery view carried a KPI that summed every commitment's delivered figure.
+While every commitment read `Not recorded` it showed nothing and the problem was
+invisible; with real counts behind it, it added 2 pieces to 1 page to 34 links
+and reported 37. That is the same category error §9.2's totals row is forbidden
+to make, and the figure's movement would have been dominated by whichever
+commitment happens to be counted in the largest unit.
+
+It is now **Artifacts approved** — approved, latest-version artifacts in the
+period, which is one unit and genuinely summable. The hand-recorded counts keep
+their place in the table and in `Commitments met this period`; they are no
+longer added to anything.
+
+### Out of scope, deliberately
+
+@mentions, the mention picker, the activity rail, asset comments and
+notifications are collaboration rather than delivery tracking, and none of them
+is built. The **audit trail** is written regardless: `activity_log` takes a row
+for every upload, submission, approval and rejection, because "we never signed
+off on that" is settled by rows and not by a feed, and the table is append-only
+at the database level.
