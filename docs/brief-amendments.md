@@ -1553,3 +1553,102 @@ The four-month secondary strip is gone. It was one channel's, and showing it for
 each channel inside a half-width panel would have crowded the figure the card
 exists for. The same series is on the monthly performance screen, per channel,
 with more room.
+
+---
+
+## §12 — a page per connected platform, and the line between a platform and the CRM
+
+Added 19 September 2026. One page per connected ad platform, in a **Platforms**
+section of the rail whose items are the channels this client has actually
+connected — data, not a constant. A platform with no connector, or one whose
+connection is not healthy, has no rail entry and its URL is a 404: a rail entry
+is a promise that a page has something to show.
+
+### The line, and why it is a full-width rule
+
+Everything above **"What became of it · from Salesforce"** is the platform's own
+reporting. Google counts a conversion the way this account's tags are
+configured; Meta counts a lead the way this pixel fires; neither has any idea
+whether a deal was funded. Below the rule is Salesforce, and it says so on the
+heading, on the card subtitle and on a badge.
+
+They are separated by a full-width rule rather than sitting in one grid because
+adjacency is an invitation to divide. Meta reports 1,761 conversions over this
+window and Salesforce attributes it **one** funded deal; a reader who takes
+those as two measurements of the same thing concludes the funnel converts at
+0.06%, which is not a fact about anything.
+
+### Nothing is computed for a platform that does not report it
+
+The whole page follows one rule: **a figure a platform does not report is
+absent, not zero and not borrowed.**
+
+- **Reach and frequency** are Meta's. Google publishes no reach, so those
+  figures do not exist on the Google page — they are not rendered as zero, and
+  the Google page does not carry an empty row where Meta has one.
+- **The link-click distinction** is Meta's. Meta counts every click on an ad —
+  reactions, comments, profile taps — as well as clicks that go somewhere;
+  Google reports one figure. So `All clicks` and the share that went somewhere
+  appear on Meta only, and `clicks_all` is null on Google, which is an absence
+  of the distinction rather than every click being a link click.
+- **Campaign classification is each platform's own word.** Google's
+  `advertising_channel_type` and Meta's `objective` both land in
+  `campaigns.campaign_type`, verbatim, and are never grouped across platforms:
+  the Google page heads the column "Campaign type" and reads `SEARCH`, the Meta
+  page heads it "Objective" and reads `OUTCOME_LEADS`. They answer different
+  questions. A value with no label renders as the platform's own string rather
+  than being bucketed into "Other", which would hide a campaign kind nobody had
+  noticed appearing.
+
+### Reach is stored and deliberately never totalled
+
+Reach counts *people*, and Meta deduplicates them across whatever range it is
+asked for. Summing daily reach counts somebody who saw an ad on Monday and again
+on Tuesday twice, so the total is always wrong and always too high.
+
+The page therefore renders reach as an amber **`Not summable`** where a total
+would go, with the reason in its ⓘ, and shows the real daily figures in the
+series — where the grain matches what Meta reported. A deduplicated figure for
+the whole window is a separate query against Meta and is not derivable from
+these rows; if it is ever wanted, it needs its own storage keyed by period, not
+a `sum()`.
+
+### A rate with an empty denominator is an absence
+
+CTR, CPC, CPM, conversion rate and cost per conversion are arithmetic over two
+reported figures, and all of them live in `@zeeraa/core` as named functions with
+tests. Every one returns `null` rather than 0 or `Infinity` when its denominator
+is empty. A day with spend and no impressions did not achieve a CPM of zero;
+there was no auction to price. A campaign with clicks and no conversions *does*
+have a conversion rate of zero, because that denominator is real — the
+difference between an empty denominator and an empty numerator is the whole of
+that module.
+
+### A campaign type that did not run is a row of zeroes, not a missing row
+
+Grouping the metrics alone drops a type with no delivery, and a reader cannot
+tell a missing row from a type the account does not use — which are the two
+answers they are actually choosing between. The breakdown is therefore the
+account's configured types left-joined onto delivery, showing "6 of 15" style
+counts. Spartan's Google account holds 35 Search, 7 Performance Max and 1
+Display campaign and only Search delivered in the window; all three appear.
+
+**There is no Video row, because the account runs no Video campaigns.** Drawing
+one at zero to satisfy a list of expected types would be inventing a figure the
+platform never reported.
+
+### The share each page covers, and why the pages do not sum
+
+Each outcomes block states its channel's share of every deal in the period —
+Google Ads 9 of 21, Meta 1 of 21. **They do not add to 21 and are not meant to.**
+Eleven of those deals carry no click from any connected channel and belong to
+none of them; that remainder is the honest gap, and the ⓘ on the figure says so
+rather than leaving a reader to find the arithmetic doesn't close.
+
+### Meta's campaign attribution is stated, not rendered empty
+
+Meta publishes no lookup from an `fbclid` to a campaign, so the per-campaign
+outcome table on the Meta page would always be empty. An empty table reads as
+"no deals yet" — wrong, and it quietly implies that waiting fixes it. The card
+carries a `Not measurable` badge and the reason instead. The Google page shows
+the real table: 6 of its 9 attributed deals resolve to a campaign.

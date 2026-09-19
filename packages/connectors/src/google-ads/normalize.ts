@@ -54,6 +54,9 @@ export function normalizeCampaigns(rows: readonly GoogleAdsRow[]): CampaignRow[]
       externalCampaignId: String(id),
       name: row.campaign?.name ?? `Campaign ${id}`,
       status: row.campaign?.status,
+      // Already in `campaignQuery`; it was being selected and thrown away.
+      // SEARCH, DISPLAY, VIDEO, PERFORMANCE_MAX, SHOPPING, DEMAND_GEN…
+      campaignType: row.campaign?.advertisingChannelType,
     });
   }
   return out;

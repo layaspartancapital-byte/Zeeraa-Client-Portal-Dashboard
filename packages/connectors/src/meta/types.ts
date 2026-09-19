@@ -61,6 +61,8 @@ export type MetaInsightRow = {
   impressions?: string;
   clicks?: string;
   inline_link_clicks?: string;
+  reach?: string;
+  frequency?: string;
   actions?: MetaAction[];
   account_currency?: string;
 };

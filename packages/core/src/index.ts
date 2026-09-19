@@ -11,3 +11,4 @@ export * from './submissions';
 export * from './phone';
 export * from './calls';
 export * from './delivery';
+export * from './platform-metrics';

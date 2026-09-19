@@ -29,10 +29,27 @@ export type DailyMetricRow = {
   date: string;
   externalCampaignId: string | null;
   impressions: number;
+  /**
+   * The comparable click: a click that goes somewhere. Google reports one
+   * number; Meta's `inline_link_clicks` is the one that means the same thing.
+   */
   clicks: number;
   spend: number;
   /** As reported, fractions included. Rounding happens at render. */
   platformConversions: number;
+  /**
+   * People reached, where the platform reports it.
+   *
+   * `undefined` means this platform does not report reach at all, which is a
+   * different fact from reaching nobody — and it is **not additive**, because
+   * the platform deduplicates people across whatever range it was asked for.
+   */
+  reach?: number;
+  /**
+   * Every click the platform counts, where it distinguishes that from a link
+   * click. Meta does; Google does not, and leaves this undefined.
+   */
+  allClicks?: number;
 };
 
 export type CampaignRow = {
@@ -40,6 +57,13 @@ export type CampaignRow = {
   name: string;
   status?: string;
   externalAccountId?: string;
+  /**
+   * The platform's own classification, verbatim — Google's advertising channel
+   * type, Meta's objective. Never translated into a cross-platform vocabulary:
+   * "VIDEO" and "OUTCOME_LEADS" answer different questions and only each
+   * platform's own page knows how to read its own.
+   */
+  campaignType?: string;
 };
 
 /**

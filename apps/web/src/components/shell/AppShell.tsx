@@ -18,18 +18,21 @@ export function AppShell({
   viewer,
   tenant,
   generatedAt,
+  platforms,
   children,
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
   /** Serialised by the server component that renders this. */
   generatedAt: string;
+  /** Connected ad platforms, resolved server-side in the tenant layout. */
+  platforms?: { key: string; label: string }[];
   children: React.ReactNode;
 }) {
   return (
     <ShellProvider>
       <div className="min-h-dvh bg-canvas">
-        <Sidebar viewer={viewer} tenant={tenant} />
+        <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} />
         <Content tenant={tenant} generatedAt={generatedAt}>
           {children}
         </Content>

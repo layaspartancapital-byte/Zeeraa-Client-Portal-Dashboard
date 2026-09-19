@@ -75,6 +75,7 @@ export async function upsertCampaigns(
           externalCampaignId: row.externalCampaignId,
           name: row.name,
           status: row.status ?? null,
+          campaignType: row.campaignType ?? null,
         })),
       )
       .onConflictDoUpdate({
@@ -86,6 +87,7 @@ export async function upsertCampaigns(
         set: {
           name: sql`excluded.name`,
           status: sql`excluded.status`,
+          campaignType: sql`excluded.campaign_type`,
           adAccountId: sql`excluded.ad_account_id`,
           // product, industry and keyword_tier are deliberately absent: they are
           // Zeeraa's own classification of a campaign, not the platform's, and a
@@ -155,6 +157,8 @@ export async function upsertDailyMetrics(
       ${String(Math.round(row.clicks))}::numeric,
       ${row.spend.toFixed(4)}::numeric,
       ${row.platformConversions.toFixed(4)}::numeric,
+      ${row.reach === undefined ? null : String(Math.round(row.reach))}::numeric,
+      ${row.allClicks === undefined ? null : String(Math.round(row.allClicks))}::numeric,
       ${syncRunId}::uuid,
       now()
     )`,
@@ -164,6 +168,7 @@ export async function upsertDailyMetrics(
     INSERT INTO daily_metrics (
       tenant_id, platform, date, campaign_id,
       impressions, clicks, spend, platform_conversions,
+      reach, clicks_all,
       sync_run_id, updated_at
     )
     VALUES ${sql.join(values, sql`, `)}
@@ -176,6 +181,11 @@ export async function upsertDailyMetrics(
       clicks = excluded.clicks,
       spend = excluded.spend,
       platform_conversions = excluded.platform_conversions,
+      -- Null means "this platform does not report it", so a platform that does
+      -- not must not blank a value another pass wrote. Coalesced rather than
+      -- assigned: a re-pull of Google Ads days can never erase Meta's reach.
+      reach = coalesce(excluded.reach, daily_metrics.reach),
+      clicks_all = coalesce(excluded.clicks_all, daily_metrics.clicks_all),
       sync_run_id = excluded.sync_run_id,
       updated_at = excluded.updated_at
     RETURNING id

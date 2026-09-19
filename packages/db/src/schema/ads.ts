@@ -51,6 +51,13 @@ export const campaigns = pgTable(
     externalCampaignId: text('external_campaign_id').notNull(),
     name: text('name').notNull(),
     status: text('status'),
+    /**
+     * The platform's own classification, verbatim — Google's
+     * `advertising_channel_type`, Meta's `objective`. Not a shared taxonomy:
+     * each platform page labels and maps it in that platform's own word, and
+     * nothing groups it across platforms.
+     */
+    campaignType: text('campaign_type'),
     /** Classification fields, filled by Zeeraa rather than by the platform. */
     product: text('product'),
     industry: text('industry'),
@@ -64,6 +71,7 @@ export const campaigns = pgTable(
       t.externalCampaignId,
     ),
     index('campaigns_tenant_platform_idx').on(t.tenantId, t.platform),
+    index('campaigns_tenant_platform_type_idx').on(t.tenantId, t.platform, t.campaignType),
   ],
 );
 
@@ -98,6 +106,21 @@ export const dailyMetrics = pgTable(
     platformConversions: numeric('platform_conversions', { precision: 18, scale: 4 })
       .notNull()
       .default('0'),
+    /**
+     * People reached. Meta reports it, Google does not, and null means exactly
+     * that rather than nobody.
+     *
+     * **Not additive.** Meta deduplicates people across the range it is asked
+     * for, so summing days double-counts anyone who saw an ad twice. Stored at
+     * the grain it is reported at; the UI refuses to total it.
+     */
+    reach: numeric('reach', { precision: 20, scale: 0 }),
+    /**
+     * Every click the platform counts, where it separates that from a click
+     * that goes somewhere. Meta reports both; Google reports one number and
+     * this is null there. `clicks` stays the comparable one.
+     */
+    clicksAll: numeric('clicks_all', { precision: 20, scale: 0 }),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -109,6 +132,7 @@ export const dailyMetrics = pgTable(
       sql`coalesce(${t.campaignId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
     ),
     index('daily_metrics_tenant_date_idx').on(t.tenantId, t.date),
+    index('daily_metrics_tenant_platform_date_idx').on(t.tenantId, t.platform, t.date),
   ],
 );
 

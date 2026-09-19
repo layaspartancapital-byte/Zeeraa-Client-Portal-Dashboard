@@ -31,6 +31,9 @@ export function normalizeCampaigns(rows: readonly MetaCampaignRow[]): CampaignRo
       // ACTIVE inside a paused ad set and spend nothing. `status` is what the
       // advertiser set; this is what actually happened.
       status: row.effective_status ?? row.status,
+      // Meta's own word for what a campaign is for. Not comparable to Google's
+      // advertising channel type and never grouped with it.
+      campaignType: row.objective,
     });
   }
   return out;
@@ -68,6 +71,12 @@ export function normalizeDailyMetrics(
       // hundredfold error in a spend figure.
       spend: money(row.spend),
       platformConversions: conversionsFrom(row.actions, conversionTypes),
+      // Reported by Meta, absent from Google. Undefined rather than 0 where a
+      // row carries none, so "not reported" never renders as "nobody".
+      reach: row.reach === undefined ? undefined : count(row.reach),
+      // Every click, including reactions and profile taps. The comparable
+      // figure stays in `clicks`; this is the distinction, kept separately.
+      allClicks: row.clicks === undefined ? undefined : count(row.clicks),
     });
   }
   return out;

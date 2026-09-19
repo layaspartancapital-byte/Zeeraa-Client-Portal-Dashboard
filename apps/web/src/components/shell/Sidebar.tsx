@@ -12,8 +12,10 @@ import {
   KanbanSquare,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Plug,
   Scale,
+  Share2,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -51,6 +53,9 @@ const GROUPS: {
       { segment: 'funnel', label: 'Funnel', icon: Filter },
     ],
   },
+  // Platforms is spliced in below, between Performance and Delivery: its items
+  // are the channels this client has actually connected, which is data rather
+  // than a constant.
   {
     label: 'Delivery',
     items: [
@@ -67,16 +72,62 @@ const GROUPS: {
   },
 ];
 
-export function Sidebar({ viewer, tenant }: { viewer: Viewer; tenant: TenantSummary }) {
+/**
+ * A line icon per ad platform, from the same family as the rest of the rail.
+ * Not vendor logos: this product does not ship other companies' marks.
+ */
+const PLATFORM_ICONS: Record<string, typeof LayoutDashboard> = {
+  google_ads: Megaphone,
+  microsoft_ads: Megaphone,
+  meta: Share2,
+  linkedin_ads: Share2,
+};
+
+export function Sidebar({
+  viewer,
+  tenant,
+  platforms = [],
+}: {
+  viewer: Viewer;
+  tenant: TenantSummary;
+  /**
+   * Channels this client has actually connected, in a stable order.
+   *
+   * Passed in rather than listed here: a page exists only for a platform that
+   * reports, and a rail advertising Microsoft Ads to a client who has never
+   * connected it is a promise the product has not made.
+   */
+  platforms?: { key: string; label: string }[];
+}) {
   const { collapsed, setCollapsed, drawerOpen, setDrawerOpen } = useShell();
   const pathname = usePathname();
 
+  const withPlatforms =
+    platforms.length === 0
+      ? GROUPS
+      : [
+          ...GROUPS.slice(0, 2),
+          {
+            label: 'Platforms',
+            items: platforms.map((p) => ({
+              segment: `platforms/${p.key}`,
+              label: p.label,
+              icon: PLATFORM_ICONS[p.key] ?? Megaphone,
+            })),
+          },
+          ...GROUPS.slice(2),
+        ];
+
   // Client roles never see Setup at all — not the items and not the heading,
   // which would otherwise advertise a section they cannot open.
-  const groups = GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => !item.adminOnly || canAdministerTenant(tenant.role)),
-  })).filter((group) => group.items.length > 0);
+  const groups = withPlatforms
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !('adminOnly' in item && item.adminOnly) || canAdministerTenant(tenant.role),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
 
   const width = collapsed ? 'lg:w-16' : 'lg:w-60';
 

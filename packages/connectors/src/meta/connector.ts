@@ -61,7 +61,7 @@ const ACCOUNT_FIELDS = 'id,name,account_status,currency,timezone_name';
 const CAMPAIGN_FIELDS = 'id,name,status,effective_status,objective';
 const INSIGHT_FIELDS =
   'campaign_id,campaign_name,date_start,date_stop,spend,impressions,clicks,' +
-  'inline_link_clicks,actions,account_currency';
+  'inline_link_clicks,reach,frequency,actions,account_currency';
 
 export function metaConnector(
   clientFactory: (conn: Connection) => MetaClient = (conn) =>

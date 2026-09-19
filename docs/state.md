@@ -503,6 +503,44 @@ separation rule; and a Google Ads connector test took "today" in UTC while the
 connector takes it in the tenant's zone, so it failed every run between midnight
 and 4am UTC.
 
+## Platform pages (19 September 2026)
+
+One page per connected channel under a **Platforms** section of the rail, whose
+items come from `connections` rather than from a constant — a platform without a
+healthy connection has no entry and its URL 404s. Full reasoning in
+`docs/brief-amendments.md`, "§12 — a page per connected platform".
+
+Each page is the platform's own reporting — spend, impressions, clicks, CTR,
+CPC, CPM, conversions, conversion rate, cost per conversion — then a
+full-width rule, then **"What became of it · from Salesforce"**: funded deals
+attributed, cost per funded deal with its coverage and range, and this channel's
+share of every deal in the period. The rule is there because adjacency invites
+division: Meta reports 1,761 conversions and Salesforce attributes it one funded
+deal, and those are not two measurements of the same thing.
+
+| | Google Ads | Meta Ads |
+| --- | --- | --- |
+| Campaign classification | `advertising_channel_type` — "Campaign type" | `objective` — "Objective" |
+| Reach / frequency | not reported, so absent | reported, daily |
+| Link-click distinction | not reported, so absent | 5,143 link of 8,088 clicks |
+| Per-campaign attribution | 6 of 9 deals resolve | **not measurable, by construction** |
+| Share of the period's 21 deals | 9 | 1 |
+
+Migration 0014 adds `campaigns.campaign_type`, `daily_metrics.reach` and
+`daily_metrics.clicks_all`, all nullable, where **null means the platform does
+not report it** rather than zero.
+
+**Reach is stored and never totalled.** Meta deduplicates people across the
+range it is asked for, so summing days double-counts anyone who saw an ad twice.
+The page renders `Not summable` where a total would go and shows the real daily
+figures in the series. A deduplicated window figure needs its own query and its
+own storage; it is not a `sum()`.
+
+**A campaign type that did not run shows as a row of zeroes**, not as a missing
+row — Spartan's Google account holds 35 Search, 7 Performance Max and 1 Display,
+and only Search delivered. There is no Video row because there are no Video
+campaigns; drawing one would be inventing a figure.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
