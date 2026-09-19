@@ -444,10 +444,37 @@ pnpm --filter @zeeraa/jobs backfill-click-ids spartan [--since YYYY-MM-DD]
 pnpm --filter @zeeraa/connectors probe-click-id-population
 ```
 
-`backfill-click-ids` is new and is the one to run **whenever a click-ID field is
-added to the Lead mapping**: the hourly incremental only ever walks its own
-watermark window, so nothing otherwise goes back for the history a newly-mapped
-field has been carrying all along.
+**Bringing a newly-connected channel up to 90 days takes three commands**, and
+the hourly cron will never do it: that path pulls a two-day spend window and a
+watermark-bounded CRM read, by design, because it has 60 seconds.
+
+```bash
+pnpm --filter @zeeraa/jobs sync-meta          spartan --days 90
+pnpm --filter @zeeraa/jobs backfill-click-ids spartan
+pnpm --filter @zeeraa/jobs sync-salesforce    spartan --since 2024-01-01
+```
+
+**Adding a click-ID field to the Lead mapping needs two backfills, not one, and
+neither happens on a schedule.** This cost an hour on 19 September 2026 and will
+cost it again for Microsoft Ads or LinkedIn unless it is read first.
+
+1. **Opportunity grain** — `pnpm --filter @zeeraa/jobs backfill-click-ids
+   <slug>`. Walks every converted lead and writes `opportunity_click_ids`. This
+   is what gives a *deal* a channel. The hourly incremental runs the same pass
+   bounded by its watermark, so it only ever sees the last hour; the nightly
+   runner does run it unbounded.
+
+2. **Lead grain** — `pnpm --filter @zeeraa/jobs sync-salesforce <slug> --since
+   2024-01-01`. This is the one that is easy to miss. Leads already in the table
+   keep whatever `click_id` they were ingested with, and **a sync with no
+   `--since` falls back to the last watermark rather than re-reading
+   everything** — including the nightly runner, which passes no `since` for
+   Salesforce. So the field is in the SELECT, the mapping is right, the sync
+   reports `succeeded`, and every historical lead still carries null. Locally
+   this was the difference between Meta showing 0 leads and 957.
+
+Symptom to recognise: a channel with spend and funded deals whose **Lead** cell
+on the performance table reads 0.
 
 Three things fixed while building it: `test-connection` was wired to Google Ads
 only and now dispatches by platform; `spend-to-funded` hardcoded `google_ads`
