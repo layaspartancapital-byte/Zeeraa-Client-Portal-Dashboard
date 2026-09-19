@@ -33,10 +33,90 @@ import {
   type MetaConfig,
   type MetaCredentials,
 } from '@zeeraa/connectors';
+import {
+  ga4Client,
+  searchConsoleClient,
+  GoogleOrganicApiError,
+} from '@zeeraa/connectors';
 import { resolveGoogleAdsContext } from '../src/google-ads/context';
 import { resolveMetaContext } from '../src/meta/context';
+import { resolveOrganicContext } from '../src/google-organic/context';
 
-const SUPPORTED = ['google_ads', 'meta'] as const;
+const SUPPORTED = ['google_ads', 'meta', 'ga4', 'search_console'] as const;
+
+/**
+ * GA4 and Search Console have no `Connector` of their own — they are two
+ * reports on the Google Ads credential rather than a platform with entities and
+ * spend — so their test is written here: ask each API for the smallest thing it
+ * will answer, and translate the one failure that matters into words.
+ */
+async function testOrganic(
+  platform: 'ga4' | 'search_console',
+  tenantId: string,
+  connectionId: string,
+): Promise<{ health: import('@zeeraa/connectors').ConnectionHealth; accountIdentifier: string }> {
+  const context = await resolveOrganicContext(tenantId, connectionId, platform);
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const range = { start: yesterday, end: yesterday };
+
+  try {
+    if (platform === 'ga4') {
+      console.log(`  property id:     ${context.config.propertyId ?? '(none configured)'}`);
+      if (!context.config.propertyId) {
+        return {
+          health: { state: 'not_configured' as never, detail: 'No GA4 property id configured.' },
+          accountIdentifier: context.accountIdentifier,
+        };
+      }
+      const rows = await ga4Client(context.client, context.config).daily(range);
+      console.log(`  yesterday:       ${rows.length} row(s), ${rows[0]?.sessions ?? 0} sessions`);
+      return {
+        health: { state: 'healthy', accountName: `GA4 property ${context.config.propertyId}` },
+        accountIdentifier: String(context.config.propertyId),
+      };
+    }
+
+    console.log(`  site url:        ${context.config.siteUrl ?? '(none configured)'}`);
+    const gsc = searchConsoleClient(context.client, context.config);
+    const sites = await gsc.sites();
+    const entries = sites.siteEntry ?? [];
+    for (const site of entries) {
+      console.log(`  visible site:    ${site.permissionLevel}  ${site.siteUrl}`);
+    }
+    // A URL-prefix property and a `sc-domain:` property are different
+    // properties. Matching loosely here would report healthy and then read an
+    // empty window forever.
+    const match = entries.find((site) => site.siteUrl === context.config.siteUrl);
+    if (!match) {
+      return {
+        health: {
+          state: 'waiting_on_client',
+          detail:
+            `The token can see ${entries.length} propert${entries.length === 1 ? 'y' : 'ies'}, ` +
+            `and ${context.config.siteUrl} is not among them. Search Console matches the site ` +
+            'URL exactly — a trailing slash, http versus https, and the sc-domain: form are all ' +
+            'different properties.',
+        },
+        accountIdentifier: context.accountIdentifier,
+      };
+    }
+    return {
+      health: { state: 'healthy', accountName: match.siteUrl },
+      accountIdentifier: match.siteUrl,
+    };
+  } catch (error) {
+    if (error instanceof GoogleOrganicApiError) {
+      return {
+        health: {
+          state: error.waitingOnClient ? 'waiting_on_client' : error.retryable ? 'degraded' : 'failing',
+          detail: error.detail,
+        },
+        accountIdentifier: context.accountIdentifier,
+      };
+    }
+    throw error;
+  }
+}
 
 const [slug, platform] = process.argv.slice(2);
 if (!slug || !platform) {
@@ -70,6 +150,32 @@ try {
     console.log(`  tenant timezone: ${tenant.timezone}`);
     return { tenantId: tenant.id, connectionId: connection.id };
   });
+
+  // The organic sources take a different path entirely: no connector, no
+  // entities, and a credential that belongs to another connection row.
+  if (platform === 'ga4' || platform === 'search_console') {
+    const { health, accountIdentifier } = await testOrganic(platform, tenantId, connectionId);
+    console.log('\n  testConnection returned:');
+    console.log(JSON.stringify(health, null, 4).replace(/^/gm, '    '));
+
+    const organicStatus = health.state === 'healthy' ? 'healthy' : health.state;
+    await withMaintenance(db, async (tx) => {
+      await tx
+        .update(schema.connections)
+        .set({
+          status: organicStatus,
+          accountIdentifier,
+          lastError: health.state === 'failing' ? ('detail' in health ? health.detail : null) : null,
+          blockedReason:
+            health.state === 'waiting_on_client' && 'detail' in health ? health.detail : null,
+          blockedSince: health.state === 'waiting_on_client' ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.connections.id, connectionId));
+    });
+    console.log(`\n  connection status written: ${organicStatus}`);
+    if (health.state === 'failing' || health.state === 'waiting_on_client') process.exitCode = 1;
+  } else {
 
   const context =
     platform === 'meta'
@@ -171,6 +277,7 @@ try {
   console.log(`\n  connection status written: ${status}`);
 
   if (health.state === 'failing' || health.state === 'waiting_on_client') process.exitCode = 1;
+  }
 } finally {
   await close();
   const { closeConnections } = await import('@zeeraa/db');

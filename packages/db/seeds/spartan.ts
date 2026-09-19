@@ -714,8 +714,39 @@ export const spartan: TenantSeed = {
       },
     },
     { platform: 'linkedin_ads', accountIdentifier: 'pending', status: 'not_configured' },
-    { platform: 'ga4', accountIdentifier: 'pending', status: 'not_configured' },
-    { platform: 'search_console', accountIdentifier: 'pending', status: 'not_configured' },
+    {
+      /*
+       * GA4 and Search Console read the *Google Ads* credential — one OAuth
+       * client, one refresh token, one person's consent, three APIs. So neither
+       * row holds credentials of its own, and both stop working the moment that
+       * token is re-issued without their scopes.
+       *
+       * Seeded `not_configured`: the property is known and the credential's
+       * reach is not, and only `test-connection` proves the latter.
+       */
+      platform: 'ga4',
+      accountIdentifier: '464257863',
+      status: 'not_configured',
+      config: {
+        propertyId: '464257863',
+        // Rows of each breakdown kept per day. The daily total row is
+        // authoritative; the breakdown is the top N of that day and the page
+        // states what share of the total it accounts for.
+        breakdownLimit: 250,
+      },
+    },
+    {
+      platform: 'search_console',
+      // Exactly as Search Console spells it, trailing slash included. A
+      // URL-prefix property and a `sc-domain:` property are different
+      // properties with different data, and a near-miss answers 403.
+      accountIdentifier: 'https://www.spartancapitalgroup.com/',
+      status: 'not_configured',
+      config: {
+        siteUrl: 'https://www.spartancapitalgroup.com/',
+        breakdownLimit: 250,
+      },
+    },
     { platform: 'semrush', accountIdentifier: 'pending', status: 'not_configured' },
     {
       /*

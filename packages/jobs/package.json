@@ -16,6 +16,7 @@
     "backfill-click-ids": "tsx scripts/backfill-click-ids.ts",
     "sync-google-ads": "tsx scripts/sync-google-ads.ts",
     "sync-meta": "tsx scripts/sync-meta.ts",
+    "sync-organic": "tsx scripts/sync-organic.ts",
     "spend-to-funded": "tsx scripts/spend-to-funded.ts",
     "sync-salesforce": "tsx scripts/sync-salesforce.ts",
     "run-scheduled": "tsx scripts/run-scheduled.ts",

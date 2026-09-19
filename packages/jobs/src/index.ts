@@ -21,5 +21,13 @@ export {
   DEFAULT_WINDOW_DAYS as META_DEFAULT_WINDOW_DAYS,
   type MetaSyncResult,
 } from './meta/sync';
+export * from './google-organic/context';
+export * from './google-organic/writer';
+export {
+  runGa4Sync,
+  runSearchConsoleSync,
+  SEARCH_CONSOLE_LAG_DAYS,
+  type OrganicSyncResult,
+} from './google-organic/sync';
 export * from './aloware/writer';
 export * from './aloware/webhook';

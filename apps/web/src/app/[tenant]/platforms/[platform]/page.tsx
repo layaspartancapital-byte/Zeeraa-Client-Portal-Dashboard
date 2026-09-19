@@ -26,6 +26,8 @@ import { PrintButton } from '@/components/shell/actions';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformView } from '@/lib/platform';
+import { organicView } from '@/lib/organic';
+import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
 import { reportingPlatforms } from '@/lib/platforms';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
@@ -47,6 +49,19 @@ const SERIES = [
 
 /** Offered only where the platform reports it. Meta does; Google does not. */
 const REACH_SERIES = { key: 'reach', label: 'Reach' };
+
+/** Each organic source's own series, in its own words. */
+const ORGANIC_SERIES: Record<string, { key: string; label: string }[]> = {
+  ga4: [
+    { key: 'primary', label: 'Sessions' },
+    { key: 'tertiary', label: 'Users' },
+    { key: 'secondary', label: 'Engaged sessions' },
+  ],
+  search_console: [
+    { key: 'primary', label: 'Clicks' },
+    { key: 'secondary', label: 'Impressions' },
+  ],
+};
 
 export async function generateMetadata({
   params,
@@ -87,13 +102,44 @@ export default async function PlatformPage({
   // has never run is a 404 rather than an empty screen implying the connector
   // exists and is quiet.
   const reporting = await reportingPlatforms(session);
-  if (!reporting.some((p) => p.key === platform)) notFound();
+  const entry = reporting.find((p) => p.key === platform);
+  if (!entry) notFound();
 
-  const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
   const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
-  const requestedSeries = query.series ?? 'spend';
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
+
+  /*
+   * Organic sources take a different page, not the same page with the numbers
+   * swapped: no spend, no campaigns, and no outcomes section, because neither
+   * GA4 nor Search Console can be attributed to a deal. One route so the rail
+   * and the URLs stay uniform; two views because the content genuinely differs.
+   */
+  if (entry.kind === 'organic') {
+    const seriesOptions = ORGANIC_SERIES[platform] ?? ORGANIC_SERIES.ga4!;
+    const seriesKey = seriesOptions.some((s) => s.key === query.series)
+      ? query.series!
+      : 'primary';
+    const [view, unreadCount] = await Promise.all([
+      organicView(session, platform as 'ga4' | 'search_console', entry.label, range),
+      unreadNotifications(session),
+    ]);
+    return (
+      <OrganicPlatformView
+        session={session}
+        view={view}
+        slug={slug}
+        unread={unreadCount}
+        days={days}
+        windows={WINDOWS}
+        seriesKey={seriesKey}
+        seriesOptions={seriesOptions}
+      />
+    );
+  }
+
+  const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
+  const requestedSeries = query.series ?? 'spend';
   const currency = session.tenant.currency;
 
   const [valueStage] = await queryTenant(session, (tx) =>

@@ -589,6 +589,51 @@ row — Spartan's Google account holds 35 Search, 7 Performance Max and 1 Displa
 and only Search delivered. There is no Video row because there are no Video
 campaigns; drawing one would be inventing a figure.
 
+## GA4 and Search Console (19 September 2026)
+
+Both connected, both ingesting, both on the Platforms rail. Full reasoning in
+`docs/brief-amendments.md`, "§7 and §9 — GA4 and Search Console".
+
+| | GA4 | Search Console |
+| --- | ---: | ---: |
+| Window | 2026-06-21 → 2026-09-18 | 2026-06-21 → **2026-09-15** |
+| Days reported | 90 | 87 |
+| Headline | 21,955 sessions · 20,454 users · 53.7% engaged | 3,257 clicks · 266,737 impressions · CTR 1.2% · position 30.9 |
+| Breakdowns | landing page (5,340 values), source/medium (121) | query (6,009), page (2,810) |
+| Rows stored | 9,855 | 50,087 |
+
+Search Console's window ends three days short of today because it finalises
+late; asking for those days returns nothing, which draws as a collapse rather
+than an absence.
+
+**Both read the Google Ads credential.** One OAuth client, one refresh token,
+three APIs — so re-issuing that token without `analytics.readonly` and
+`webmasters.readonly` breaks both, and `set-credentials spartan google_ads`
+is what fixes them.
+
+**Neither can be attributed to a deal, structurally.** The GA4 Data API exposes
+no `clientId` or `sessionId` dimension, and Search Console reports queries and
+pages and never users. Salesforce's `Session_ID__c` looked like a candidate —
+72% of web-originated leads carry it — but its values are UUIDs and GA4's
+identifiers are digit-shaped, so it is the form vendor's handle. Both pages end
+with a `Not measurable` card saying so instead of an outcomes section.
+
+**Grouped and ungrouped totals disagree in both directions and neither is a
+bug**: queries account for 57% of Search Console clicks (privacy filtering),
+pages for 102% (a click is attributed per canonical URL), GA4 for 100.4%. The
+pages state the comparison and render a ratio above 1 in amber rather than
+clamping it.
+
+Migration 0015 adds both tables with the usual RLS treatment. **31 of 31
+mutations killed** — three survived the first run because the new isolation
+tests were vacuously true, which is exactly what that harness is for.
+
+```bash
+pnpm --filter @zeeraa/jobs test-connection spartan ga4|search_console
+pnpm --filter @zeeraa/jobs sync-organic     spartan [--days 90] [--only ga4]
+pnpm --filter @zeeraa/connectors probe-ga-join
+```
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),

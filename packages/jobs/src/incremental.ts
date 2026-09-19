@@ -3,6 +3,8 @@ import { listGoogleAdsConnections, resolveGoogleAdsContext } from './google-ads/
 import { runGoogleAdsSync } from './google-ads/sync';
 import { listMetaConnections, resolveMetaContext } from './meta/context';
 import { runMetaSync } from './meta/sync';
+import { listOrganicConnections, resolveOrganicContext } from './google-organic/context';
+import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from './salesforce/context';
 import { runSalesforceSync } from './salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from './salesforce/backfill';
@@ -35,7 +37,7 @@ import { lastCompletedWatermark } from './sync-runs';
  * captured — and because the caller is an HTTP handler that has to answer.
  */
 
-export type SyncPlatform = 'google_ads' | 'meta' | 'salesforce';
+export type SyncPlatform = 'google_ads' | 'meta' | 'ga4' | 'search_console' | 'salesforce';
 
 export type PlatformOutcome = {
   tenantId: string;
@@ -197,6 +199,42 @@ export async function runIncrementalSync(
           // there is no click backfill to name here and no remedy to offer: a
           // missing campaign on a Meta deal is the platform, not an outstanding
           // job.
+          remedy: undefined,
+        };
+      });
+    }
+  }
+
+  // Then the organic sources. Three requests each and nothing that expires, so
+  // they sit behind the two platforms whose windows have an edge.
+  for (const platform of ['ga4', 'search_console'] as const) {
+    if (!wanted(platform)) continue;
+    for (const connection of await listOrganicConnections(platform)) {
+      if (!mine(connection.tenantId)) continue;
+      await unit(connection.tenantId, platform, async () => {
+        const context = await resolveOrganicContext(
+          connection.tenantId,
+          connection.connectionId,
+          platform,
+        );
+        const result =
+          platform === 'ga4'
+            ? await runGa4Sync(context, { trigger, now: startedAt, windowDays: spendWindowDays })
+            : await runSearchConsoleSync(context, {
+                trigger,
+                now: startedAt,
+                // Search Console has not finalised the last few days, so an
+                // incremental window narrower than the lag would ask for
+                // nothing at all and report a healthy zero.
+                windowDays: Math.max(spendWindowDays, 7),
+              });
+        return {
+          status: result.status === 'failed' ? ('failed' as const) : result.status,
+          detail:
+            `${result.range.start} → ${result.range.end}: ${result.totals} daily rows, ` +
+            `${result.breakdownA + result.breakdownB} breakdown rows`,
+          // Neither source can be attributed to a deal, so there is never an
+          // outstanding join to name here.
           remedy: undefined,
         };
       });

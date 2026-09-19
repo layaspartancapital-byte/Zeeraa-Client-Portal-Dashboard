@@ -256,3 +256,88 @@ export const clickIngestDays = pgTable(
     index('click_ingest_days_tenant_status_idx').on(t.tenantId, t.platform, t.status, t.day),
   ],
 );
+
+/**
+ * GA4, at the grain the Data API reports.
+ *
+ * **Channel-level only.** The Data API exposes no identifier for a person or a
+ * session — there is no `clientId` dimension and no `sessionId` dimension — so
+ * a session can never be joined to the lead it became. Nothing here may enter
+ * the attribution join or be divided into a funded deal.
+ *
+ * `dimension = 'total'` is the day's authoritative total. The per-dimension
+ * rows are that day's top N and do not sum to it, which the page states rather
+ * than implying the breakdown is exhaustive.
+ */
+export const ga4Metrics = pgTable(
+  'ga4_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    /** 'total' | 'landing_page' | 'source_medium'. */
+    dimension: text('dimension').notNull(),
+    /**
+     * GA4's own value, verbatim — including `(not set)`, `(direct) / (none)`
+     * and `(data not available)`. Those are facts about the property's data
+     * quality and are rendered as themselves, never cleaned away.
+     */
+    dimensionValue: text('dimension_value').notNull(),
+    sessions: numeric('sessions', { precision: 20, scale: 0 }).notNull().default('0'),
+    engagedSessions: numeric('engaged_sessions', { precision: 20, scale: 0 })
+      .notNull()
+      .default('0'),
+    users: numeric('users', { precision: 20, scale: 0 }).notNull().default('0'),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('ga4_metrics_upsert_key').on(t.tenantId, t.date, t.dimension, t.dimensionValue),
+    index('ga4_metrics_tenant_dimension_date_idx').on(t.tenantId, t.dimension, t.date),
+  ],
+);
+
+/**
+ * Search Console, at the grain the Search Analytics API reports.
+ *
+ * Channel-level by construction: it reports queries and pages and never users.
+ *
+ * No CTR column — it is clicks over impressions and is derived at read time, so
+ * a `sum()` cannot silently destroy it. `position` is stored as reported and
+ * must be aggregated with `weightedPosition()`: Search Console's average is
+ * weighted by impressions, and a plain mean weights a day with three
+ * impressions the same as a day with three thousand.
+ */
+export const searchConsoleMetrics = pgTable(
+  'search_console_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    /** 'total' | 'query' | 'page'. */
+    dimension: text('dimension').notNull(),
+    dimensionValue: text('dimension_value').notNull(),
+    clicks: numeric('clicks', { precision: 20, scale: 0 }).notNull().default('0'),
+    impressions: numeric('impressions', { precision: 20, scale: 0 }).notNull().default('0'),
+    position: numeric('position', { precision: 10, scale: 4 }),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('search_console_metrics_upsert_key').on(
+      t.tenantId,
+      t.date,
+      t.dimension,
+      t.dimensionValue,
+    ),
+    index('search_console_metrics_tenant_dimension_date_idx').on(
+      t.tenantId,
+      t.dimension,
+      t.date,
+    ),
+  ],
+);

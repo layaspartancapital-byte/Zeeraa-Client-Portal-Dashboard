@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  breakdownCoverage,
   conversionRate,
   costPerConversion,
   cpc,
@@ -7,6 +8,7 @@ import {
   ctr,
   frequency,
   linkClickShare,
+  weightedPosition,
 } from '../src/platform-metrics';
 
 describe('an empty denominator has no rate', () => {
@@ -79,5 +81,47 @@ describe('the link-click distinction', () => {
     // distinction, not every click being a link click.
     expect(linkClickShare(3648, null)).toBeNull();
     expect(linkClickShare(3648, null)).not.toBe(1);
+  });
+});
+
+describe('weightedPosition', () => {
+  it('weights by impressions, not by row', () => {
+    // The plain mean is 9.6; the honest answer is dominated by the day that was
+    // actually seen three thousand times.
+    const rows = [
+      { position: 1.2, impressions: 3 },
+      { position: 18, impressions: 3000 },
+    ];
+    expect(weightedPosition(rows)).toBeCloseTo(17.983, 3);
+    const plainMean = (1.2 + 18) / 2;
+    expect(weightedPosition(rows)).not.toBeCloseTo(plainMean, 1);
+  });
+
+  it('skips a row with no impressions rather than counting it as position zero', () => {
+    const rows = [
+      { position: 4, impressions: 100 },
+      { position: 1, impressions: 0 },
+    ];
+    expect(weightedPosition(rows)).toBe(4);
+  });
+
+  it('has no average where nothing was impressed', () => {
+    // Position 0 does not exist — the scale starts at 1 — so an absence is null.
+    expect(weightedPosition([{ position: 3, impressions: 0 }])).toBeNull();
+    expect(weightedPosition([])).toBeNull();
+  });
+
+  it('ignores a row whose position the API did not report', () => {
+    expect(weightedPosition([{ position: null, impressions: 500 }, { position: 2, impressions: 500 }])).toBe(2);
+  });
+});
+
+describe('breakdownCoverage', () => {
+  it('states what share of the total the visible rows account for', () => {
+    expect(breakdownCoverage(820, 1000)).toBeCloseTo(0.82, 4);
+  });
+
+  it('is null against an empty total rather than zero', () => {
+    expect(breakdownCoverage(0, 0)).toBeNull();
   });
 });

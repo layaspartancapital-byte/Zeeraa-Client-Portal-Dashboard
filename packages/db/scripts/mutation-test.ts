@@ -213,6 +213,37 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop index public.deliverable_records_upsert_key',
   },
   {
+    // A competitor's landing pages and the queries they rank for is a
+    // commercial map of their acquisition.
+    name: 'drop-ga4-policy',
+    description: 'Drop the tenant_isolation policy on ga4_metrics',
+    sql: 'drop policy tenant_isolation on public.ga4_metrics',
+  },
+  {
+    name: 'unforce-ga4',
+    description: 'Drop FORCE on ga4_metrics, leaving the owner outside its policies',
+    sql: 'alter table public.ga4_metrics no force row level security',
+  },
+  {
+    name: 'drop-search-console-policy',
+    description: 'Drop the tenant_isolation policy on search_console_metrics',
+    sql: 'drop policy tenant_isolation on public.search_console_metrics',
+  },
+  {
+    name: 'search-console-job-role-unscoped',
+    description: 'Let the ingestion role read every tenant’s Search Console rows',
+    sql: `drop policy job_tenant_isolation on public.search_console_metrics;
+          create policy job_tenant_isolation on public.search_console_metrics
+            as permissive for all to zeeraa_jobs using (true) with check (true)`,
+  },
+  {
+    // Both APIs restate for days. An append here would double every figure on
+    // the organic pages on the second night.
+    name: 'organic-metrics-appendable',
+    description: 'Drop the upsert key on search_console_metrics',
+    sql: 'drop index public.search_console_metrics_upsert_key',
+  },
+  {
     name: 'activity-log-rewritable',
     description: 'Drop the append-only restriction on the audit trail',
     sql: `drop policy activity_log_append_only on public.activity_log;

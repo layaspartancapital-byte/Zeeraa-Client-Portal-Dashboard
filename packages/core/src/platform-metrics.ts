@@ -69,3 +69,40 @@ export function linkClickShare(linkClicks: number, allClicks: number | null): nu
   if (allClicks === null || allClicks <= 0) return null;
   return linkClicks / allClicks;
 }
+
+/**
+ * Average ranking position across rows, weighted by impressions.
+ *
+ * **The plain mean of daily positions is wrong**, and wrong in the direction
+ * that flatters: a day with three impressions at position 1.2 counts the same
+ * as a day with three thousand at position 18. Search Console's own average is
+ * impression-weighted, so an unweighted one disagrees with the Search Console
+ * UI — which is the report a client checks this against.
+ *
+ * Rows with no impressions carry no weight and are skipped rather than counted
+ * as position zero. With nothing weighted at all there is no average, and this
+ * returns null rather than 0 — position 0 does not exist, the scale starts at 1.
+ */
+export function weightedPosition(
+  rows: readonly { position: number | null; impressions: number }[],
+): number | null {
+  let weighted = 0;
+  let total = 0;
+  for (const row of rows) {
+    if (row.position === null || row.impressions <= 0) continue;
+    weighted += row.position * row.impressions;
+    total += row.impressions;
+  }
+  return total > 0 ? weighted / total : null;
+}
+
+/**
+ * The share of a day's figure that the stored breakdown accounts for.
+ *
+ * GA4 and Search Console breakdowns are the top N of each day, so they do not
+ * sum to that day's total and are not meant to. Stating the share is what stops
+ * a reader treating the visible rows as the whole of it.
+ */
+export function breakdownCoverage(breakdownTotal: number, reportedTotal: number): number | null {
+  return reportedTotal > 0 ? breakdownTotal / reportedTotal : null;
+}

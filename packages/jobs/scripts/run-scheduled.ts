@@ -29,6 +29,8 @@ import { listGoogleAdsConnections, resolveGoogleAdsContext } from '../src/google
 import { runGoogleAdsSync } from '../src/google-ads/sync';
 import { listMetaConnections, resolveMetaContext } from '../src/meta/context';
 import { runMetaSync } from '../src/meta/sync';
+import { listOrganicConnections, resolveOrganicContext } from '../src/google-organic/context';
+import { runGa4Sync, runSearchConsoleSync } from '../src/google-organic/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from '../src/salesforce/context';
 import { runSalesforceSync } from '../src/salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from '../src/salesforce/backfill';
@@ -114,6 +116,27 @@ try {
         if (result.accountWarning) log(`  NOTE: ${result.accountWarning}`);
         return `${result.status} — ${result.campaigns} campaigns, ${result.dailyMetrics} metric rows`;
       });
+    }
+
+    // Then the organic sources. Nothing here expires and nothing here joins.
+    for (const platform of ['ga4', 'search_console'] as const) {
+      for (const connection of await listOrganicConnections(platform)) {
+        await attempt(`${platform} ${connection.tenantId.slice(0, 8)}`, async () => {
+          const context = await resolveOrganicContext(
+            connection.tenantId,
+            connection.connectionId,
+            platform,
+          );
+          const result =
+            platform === 'ga4'
+              ? await runGa4Sync(context, { trigger: 'nightly' })
+              : await runSearchConsoleSync(context, { trigger: 'nightly' });
+          return (
+            `${result.status} — ${result.range.start} → ${result.range.end}, ` +
+            `${result.totals} daily rows, ${result.breakdownA + result.breakdownB} breakdown rows`
+          );
+        });
+      }
     }
 
     // Then Salesforce, so the join at the end of the ads sync has the freshest

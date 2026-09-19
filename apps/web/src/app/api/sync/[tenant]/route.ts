@@ -18,7 +18,13 @@ import { requireRole } from '@/lib/tenant';
  * per-platform scripts remain the way to do that, from a machine with no
  * request timeout.
  */
-const PLATFORMS: SyncPlatform[] = ['google_ads', 'meta', 'salesforce'];
+const PLATFORMS: SyncPlatform[] = [
+  'google_ads',
+  'meta',
+  'ga4',
+  'search_console',
+  'salesforce',
+];
 
 export async function POST(
   request: NextRequest,

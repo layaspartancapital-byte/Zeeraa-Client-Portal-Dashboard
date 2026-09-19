@@ -28,12 +28,29 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  * something to show — which is what it was always meant to be.
  */
 
-/** Platforms with an ads page. Ordered, so the rail is stable. */
+/** Paid platforms: spend, campaigns, and an outcomes section. */
 export const AD_PLATFORMS = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ads'] as const;
+
+/**
+ * Organic sources: no spend, no campaigns, and no outcomes section, because
+ * neither can be attributed to a deal. They get a page on the same rail because
+ * a reader asking "how is search doing" should not have to know which of our
+ * tables the answer lives in.
+ */
+export const ORGANIC_PLATFORMS = ['ga4', 'search_console'] as const;
+
+export type PlatformKind = 'ads' | 'organic';
+
+export function platformKind(key: string): PlatformKind | null {
+  if ((AD_PLATFORMS as readonly string[]).includes(key)) return 'ads';
+  if ((ORGANIC_PLATFORMS as readonly string[]).includes(key)) return 'organic';
+  return null;
+}
 
 export type ReportingPlatform = {
   key: string;
   label: string;
+  kind: PlatformKind;
   /** Current connection health, for the badge. Not a filter. */
   status: string;
 };
@@ -49,25 +66,41 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
       .where(
         and(
           eq(schema.connections.tenantId, session.tenant.id),
-          inArray(schema.connections.platform, [...AD_PLATFORMS]),
-          // Reported anything at all, ever. Deliberately not scoped to the
-          // window the page happens to be showing: a platform that spent
-          // nothing in the last 30 days still has a page, and it renders an
-          // empty state rather than disappearing from the rail as the date
-          // filter moves.
-          sql`exists (
-            select 1 from ${schema.dailyMetrics} dm
-            where dm.tenant_id = ${schema.connections.tenantId}
-              and dm.platform = ${schema.connections.platform}
+          inArray(schema.connections.platform, [...AD_PLATFORMS, ...ORGANIC_PLATFORMS]),
+          // Reported anything at all, ever, into whichever table this source
+          // writes. Deliberately not scoped to the window the page happens to
+          // be showing: a platform that spent nothing in the last 30 days still
+          // has a page, and it renders an empty state rather than disappearing
+          // from the rail as the date filter moves.
+          sql`(
+            exists (
+              select 1 from ${schema.dailyMetrics} dm
+              where dm.tenant_id = ${schema.connections.tenantId}
+                and dm.platform = ${schema.connections.platform}
+            )
+            or (${schema.connections.platform} = 'ga4' and exists (
+              select 1 from ${schema.ga4Metrics} g
+              where g.tenant_id = ${schema.connections.tenantId}
+            ))
+            or (${schema.connections.platform} = 'search_console' and exists (
+              select 1 from ${schema.searchConsoleMetrics} sc
+              where sc.tenant_id = ${schema.connections.tenantId}
+            ))
           )`,
         ),
       )
       .orderBy(asc(schema.connections.platform));
 
-    return rows.map((r) => ({
-      key: r.platform,
-      label: platformLabel(r.platform),
-      status: r.status,
-    }));
+    // Paid first, then organic: the rail reads in the order a reader asks the
+    // questions, not alphabetically.
+    const order = [...AD_PLATFORMS, ...ORGANIC_PLATFORMS] as readonly string[];
+    return rows
+      .map((r) => ({
+        key: r.platform,
+        label: platformLabel(r.platform),
+        kind: platformKind(r.platform)!,
+        status: r.status,
+      }))
+      .sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   });
 }

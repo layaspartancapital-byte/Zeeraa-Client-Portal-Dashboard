@@ -1652,3 +1652,93 @@ outcome table on the Meta page would always be empty. An empty table reads as
 "no deals yet" — wrong, and it quietly implies that waiting fixes it. The card
 carries a `Not measurable` badge and the reason instead. The Google page shows
 the real table: 6 of its 9 attributed deals resolve to a campaign.
+
+---
+
+## §7 and §9 — GA4 and Search Console, channel-level and never in the funnel
+
+Built 19 September 2026. Both read the **Google Ads credential** — one OAuth
+client, one refresh token, one person's consent, three APIs — which is also the
+thing that bites: a refresh token carries the scopes it was granted and never
+gains more. The token in production held `adwords` alone, so both APIs answered
+`403 ACCESS_TOKEN_SCOPE_INSUFFICIENT` until consent was re-run with
+`analytics.readonly` and `webmasters.readonly`. That error is indistinguishable
+at a glance from a disabled API or a property the user cannot see, so the client
+detects it by `reason` and says which of the three it is.
+
+`google-ads-token` now requests all three scopes and **warns when the consent
+screen withholds one** — Google returns a perfectly valid token for the subset,
+and nothing fails until the first call to the API whose box was unticked.
+
+### Neither can be attributed to a deal, and that is structural
+
+**The GA4 Data API exposes no identifier for a person or a session.** There is
+no `clientId` dimension and no `sessionId` dimension; session identity lives in
+the BigQuery export or in a custom dimension the site registers itself. So a
+session can never be joined to the lead it became.
+
+The org was checked for a join before anything was built. All 469 Lead fields
+were searched for a candidate: `Session_ID__c` exists and is well populated —
+2,090 of 2,901 web-originated leads in ninety days, 72% — and its values are
+**UUIDs**. GA4's `ga_session_id` is a Unix timestamp in digits and its client id
+is `digits.digits`, so `Session_ID__c` is the form vendor's own handle and not a
+GA4 key. `probe-ga-join` reports exactly this, by shape, so the next org can be
+answered in one command.
+
+Search Console needs no such investigation: it reports what a query did and what
+a page did, and never who.
+
+So **neither source enters the attribution join**, neither writes to
+`attribution` or `opportunity_click_ids`, and no figure from either is ever
+divided into a funded deal. Their pages end with a `Not measurable` card that
+says why, rather than with an outcomes section — the same treatment Meta's
+per-campaign table gets, for the same reason: an empty section reads as "no data
+yet" and implies that waiting fixes it.
+
+### Two tables, not one
+
+`ga4_metrics` and `search_console_metrics`, because the two vocabularies barely
+overlap: Search Console has impressions and a ranking position and no notion of
+a session; GA4 has sessions and engagement and no notion of a query. Nullable
+columns are right where a platform is missing *one* figure its neighbour reports
+(`daily_metrics.reach`); they are the wrong answer when a shared table would be
+half nulls down the middle.
+
+One row per day per dimension value, which is what makes any window
+re-computable. `dimension = 'total'` carries the day's authoritative figure.
+
+### Three aggregations that would have been quietly wrong
+
+- **CTR is never stored.** It is clicks over impressions and is derived at read
+  time. A stored ratio is one `sum()` away from nonsense — the aggregate of
+  twelve daily CTRs is not the window's CTR.
+- **Position is impression-weighted.** Search Console weights its own average by
+  impressions; a plain mean weights a day with three impressions like a day with
+  three thousand and disagrees with the Search Console UI, which is the report a
+  client checks this against. `weightedPosition()` is unit-tested against
+  exactly that error.
+- **Grouped and ungrouped totals disagree, in both directions, and neither is a
+  bug.** Over Spartan's window, grouping by query accounts for **57%** of clicks
+  — Search Console omits searches issued by very few people, for privacy — while
+  grouping by page accounts for **102%**, because a click is attributed per
+  canonical URL. GA4 lands at 100.4% for the same kind of reason. The field is
+  therefore called `ratioToTotal` rather than `coverage`: a "coverage" of 102%
+  reads as an error, and this is the API behaving as documented. Each table
+  states its own figure with its own explanation, and a ratio above 1 renders in
+  amber rather than being clamped away.
+
+### The window ends short of today, on purpose
+
+Search Console finalises over two to three days. Asking for days it has not
+finalised returns nothing, which draws as a collapse in traffic rather than as
+an absence — so the sync ends the window three days back and the page says so.
+
+### The isolation tests were vacuously true, and the mutation suite caught it
+
+The first version asserted only that tenant A saw no rows belonging to tenant B.
+Dropping `tenant_isolation` returns **zero** rows — RLS failing closed — and
+`every()` over an empty array is true, so the test passed whether or not the
+control existed. Three mutations survived, which is what that harness is for.
+The tests now assert presence *and* absence, and the Search Console job policy
+got a test of its own rather than being assumed to behave like the GA4 one.
+**31 of 31 mutations killed.**
