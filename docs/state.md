@@ -394,6 +394,26 @@ not 1 → 3, the object returning 403 to an anonymous GET, and the signed
 redirect serving the file. Screenshots at 1440px and 390px, no horizontal page
 scroll at either.
 
+## Meta Ads, connected and backfilled in production (19 September 2026)
+
+Neon carries the full 90 days as of 19 September 2026. The three passes below
+were run against production in this order; none of them happens on a schedule.
+
+| | Neon, trailing 90 days |
+| --- | ---: |
+| meta `daily_metrics` | 102 rows, 88 days, **USD 17,865.50** |
+| meta campaigns | 19 |
+| meta rows in `opportunity_click_ids` | **58**, all `lead_conversion` |
+| meta rows in `attribution` | 58 per model |
+| leads with `click_id_type = 'meta'` | **957** (484 in window) |
+| Cost per funded deal · Meta | **USD 17,865.50** over 1 deal, range 1,488.79 – 17,865.50 |
+| Cost per funded deal · Google Ads | **USD 8,854.67** over 9 deals, range 3,984.60 – 8,854.67 |
+
+Before the backfill production showed USD 516.51 and no attributed deal: the
+hourly cron had pulled its two-day spend window and nothing else, which is what
+it is designed to do. Google Ads looked complete only because it had been
+backfilled separately in an earlier session.
+
 ## Meta Ads, connected (19 September 2026)
 
 Campaign grain, read synchronously — 19 campaigns, 102 rows for 90 days in one
