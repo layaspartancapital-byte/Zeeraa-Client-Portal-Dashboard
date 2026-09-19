@@ -1,5 +1,6 @@
 /**
- * One-shot: turn a Desktop-app OAuth client into a Google Ads refresh token.
+ * One-shot: turn a Desktop-app OAuth client into a refresh token for every
+ * Google API this platform reads — Google Ads, GA4 and Search Console.
  *
  *   GOOGLE_ADS_CLIENT_ID=... GOOGLE_ADS_CLIENT_SECRET=... \
  *     pnpm --filter @zeeraa/connectors google-ads-token
@@ -22,7 +23,10 @@
  *                            and then stops, so the second run of this script
  *                            silently produces a token-less response. This is
  *                            the single most common way to get stuck here.
- *   `scope=.../adwords`    — the Google Ads API scope. Not the analytics one.
+ *   `scope=...`            — all three scopes at once. A refresh token carries
+ *                            the scopes it was granted and never gains more, so
+ *                            adding an API later means re-running this, not
+ *                            editing a config row.
  *
  * Running inside a container or a Codespace: the listener is on the container's
  * loopback, and the browser is on your machine, so the callback may never
@@ -40,7 +44,31 @@ import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import type { AddressInfo } from 'node:net';
 
-const SCOPE = 'https://www.googleapis.com/auth/adwords';
+/**
+ * Every Google API this platform reads, on one consent.
+ *
+ * One token for three APIs because they share an OAuth client and a person's
+ * consent, and because a second token is a second thing to rotate, store and
+ * forget. `GOOGLE_SCOPES` overrides the list where a client will only grant
+ * some of it.
+ *
+ * **Adding a scope requires a fresh consent.** A refresh token carries the
+ * scopes it was granted and never gains more: the existing Spartan token holds
+ * `adwords` alone, so GA4 and Search Console answer
+ * `ACCESS_TOKEN_SCOPE_INSUFFICIENT` on every call until this is re-run. That is
+ * a 403 about the *token*, not about the Cloud project or the property, and the
+ * two look identical from the error code alone.
+ */
+const DEFAULT_SCOPES = [
+  // Google Ads.
+  'https://www.googleapis.com/auth/adwords',
+  // GA4 Data API and Admin API.
+  'https://www.googleapis.com/auth/analytics.readonly',
+  // Search Console.
+  'https://www.googleapis.com/auth/webmasters.readonly',
+];
+
+const SCOPE = (process.env.GOOGLE_SCOPES ?? DEFAULT_SCOPES.join(' ')).trim();
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
@@ -272,7 +300,28 @@ if (!body.refresh_token) {
 
 console.log('\nRefresh token:\n');
 console.log(`  ${body.refresh_token}\n`);
+/*
+ * What was granted, checked against what was asked for.
+ *
+ * The consent screen lets a person untick individual scopes, and Google returns
+ * a perfectly valid token for the subset. Nothing fails until the first call to
+ * the API whose scope was dropped, which then answers
+ * `ACCESS_TOKEN_SCOPE_INSUFFICIENT` — a 403 indistinguishable at a glance from
+ * a disabled API or a property the user cannot see. Saying so here costs four
+ * lines and removes an afternoon.
+ */
+const granted = new Set((body.scope ?? '').split(/\s+/).filter(Boolean));
+const requested = SCOPE.split(/\s+/).filter(Boolean);
+const withheld = requested.filter((scope) => !granted.has(scope));
+
 console.log(`Granted scope: ${body.scope ?? '(not reported)'}`);
+if (withheld.length > 0) {
+  console.log('\nWARNING — these scopes were requested and NOT granted:');
+  for (const scope of withheld) console.log(`  ${scope}`);
+  console.log('\nThe token works for everything else and every call needing one of the');
+  console.log('above will fail with ACCESS_TOKEN_SCOPE_INSUFFICIENT. A scope cannot be');
+  console.log('added to an existing token — re-run this and leave every box ticked.');
+}
 console.log(
   `Access token acquired too, expiring in ${body.expires_in ?? '?'}s — ignore it, ` +
     'the connector mints its own.',
