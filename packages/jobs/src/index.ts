@@ -10,5 +10,16 @@ export * from './google-ads/clicks';
 export * from './google-ads/join';
 export * from './google-ads/context';
 export * from './google-ads/sync';
+/*
+ * Meta exports `DEFAULT_WINDOW_DAYS` too, under the same name and with the same
+ * value, so it is re-exported by name to keep the collision from being resolved
+ * by import order.
+ */
+export * from './meta/context';
+export {
+  runMetaSync,
+  DEFAULT_WINDOW_DAYS as META_DEFAULT_WINDOW_DAYS,
+  type MetaSyncResult,
+} from './meta/sync';
 export * from './aloware/writer';
 export * from './aloware/webhook';

@@ -27,6 +27,8 @@
  */
 import { listGoogleAdsConnections, resolveGoogleAdsContext } from '../src/google-ads/context';
 import { runGoogleAdsSync } from '../src/google-ads/sync';
+import { listMetaConnections, resolveMetaContext } from '../src/meta/context';
+import { runMetaSync } from '../src/meta/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from '../src/salesforce/context';
 import { runSalesforceSync } from '../src/salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from '../src/salesforce/backfill';
@@ -100,6 +102,17 @@ try {
           `${clicks.daysSucceeded}/${clicks.daysAttempted} click days, ` +
           `${clicks.clicksWritten} clicks, ${clicks.daysRemaining} outstanding`
         );
+      });
+    }
+
+    // Then Meta. No click ledger, so nothing here expires and it can follow the
+    // one thing that does.
+    for (const connection of await listMetaConnections()) {
+      await attempt(`meta ${connection.tenantId.slice(0, 8)}`, async () => {
+        const context = await resolveMetaContext(connection.tenantId, connection.connectionId);
+        const result = await runMetaSync(context, { trigger: 'nightly' });
+        if (result.accountWarning) log(`  NOTE: ${result.accountWarning}`);
+        return `${result.status} — ${result.campaigns} campaigns, ${result.dailyMetrics} metric rows`;
       });
     }
 

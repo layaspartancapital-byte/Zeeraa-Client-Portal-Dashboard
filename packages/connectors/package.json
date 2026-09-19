@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "probe": "tsx scripts/probe-salesforce.ts",
     "probe-click-ids": "tsx scripts/probe-click-id-fields.ts",
+    "probe-click-id-population": "tsx scripts/probe-click-id-population.ts",
     "google-ads-token": "tsx scripts/google-ads-refresh-token.ts"
   },
   "dependencies": {

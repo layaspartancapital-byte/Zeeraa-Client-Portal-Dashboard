@@ -40,7 +40,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   salesforce: 'Salesforce',
   google_ads: 'Google Ads',
   microsoft_ads: 'Microsoft Ads',
-  meta: 'Meta',
+  meta: 'Meta Ads',
   linkedin_ads: 'LinkedIn Ads',
   ga4: 'GA4',
   search_console: 'Search Console',

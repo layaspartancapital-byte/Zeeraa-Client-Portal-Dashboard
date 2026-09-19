@@ -63,6 +63,24 @@ const PLATFORMS: Record<
       developerToken: 'GOOGLE_ADS_DEVELOPER_TOKEN',
     },
   },
+
+  meta: {
+    required: {
+      /*
+       * A Business Manager system user token. Long-lived rather than eternal:
+       * it survives until the system user is removed, the token is revoked, or
+       * the app's permissions change — all of which are changes in the client's
+       * Business Manager, which is why the connector reports them as
+       * `waiting_on_client` rather than as our failure.
+       *
+       * It goes through this script for the same reason every other credential
+       * does. A token read from the environment at request time is one token
+       * for the whole deployment, and this platform is multi-tenant: the second
+       * client would sync against the first client's ad account.
+       */
+      accessToken: 'META_ACCESS_TOKEN',
+    },
+  },
 };
 
 const [slug, platform] = process.argv.slice(2);

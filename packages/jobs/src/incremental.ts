@@ -1,6 +1,8 @@
 import { withJobTenant } from '@zeeraa/db';
 import { listGoogleAdsConnections, resolveGoogleAdsContext } from './google-ads/context';
 import { runGoogleAdsSync } from './google-ads/sync';
+import { listMetaConnections, resolveMetaContext } from './meta/context';
+import { runMetaSync } from './meta/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from './salesforce/context';
 import { runSalesforceSync } from './salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from './salesforce/backfill';
@@ -33,7 +35,7 @@ import { lastCompletedWatermark } from './sync-runs';
  * captured — and because the caller is an HTTP handler that has to answer.
  */
 
-export type SyncPlatform = 'google_ads' | 'salesforce';
+export type SyncPlatform = 'google_ads' | 'meta' | 'salesforce';
 
 export type PlatformOutcome = {
   tenantId: string;
@@ -168,6 +170,34 @@ export async function runIncrementalSync(
           remedy: clicks.daysRemaining > 0
             ? `${clicks.daysRemaining} click days still outstanding — run backfill-clicks.`
             : undefined,
+        };
+      });
+    }
+  }
+
+  // Meta second. It has no click ledger and therefore nothing with an expiry,
+  // so it yields the front of the budget to Google Ads — but it still runs
+  // before Salesforce, because spend is two requests and a CRM read is not.
+  if (wanted('meta')) {
+    for (const connection of await listMetaConnections()) {
+      if (!mine(connection.tenantId)) continue;
+      await unit(connection.tenantId, 'meta', async () => {
+        const context = await resolveMetaContext(connection.tenantId, connection.connectionId);
+        const result = await runMetaSync(context, {
+          trigger,
+          now: startedAt,
+          windowDays: spendWindowDays,
+        });
+        return {
+          status: result.status === 'failed' ? ('failed' as const) : result.status,
+          detail:
+            `${result.campaigns} campaigns, ${result.dailyMetrics} metric rows` +
+            (result.accountWarning ? ` — ${result.accountWarning}` : ''),
+          // Meta deals are attributable by channel and never by campaign, so
+          // there is no click backfill to name here and no remedy to offer: a
+          // missing campaign on a Meta deal is the platform, not an outstanding
+          // job.
+          remedy: undefined,
         };
       });
     }

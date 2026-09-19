@@ -451,7 +451,24 @@ export const spartan: TenantSeed = {
             // In this org that name is lowercase `gclid__c`. `GCLID__c` parses,
             // validates (validateMapping compares case-insensitively) and reads
             // `undefined` on every record — attributing nothing, silently.
-            clickIds: { google_ads: 'gclid__c' },
+            /*
+             * `acq_fbclid__c` joined this on 19 September 2026, when the Meta
+             * connector landed.
+             *
+             * It was deliberately absent before then, and the reason was not
+             * that the field was missing — it exists on Lead and Opportunity,
+             * carries 972 leads, and the Lead → Opportunity conversion mapping
+             * has always included it. It was absent because reading it would
+             * have produced a Meta channel row holding deals against no spend,
+             * which is exactly the shape the separation rule forbids. Ingesting
+             * Meta spend is what removed the objection, so the two changes
+             * belong in the same commit and neither is correct alone.
+             *
+             * `Gbraid__c`, `Wbraid__c` and `TTCLID__c` stay out. The first two
+             * are empty in this org and could never resolve to a campaign; the
+             * third has no Opportunity counterpart to convert into.
+             */
+            clickIds: { google_ads: 'gclid__c', meta: 'acq_fbclid__c' },
             // The MQL bar's two inputs. Confirmed against the org by the probe
             // on 17 September 2026 — these are the real API names, and the
             // only fields in the org that carry either concept at any rate.
@@ -662,7 +679,40 @@ export const spartan: TenantSeed = {
       },
     },
     { platform: 'microsoft_ads', accountIdentifier: 'pending', status: 'not_configured' },
-    { platform: 'meta', accountIdentifier: 'pending', status: 'not_configured' },
+    {
+      /*
+       * Live since 19 September 2026. Campaign grain, read synchronously.
+       *
+       * Deliberately seeded as `not_configured` rather than `healthy`: the
+       * account identifier and the reading configuration are known, and the
+       * system user token is not — it is stored encrypted per tenant by
+       * `set-credentials`, and the first `test-connection` after that is what
+       * moves this to healthy. A seed that claimed health before a credential
+       * existed would put a green light on a connection that cannot pull.
+       */
+      platform: 'meta',
+      accountIdentifier: '648661540906332',
+      status: 'not_configured',
+      config: {
+        adAccountId: '648661540906332',
+        /*
+         * `lead` alone, and the singular matters. Meta's `actions` array
+         * contains rollups beside their own components: over the trailing 90
+         * days `lead` is 1,756, which is exactly `onsite_web_lead` (921) plus
+         * `onsite_conversion.lead_grouped` (835). Nothing in the payload marks
+         * which nest, so listing the components alongside the rollup would
+         * report double the conversions and look entirely plausible.
+         */
+        conversionActionTypes: ['lead'],
+        /*
+         * Link clicks, not all clicks. Meta's `clicks` counts reactions,
+         * comments and profile taps; Google Ads' `clicks` counts clicks that go
+         * somewhere. Over the same window the two are 8,074 and 5,135, and the
+         * performance table puts them in one column under one heading.
+         */
+        clickMetric: 'inline_link_clicks',
+      },
+    },
     { platform: 'linkedin_ads', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'ga4', accountIdentifier: 'pending', status: 'not_configured' },
     { platform: 'search_console', accountIdentifier: 'pending', status: 'not_configured' },

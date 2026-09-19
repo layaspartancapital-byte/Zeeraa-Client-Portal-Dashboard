@@ -81,6 +81,23 @@ try {
     };
   });
 
+  // Every channel with spend in the window, discovered rather than named. The
+  // separation rule is the whole point of this script: each channel's cost per
+  // deal takes both halves from that channel, so each gets its own block and
+  // there is no combined figure anywhere in the output.
+  const channels = await runInTenant((tx) =>
+    tx
+      .selectDistinct({ platform: schema.dailyMetrics.platform })
+      .from(schema.dailyMetrics)
+      .where(
+        and(
+          eq(schema.dailyMetrics.tenantId, tenantId),
+          gte(schema.dailyMetrics.date, range.start),
+          lte(schema.dailyMetrics.date, range.end),
+        ),
+      ),
+  );
+
   const stage = await runInTenant((tx) => valueStageKey(tx, tenantId));
   console.log('  ── inputs ──');
   console.log(`  value stage (counts_value):  ${stage ?? 'NONE CONFIGURED'}`);
@@ -89,6 +106,11 @@ try {
   console.log(`  stage_events:                ${inputs.stageEvents}`);
   console.log(`  opportunity_click_ids:       ${inputs.opportunityClickIds}`);
   console.log(`  leads carrying a click id:   ${inputs.leadsWithClickId}`);
+  console.log(
+    `  channels with spend:         ${
+      channels.length === 0 ? 'none' : channels.map((c) => c.platform).join(', ')
+    }`,
+  );
 
   const join = await runInTenant((tx) => buildAttribution(tx, tenantId));
   console.log('\n  ── attribution rebuilt ──');
@@ -138,35 +160,42 @@ try {
     console.log(`    click id, no campaign:     ${funded!.withClickId - funded!.withCampaign}`);
     console.log(`    no click id at all:        ${funded!.deals - funded!.withClickId}`);
 
-    const result = await runInTenant((tx) =>
-      spendToFunded(tx, tenantId, 'google_ads', range, model),
-    );
-
-    console.log(`  channel spend (google_ads):  ${money(result.channelSpend, currency)}`);
-    console.log(`  deals attributed to channel: ${result.attributedDeals}`);
-    console.log(`    of those, campaign known:  ${result.dealsResolvingToCampaign}`);
-    console.log(`  deals attributed elsewhere:  ${result.dealsAttributedElsewhere}`);
-    console.log(`  deals attributed to nobody:  ${result.unattributedDeals}`);
-    console.log(
-      `  COST PER ${(stage ?? 'VALUE').toUpperCase()} DEAL (google_ads): ${
-        result.value === null
-          ? 'no value — no deal attributed to this channel in the period'
-          : money(result.value, currency)
-      }`,
-    );
-
-    // The bracket, not a second headline. `high` is the confirmed figure; `low`
-    // is what it would become if every deal nobody can claim turned out to be
-    // this channel's. Printed as a range because a single number would be a
-    // claim the attribution cannot support.
-    const { low, high } = result.plausibleRange;
-    if (low !== null && high !== null && result.unattributedDeals > 0) {
-      console.log(
-        `  plausible range:             ${money(low, currency)} – ${money(high, currency)}` +
-          `  (if all ${result.unattributedDeals} unattributed deals were this channel's, through none of them)`,
+    for (const { platform } of channels) {
+      const result = await runInTenant((tx) =>
+        spendToFunded(tx, tenantId, platform, range, model),
       );
-    } else if (result.unattributedDeals === 0) {
-      console.log('  plausible range:             no unattributed deals — the figure is not bracketed');
+
+      console.log(`\n  ·· ${platform} ··`);
+      console.log(`  channel spend:               ${money(result.channelSpend, currency)}`);
+      console.log(`  deals attributed to channel: ${result.attributedDeals}`);
+      console.log(`    of those, campaign known:  ${result.dealsResolvingToCampaign}`);
+      // For Meta this is always zero and always will be: Meta publishes no
+      // fbclid-to-campaign lookup, so the channel is knowable and the campaign
+      // is not. Printing it per channel rather than once keeps that visible
+      // instead of averaging it away.
+      console.log(`  deals attributed elsewhere:  ${result.dealsAttributedElsewhere}`);
+      console.log(`  deals attributed to nobody:  ${result.unattributedDeals}`);
+      console.log(
+        `  COST PER ${(stage ?? 'VALUE').toUpperCase()} DEAL (${platform}): ${
+          result.value === null
+            ? 'no value — no deal attributed to this channel in the period'
+            : money(result.value, currency)
+        }`,
+      );
+
+      // The bracket, not a second headline. `high` is the confirmed figure;
+      // `low` is what it would become if every deal nobody can claim turned out
+      // to be this channel's. Printed as a range because a single number would
+      // be a claim the attribution cannot support.
+      const { low, high } = result.plausibleRange;
+      if (low !== null && high !== null && result.unattributedDeals > 0) {
+        console.log(
+          `  plausible range:             ${money(low, currency)} – ${money(high, currency)}` +
+            `  (if all ${result.unattributedDeals} unattributed deals were this channel's, through none of them)`,
+        );
+      } else if (result.unattributedDeals === 0) {
+        console.log('  plausible range:             no unattributed deals — the figure is not bracketed');
+      }
     }
   }
 

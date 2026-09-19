@@ -364,7 +364,16 @@ describe('the connector', () => {
   });
 
   it('fetches a day inside the window', async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // The tenant's today, not UTC's. `fetchClicks` compares the requested day
+    // against `todayInZone(conn.tenantTimezone)`, so a UTC date is a day in the
+    // future for four hours every night in America/New_York — and this test
+    // failed every run between midnight and 4am UTC for that reason alone.
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: CONNECTION.tenantTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
     const connector = connectorWith(() => [
       { clickView: { gclid: 'g1' }, campaign: { id: '9' }, segments: { date: today } },
     ]);

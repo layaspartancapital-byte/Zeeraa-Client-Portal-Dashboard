@@ -1385,3 +1385,126 @@ is built. The **audit trail** is written regardless: `activity_log` takes a row
 for every upload, submission, approval and rejection, because "we never signed
 off on that" is settled by rows and not by a feed, and the table is append-only
 at the database level.
+
+---
+
+## §7 and §8 — Meta Ads, at campaign grain, with channel-only attribution
+
+Built 19 September 2026. Meta was scheduled last in the connector order because
+its submit-then-poll Insights jobs looked like the hardest piece. They are not
+needed: that path exists for ad grain over long windows, and this engagement
+reads **campaign grain**, where ninety days of Spartan's account is 102 rows in
+one synchronous call. The registry order is updated to match what was actually
+required rather than what was assumed.
+
+### Meta attribution is channel-level, permanently
+
+This is the finding that shapes everything else, and it is not a gap to be
+closed later.
+
+Google serves `click_view`, which resolves a `gclid` to the campaign that
+produced it. **Meta publishes no equivalent for `fbclid` — there is no endpoint,
+at any grain, that maps a click identifier back to a campaign.** So an `fbclid`
+on a lead proves the channel and can never prove the campaign.
+
+The consequences, all of them deliberate:
+
+- `metaConnector` has **no `fetchClicks`**. Implementing one that returned an
+  empty array would have been worse than omitting it: the click ledger would
+  record ninety days of successful ingestion that fetched nothing.
+- `ad_clicks` never holds a Meta row, and the Meta sync has two passes where
+  Google's has three.
+- Every Meta-attributed deal reports as *click without campaign*. That is a
+  state the model already had — Google clicks that aged out of the 90-day
+  window — so nothing downstream needed a new concept.
+- Meta's per-campaign cost-per-deal breakdown is empty by construction, not by
+  coverage. `dealsResolvingToCampaign` is 0 for Meta and always will be.
+
+### The Salesforce side needed no admin work, and was never the blocker
+
+Checked against the live org rather than the setup document, which recommended
+creating `FBCLID__c`. That recommendation is moot: the client already had
+**`acq_fbclid__c`**, Text(255), on **both** Lead and Opportunity, readable by
+the integration user, and **already carried by the Lead → Opportunity
+conversion mapping** — one of six click-ID fields mapped there.
+
+| | |
+| --- | ---: |
+| Leads carrying `acq_fbclid__c` | 972 |
+| Leads carrying `gclid__c` | 2,457 |
+| Leads carrying both | 15 |
+| Converted leads with fbclid, no gclid, that became an opportunity | 58 |
+| Opportunities carrying `acq_fbclid__c` at the time of the audit | 0 |
+
+The zero is expected rather than broken: Salesforce lead field mapping copies at
+the moment of conversion and never retrospectively, so the Opportunity route
+only pays from conversions after the mapping was created. Everything available
+today comes from `backfillClickIdsFromConvertedLeads`, which walks the fields in
+`fieldMapping.lead.clickIds` — and that named `gclid__c` alone.
+
+**So the field was present, mapped and populated, and the platform read none of
+it.** The reason was recorded and was correct at the time: a Meta channel row
+would have shown deals against no spend, which is exactly the shape §9.2's
+separation rule forbids. Ingesting Meta spend is what removed the objection,
+which is why `meta: 'acq_fbclid__c'` joins the Lead mapping in the same change
+as the connector. **Neither half is correct alone** — the mapping without the
+spend breaks the separation rule, and the spend without the mapping reports a
+channel that never attracts a deal.
+
+Running the backfill recovered 58 Meta click IDs, exactly matching the audit,
+and moved one funded deal out of the unattributed bucket and into Meta's.
+
+### Two figures that would have meant different things in the same column
+
+Both are configuration on the connection, both default to the honest reading,
+and both were measured before being chosen.
+
+**Clicks.** Meta's `clicks` counts every click on an ad — reactions, comments,
+profile taps. Google Ads' `clicks` counts clicks that go somewhere. Over the
+same trailing 90 days the two are **8,074 and 5,135**, a 36% gap. The
+performance table puts both channels' clicks in one column under one heading and
+sums them in a totals row, so `clickMetric` defaults to `inline_link_clicks`.
+Summing Google's clicks with Meta's `clicks` would have been the same category
+error as adding pages to backlinks, only less visible.
+
+**Conversions.** Meta's `actions` array **contains rollups beside their own
+components**, and nothing in the payload marks which nest. Over the same window
+`lead` is 1,756, which is exactly `onsite_web_lead` (921) plus
+`onsite_conversion.lead_grouped` (835); `page_engagement` similarly subsumes
+`post_engagement`. Summing the plausible-looking set reports roughly double the
+truth and looks entirely reasonable. `conversionActionTypes` defaults to
+`['lead']` alone, and the test that proves the double-count is kept as
+arithmetic rather than as an assertion about an error.
+
+### What the account reports
+
+`Spartan Capital (2025)`, USD, `America/New_York` — the same zone as the tenant
+and the Google Ads account, so no daily figure carries a boundary error. The
+connector still checks, and reports `degraded` rather than `healthy` on a
+mismatch of either zone or currency: the data arrives and is usable, and a spend
+column mixing two currencies is a wrong number rather than a missing one.
+
+An ad account that is disabled, unsettled or in a payment grace period reports
+`waiting_on_client`, as does a revoked system user token — a token stops working
+because of a change in the client's Business Manager, and no retry or code
+change fixes it.
+
+### Trailing 90 days, both channels, kept apart
+
+| | Google Ads | Meta Ads |
+| --- | ---: | ---: |
+| Spend | USD 79,175.75 | USD 17,857.33 |
+| Impressions | 60,864 | 170,471 |
+| Clicks | 3,588 | 5,137 (link clicks) |
+| Funded deals attributed | 9 | 1 |
+| — of those, campaign known | 6 | **0, permanently** |
+| Cost per funded deal | USD 8,797.31 | USD 17,857.33 |
+| Plausible range | 3,958.79 – 8,797.31 | 1,488.11 – 17,857.33 |
+
+Eleven funded deals remain attributed to nobody and are in neither denominator.
+Blended cost per funded deal is still not computed: it is a different metric
+with a different denominator, and two channels out of six is not every channel.
+
+**`spend-to-funded` now discovers its channels instead of naming one.** It
+previously hardcoded `google_ads`, which would have silently omitted Meta from
+the only script that reports the metric the engagement turns on.

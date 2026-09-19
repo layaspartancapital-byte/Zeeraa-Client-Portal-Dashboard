@@ -37,7 +37,7 @@ const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
 };
 
 /** Which platforms have a connector that "Sync now" can actually drive. */
-const SYNCABLE = new Set(['google_ads', 'salesforce']);
+const SYNCABLE = new Set(['google_ads', 'meta', 'salesforce']);
 
 /**
  * A line icon per platform, from one family.

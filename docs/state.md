@@ -383,6 +383,68 @@ not 1 → 3, the object returning 403 to an anonymous GET, and the signed
 redirect serving the file. Screenshots at 1440px and 390px, no horizontal page
 scroll at either.
 
+## Meta Ads, connected (19 September 2026)
+
+Campaign grain, read synchronously — 19 campaigns, 102 rows for 90 days in one
+call. The submit-then-poll Insights job that made Meta look like the hardest
+connector is only needed at ad grain over long windows. Full reasoning in
+`docs/brief-amendments.md`, "§7 and §8 — Meta Ads, at campaign grain, with
+channel-only attribution".
+
+| | Google Ads | Meta Ads |
+| --- | ---: | ---: |
+| Spend, trailing 90 days | USD 79,175.75 | USD 17,857.33 |
+| Impressions | 60,864 | 170,471 |
+| Clicks | 3,588 | 5,137 (link clicks) |
+| Funded deals attributed | 9 | 1 |
+| — campaign known | 6 | **0, permanently** |
+| Cost per funded deal | USD 8,797.31 | USD 17,857.33 |
+| Plausible range | 3,958.79 – 8,797.31 | 1,488.11 – 17,857.33 |
+
+**Meta attribution is channel-level and always will be.** Google serves
+`click_view`, which resolves a `gclid` to a campaign; Meta publishes no
+equivalent for `fbclid` at any grain. So `metaConnector` has no `fetchClicks`,
+`ad_clicks` never holds a Meta row, and every Meta deal reports as *click
+without campaign* — a state the model already had for Google clicks that aged
+out of the window. This is the shape of the platform, not a gap to close.
+
+**The Salesforce side needed no admin work.** `acq_fbclid__c` already existed on
+Lead *and* Opportunity, readable, and already in the Lead → Opportunity
+conversion mapping. 972 leads carry it; 58 converted leads carry it without a
+gclid and became an opportunity; 0 opportunities carried it, which is expected
+because mapping copies at conversion and never retrospectively. The backfill
+recovered all 58 and moved one funded deal out of the unattributed bucket.
+
+**Two configured readings, both measured before being chosen.** `clickMetric`
+defaults to `inline_link_clicks` (5,137) rather than `clicks` (8,074), because
+Google Ads' `clicks` means "went somewhere" and the two sit in one column with a
+totals row. `conversionActionTypes` defaults to `['lead']` alone, because Meta's
+`actions` array contains rollups beside their components — `lead` (1,756) *is*
+`onsite_web_lead` (921) plus `onsite_conversion.lead_grouped` (835), and nothing
+marks which nest.
+
+**Operationally:**
+
+```bash
+pnpm --filter @zeeraa/db   set-credentials spartan meta      # META_ACCESS_TOKEN
+pnpm --filter @zeeraa/jobs test-connection spartan meta
+pnpm --filter @zeeraa/jobs sync-meta        spartan [--days 90]
+pnpm --filter @zeeraa/jobs backfill-click-ids spartan [--since YYYY-MM-DD]
+pnpm --filter @zeeraa/connectors probe-click-id-population
+```
+
+`backfill-click-ids` is new and is the one to run **whenever a click-ID field is
+added to the Lead mapping**: the hourly incremental only ever walks its own
+watermark window, so nothing otherwise goes back for the history a newly-mapped
+field has been carrying all along.
+
+Three things fixed while building it: `test-connection` was wired to Google Ads
+only and now dispatches by platform; `spend-to-funded` hardcoded `google_ads`
+and now discovers every channel with spend, which is the whole point of the
+separation rule; and a Google Ads connector test took "today" in UTC while the
+connector takes it in the tenant's zone, so it failed every run between midnight
+and 4am UTC.
+
 ## Blocked
 
 - **All six click-ID fields are mapped Lead → Opportunity (17 September 2026),
@@ -391,14 +453,12 @@ scroll at either.
   retrospectively, so all 712 existing opportunities still hold null and
   coverage is unmoved. It starts paying from the next conversion onward. Until
   then `backfillClickIdsFromConvertedLeads` is still doing all the work.
-- **`acq_fbclid__c` is populated on 969 leads and the platform is not read.**
-  The Lead mapping names `gclid__c` only, so those leads currently count as
-  carrying no click at all. They are Meta clicks, and the deals behind them are
-  sitting in the unattributed bucket inflating Google Ads' plausible range.
-  Reading it is a one-line config change; the reason it has not been made is
-  that Meta has no connector, so a Meta channel row would show deals against no
-  spend — the exact shape the separation rule forbids. Decide between
-  connecting Meta and representing an unconnected-but-known channel.
+- **Resolved 19 September 2026: `acq_fbclid__c` is read, and Meta is
+  connected.** The blocker was never the field — it exists on Lead and
+  Opportunity, carries 972 leads and was already in the conversion mapping. It
+  was that a Meta channel row would have shown deals against no spend. Ingesting
+  Meta spend removed the objection, so the connector and the mapping change
+  landed together.
 - **`Gbraid__c`, `Wbraid__c` are mapped in Salesforce but empty (0 leads), and
   deliberately not in the connector mapping.** One platform key holds one field
   and Google's `click_view` only ever returns `gclid`, so a gbraid touch could
@@ -431,7 +491,11 @@ scroll at either.
   `/api/webhooks/aloware/spartan` in the Aloware console, and
   `ALOWARE_WEBHOOK_SECRET` set on the deployment, before live calls flow. Until
   then the record ends at the export's last call, 17 September 2026.
-- Microsoft Ads, Meta, LinkedIn Ads, GA4, Search Console, Semrush: not started.
+- Microsoft Ads, LinkedIn Ads, GA4, Search Console, Semrush: not started.
+  `msclkid__c` and `Li_Fat_ID__c` exist on both objects and are mapped, and both
+  are populated on **zero** leads — so connecting either would produce spend
+  against no attributable deal. That is a forms problem rather than a connector
+  one.
 
 ## Phase 4 progress
 
@@ -515,10 +579,10 @@ Next, in order:
 4. Campaign and keyword-tier drill-down on the performance table. The breakdown
    tab set is on screen with each dimension's blocker stated; campaign is the
    one that is Zeeraa build work rather than a CRM gap.
-5. **Decide Meta.** `acq_fbclid__c` is populated on 969 leads and is not read,
-   because a Meta channel row would show deals against no spend. That decision
-   now has a visible home: it is a row in the data-quality card on every screen
-   that depends on it.
+5. **Decide the north star now that there are two channels.** The executive
+   hero is configured as cost per funded deal · Google Ads. That was the only
+   channel when it was set; it is now one of two, and which channel the client
+   wants above the fold is their call rather than a default worth guessing.
 
 ## Scheduling: where it really stands (17 September 2026)
 

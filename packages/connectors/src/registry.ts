@@ -1,13 +1,15 @@
 import type { Connector } from './types';
 import { googleAdsConnector } from './google-ads/connector';
+import { metaConnector } from './meta/connector';
 
 /**
  * Platform registry.
  *
- * Google Ads is the first entry, in phase 3. GA4 and Search Console come in
- * phase 7 because they are the lowest-risk way to prove the rest of the
- * pipeline end to end; Meta comes last because its submit-then-poll Insights
- * jobs are the hardest.
+ * Google Ads was the first entry, in phase 3. Meta followed on 19 September
+ * 2026 — at campaign grain and read synchronously, which is why it arrived
+ * before GA4 and Search Console rather than last as originally planned: the
+ * submit-then-poll Insights job that made it look hardest is only needed at ad
+ * grain over long windows, and this engagement needs neither.
  */
 const registry = new Map<string, Connector>();
 
@@ -19,6 +21,7 @@ export function register(connector: Connector): void {
 // is the single answer to "what can this platform ingest", and a connector
 // cannot be built and then quietly left unwired.
 register(googleAdsConnector());
+register(metaConnector());
 
 export function getConnector(key: string): Connector | undefined {
   return registry.get(key);
@@ -37,6 +40,6 @@ export const PLANNED_PLATFORMS = [
   { key: 'microsoft_ads', label: 'Microsoft Ads', phase: 7 },
   { key: 'linkedin_ads', label: 'LinkedIn Ads', phase: 7 },
   { key: 'semrush', label: 'Semrush', phase: 7 },
-  { key: 'meta', label: 'Meta', phase: 7 },
+  { key: 'meta', label: 'Meta Ads', phase: 3 },
   { key: 'call_tracking', label: 'Call tracking', phase: 7 },
 ] as const;
