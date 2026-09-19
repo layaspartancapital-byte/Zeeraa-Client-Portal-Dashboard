@@ -256,9 +256,23 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         blockedSince: c.status === 'waiting_on_client' ? new Date() : null,
         config: c.config ?? {},
       })
-      // Configuration is re-applied on every seed; credentials never are. A
-      // connection that is already authenticated keeps its credential blob and
-      // picks up a corrected field mapping.
+      /*
+       * Configuration is re-applied on every seed; credentials and **observed
+       * health** never are.
+       *
+       * The seed's `status` is an opening position — what is true before
+       * anybody has reached the account. What is true afterwards is whatever
+       * `test-connection` last saw, and only it can know. Re-applying the
+       * seeded status on every run overwrites that, and the damage is not
+       * cosmetic: a connection reset to `not_configured` disappears from any
+       * surface that filters on health. Meta was reset this way twice on
+       * 19 September 2026, the first time taking its whole page off the rail.
+       *
+       * So on conflict the seed updates configuration and leaves `status`,
+       * `blockedReason`, `blockedSince` and `lastError` alone. Those four are
+       * owned by `test-connection`, which is the only thing that has actually
+       * asked the account.
+       */
       .onConflictDoUpdate({
         target: [
           schema.connections.tenantId,
@@ -266,8 +280,6 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
           schema.connections.accountIdentifier,
         ],
         set: {
-          status: c.status,
-          blockedReason: c.blockedReason ?? null,
           config: c.config ?? {},
           updatedAt: new Date(),
         },

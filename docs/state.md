@@ -591,6 +591,21 @@ campaigns; drawing one would be inventing a figure.
 
 ## GA4 and Search Console (19 September 2026)
 
+**Applied to Neon and backfilled.** Migration 0015 first, then the 90-day pull;
+`ga4_metrics` and `search_console_metrics` both carry RLS enabled and FORCE,
+both owned by `zeeraa_owner`, and no table in `public` is unprotected.
+
+| | GA4 | Search Console |
+| --- | ---: | ---: |
+| Window on Neon | 2026-06-22 → 2026-09-18 | 2026-06-22 → **2026-09-16** |
+| `total` rows | 89 days, 21,892 sessions | 87 days, 3,306 clicks, 266,969 impressions |
+| Breakdown rows | 8,617 landing pages (5,338 values) · 1,122 source/medium (121) | 25,000 pages (2,812) · 25,000 queries (6,052) |
+| Impression-weighted position | — | **30.8** (a plain mean would say 30.7) |
+
+Both breakdowns hit Search Console's 25,000-row ceiling, so the tail below the
+cut-off is not stored; the pages carry a `Tail cut` badge where that happens.
+The daily totals are unaffected.
+
 Both connected, both ingesting, both on the Platforms rail. Full reasoning in
 `docs/brief-amendments.md`, "§7 and §9 — GA4 and Search Console".
 
@@ -633,6 +648,21 @@ pnpm --filter @zeeraa/jobs test-connection spartan ga4|search_console
 pnpm --filter @zeeraa/jobs sync-organic     spartan [--days 90] [--only ga4]
 pnpm --filter @zeeraa/connectors probe-ga-join
 ```
+
+## The seed no longer overwrites observed connection health (19 September 2026)
+
+`applyTenantSeed` re-applied its own `status` and `blockedReason` on every run,
+which meant re-seeding reset whatever `test-connection` had last observed. Meta
+was reset to `not_configured` twice on 19 September — the first time taking its
+whole platform page off the rail, because the rail then filtered on health.
+
+Ownership is now split: **the seed owns `config` and `accountIdentifier`; only
+`test-connection` writes `status`, `blockedReason`, `blockedSince` and
+`lastError`.** The seeded status is an opening position, true before anybody has
+reached the account, and it applies on insert only.
+
+All five connections on Neon are `healthy` as of 19 September 2026 — google_ads,
+meta, salesforce, ga4, search_console — and a re-seed leaves them that way.
 
 ## Blocked
 
