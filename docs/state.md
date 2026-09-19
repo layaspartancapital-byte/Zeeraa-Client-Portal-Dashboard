@@ -505,6 +505,37 @@ and 4am UTC.
 
 ## Platform pages (19 September 2026)
 
+**Migration 0014 is applied to Neon and the columns are backfilled** (19
+September 2026). Applied as `zeeraa_owner` — the URL `options=-c role=…`
+parameter on the direct endpoint, which is what postgres.js's `connection`
+option silently failed to do for 0013 — so both new indexes are owned by
+`zeeraa_owner` like everything else.
+
+| | Google Ads | Meta Ads |
+| --- | ---: | ---: |
+| `campaigns` with `campaign_type` | **43 of 43** | **19 of 19** |
+| types | SEARCH 35 · PERFORMANCE_MAX 7 · DISPLAY 1 | OUTCOME_LEADS 15 · LINK_CLICKS 3 · OUTCOME_SALES 1 |
+| `daily_metrics` rows with `reach` | 0 of 405 — not reported | **102 of 102** |
+| rows with `clicks_all` | 0 of 405 — not reported | **102 of 102** |
+| link clicks / all clicks | 3,608 / — | 5,146 / 8,092 |
+
+The Google nulls are the schema working: null means the platform does not
+report it, and the page renders nothing rather than a zero.
+
+The backfill is just the ordinary sync at the full window — `sync-google-ads
+spartan --days 90` and `sync-meta spartan --days 90`. Campaign classification
+comes from the entity pass, which is never windowed, and `reach` and
+`clicks_all` come from the insights pass, so a 90-day re-pull is the whole of
+it. No bespoke script.
+
+**An additive migration has to land before the code that reads it.** 0014 was
+applied after the commit that selects `campaigns.campaign_type` was pushed, so
+any visit to a platform page between the deploy and the migration would have
+been a 500 — the column did not exist yet. Closed now, and the ordering is the
+lesson: schema first, then deploy.
+
+
+
 One page per connected channel under a **Platforms** section of the rail, whose
 items come from `connections` rather than from a constant — a platform without a
 healthy connection has no entry and its URL 404s. Full reasoning in
