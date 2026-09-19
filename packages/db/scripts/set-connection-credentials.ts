@@ -21,7 +21,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import { getOwnerDb } from '../src/client';
-import { encryptCredentials } from '../src/encryption';
+import { decryptCredentials, encryptCredentials } from '../src/encryption';
 import { withMaintenance } from '../src/tenant-context';
 import * as schema from '../src/schema/index';
 
@@ -83,9 +83,13 @@ const PLATFORMS: Record<
   },
 };
 
-const [slug, platform] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const rekey = args.includes('--rekey');
+const [slug, platform] = args.filter((a) => !a.startsWith('--'));
 if (!slug || !platform) {
-  throw new Error('Usage: tsx scripts/set-connection-credentials.ts <tenant-slug> <platform>');
+  throw new Error(
+    'Usage: tsx scripts/set-connection-credentials.ts <tenant-slug> <platform> [--rekey]',
+  );
 }
 
 const spec = PLATFORMS[platform];
@@ -133,6 +137,52 @@ try {
       throw new Error(`${tenant.name} has no ${platform} connection row. Seed it first.`);
     }
 
+    /*
+     * Refuse a key that disagrees with what this tenant already holds.
+     *
+     * Credentials are encrypted with whatever ENCRYPTION_KEY is in the shell,
+     * and a wrong one writes a blob that looks perfectly fine here and cannot
+     * be decrypted by the deployment. Nothing fails until the next sync, and
+     * the error then points at the connector rather than at this script.
+     *
+     * The check is cheap and total: every other credential this tenant holds
+     * must decrypt under the current key. If some do not, either the key is
+     * stale or the environment is pointed at the wrong deployment, and both are
+     * reasons to stop rather than to write. `--rekey` is the deliberate
+     * exception — re-encrypting every connection under a new key — and it says
+     * so at the call site rather than being inferred from the damage.
+     */
+    const others = await tx
+      .select({
+        platform: schema.connections.platform,
+        blob: schema.connections.credentialsEncrypted,
+      })
+      .from(schema.connections)
+      .where(eq(schema.connections.tenantId, tenant.id));
+
+    const undecryptable = others
+      .filter((row) => row.blob && row.platform !== platform)
+      .filter((row) => {
+        try {
+          decryptCredentials(row.blob!);
+          return false;
+        } catch {
+          return true;
+        }
+      })
+      .map((row) => row.platform);
+
+    if (undecryptable.length > 0 && !rekey) {
+      throw new Error(
+        `Refusing to write: ${undecryptable.join(', ')} already hold credentials that do ` +
+          'not decrypt under the ENCRYPTION_KEY in this shell. Either this key is stale ' +
+          'or this is the wrong database — writing now would store a blob the ' +
+          'deployment cannot read, and nothing would fail until the next sync. ' +
+          'Fix the key, or pass --rekey if you are deliberately re-encrypting every ' +
+          'connection under a new one.',
+      );
+    }
+
     await tx
       .update(schema.connections)
       .set({
@@ -153,6 +203,12 @@ try {
     console.log(`  tenant id:     ${tenant.id}`);
     console.log(`  stored fields: ${Object.keys(credentials).sort().join(', ')}`);
     console.log(`  status:        ${connection.status} (unchanged — run the connection test)`);
+    if (rekey && undecryptable.length > 0) {
+      console.log(
+        `  NOTE: ${undecryptable.join(', ')} still hold credentials under the previous ` +
+          'key. Re-run this for each of them, or the deployment reads one and not the other.',
+      );
+    }
   });
 } finally {
   await close();

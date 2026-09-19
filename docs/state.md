@@ -170,11 +170,22 @@ outcome in the UI rather than that an event was queued.
 
 **Still to do before the app serves traffic.**
 
-1. Set the Vercel environment from the connection strings and secrets generated
-   during bring-up. `ENCRYPTION_KEY` is new, so the Google Ads and Salesforce
-   credentials do not decrypt against it — re-run
-   `pnpm --filter @zeeraa/db set-credentials spartan google_ads` and
-   `... salesforce` against Neon.
+1. **Resolved 19 September 2026.** All three stored credentials — `google_ads`,
+   `salesforce` and `meta` — decrypt under the `ENCRYPTION_KEY` now set in
+   Vercel (fingerprint `aff4452d0163`, sha256 of the key, first 12 hex).
+
+   The earlier note here was diagnosed backwards. Google Ads and Salesforce were
+   never encrypted with the wrong key; **this Codespace holds a stale
+   `ENCRYPTION_KEY`** (`67e4309c2482`) as a Codespaces secret, and reading the
+   blobs from here made working credentials look broken. The one that really was
+   wrong was `meta`, written from this shell under the stale key.
+
+   **The Codespaces secret is still stale and should be updated to match
+   Vercel.** Until it is, anything run from here uses the wrong key — but it can
+   no longer do damage silently: `set-credentials` now refuses to write when any
+   other connection for the tenant fails to decrypt under the current key,
+   naming the platforms, and `--rekey` is the deliberate exception for
+   re-encrypting everything under a new one.
 2. Ingestion has started: 7,327 leads and 720 opportunities as of
    19 September 2026. The 90-day `click_view` window is the one thing with an
    expiry, so `run-scheduled nightly` against Neon should not go long unrun.
