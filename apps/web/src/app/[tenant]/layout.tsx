@@ -1,18 +1,7 @@
 import type { Metadata } from 'next';
-import { and, asc, eq, inArray } from 'drizzle-orm';
-import { schema } from '@zeeraa/db';
 import { AppShell } from '@/components/shell/AppShell';
-import { platformLabel } from '@/lib/reporting';
-import { queryTenant, requireTenant } from '@/lib/tenant';
-
-/**
- * Ad platforms this client has connected and that are reporting.
- *
- * `healthy` only, and only platforms with a connector: a rail entry is a
- * promise that a page has something to show, and a `not_configured` row is a
- * placeholder for a connector that does not exist yet.
- */
-const AD_PLATFORMS = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ads'];
+import { reportingPlatforms } from '@/lib/platforms';
+import { requireTenant } from '@/lib/tenant';
 
 /**
  * The browser tab title leads with the tenant name. Two tabs open on two
@@ -39,25 +28,13 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const connected = await queryTenant(session, (tx) =>
-    tx
-      .select({ platform: schema.connections.platform })
-      .from(schema.connections)
-      .where(
-        and(
-          eq(schema.connections.tenantId, session.tenant.id),
-          eq(schema.connections.status, 'healthy'),
-          inArray(schema.connections.platform, AD_PLATFORMS),
-        ),
-      )
-      .orderBy(asc(schema.connections.platform)),
-  );
+  const platforms = await reportingPlatforms(session);
 
   return (
     <AppShell
       viewer={session.viewer}
       tenant={session.tenant}
-      platforms={connected.map((c) => ({ key: c.platform, label: platformLabel(c.platform) }))}
+      platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
     >
       {children}

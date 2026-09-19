@@ -536,9 +536,26 @@ lesson: schema first, then deploy.
 
 
 
-One page per connected channel under a **Platforms** section of the rail, whose
-items come from `connections` rather than from a constant — a platform without a
-healthy connection has no entry and its URL 404s. Full reasoning in
+One page per reporting channel under a **Platforms** section of the rail, whose
+items come from the database rather than from a constant — a platform that has
+never reported has no entry and its URL 404s.
+
+**The test is whether the platform has reported, not what its connection status
+says** (corrected 19 September 2026). The first version filtered on
+`status = 'healthy'` and hid Meta in production: `set-credentials` deliberately
+does not promote a status, only `test-connection` does, and that had been run
+locally but never against Neon — so a connection with working credentials and
+102 days of spend behind it sat at `not_configured` and its page vanished. The
+status was stale, the data was perfect, and the rail believed the status.
+
+Filtering on health was wrong in two further ways. `degraded` is a working
+connection with a stated defect — an ad account reporting in another timezone
+still delivers usable data — and `waiting_on_client` means the account is paused
+or a token was revoked, which says nothing about the ninety days already
+ingested. Both would have lost their page over a caveat. The rule is now one
+shared function, `reportingPlatforms`, used by the rail and by the page so they
+cannot drift, and the page's own status badge is what reports the connection's
+health. Full reasoning in
 `docs/brief-amendments.md`, "§12 — a page per connected platform".
 
 Each page is the platform's own reporting — spend, impressions, clicks, CTR,

@@ -26,6 +26,7 @@ import { PrintButton } from '@/components/shell/actions';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformView } from '@/lib/platform';
+import { reportingPlatforms } from '@/lib/platforms';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { unreadNotifications } from '@/lib/dashboard';
@@ -81,22 +82,12 @@ export default async function PlatformPage({
   const query = await searchParams;
   const session = await requireTenant(slug);
 
-  // A page exists only for a platform this client has actually connected.
-  // Typing the URL for one they have not is a 404, not an empty screen that
-  // implies the connector exists and is quiet.
-  const connected = await queryTenant(session, (tx) =>
-    tx
-      .select({ platform: schema.connections.platform })
-      .from(schema.connections)
-      .where(
-        and(
-          eq(schema.connections.tenantId, session.tenant.id),
-          eq(schema.connections.platform, platform),
-          eq(schema.connections.status, 'healthy'),
-        ),
-      ),
-  );
-  if (connected.length === 0) notFound();
+  // Exactly the rule the rail uses, from the same function, so a page can never
+  // exist without an entry or an entry without a page. A platform this client
+  // has never run is a 404 rather than an empty screen implying the connector
+  // exists and is quiet.
+  const reporting = await reportingPlatforms(session);
+  if (!reporting.some((p) => p.key === platform)) notFound();
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
   const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
