@@ -89,14 +89,16 @@ deals) and needs every channel ingested before it means anything. With only
 Google Ads live, a blended figure would be the Google Ads figure wearing a
 broader name.
 
-## Production database — Neon, up as of 18 September 2026
+## Production database — Neon, migrated to 0013 on 19 September 2026
 
 `neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
-empty: roles bootstrapped, 9 migrations applied, tenants seeded, preflight green.
+empty: roles bootstrapped, tenants seeded, preflight green. **All 14 migrations
+(0000–0013) are applied**; 0013 was applied on 19 September 2026 against an
+empty `assets` table, so nothing existing had to satisfy the new constraints.
 
 | | |
 | --- | --- |
-| Tables in `public` | 38, **all** with RLS enabled and FORCE |
+| Tables in `public` | 40, **all** with RLS enabled and FORCE |
 | `public` schema owner | `zeeraa_owner` (NOSUPERUSER, NOBYPASSRLS) |
 | Roles with BYPASSRLS or SUPERUSER | none of the seven `zeeraa*` roles |
 | `app.membership_index` | 2 rows, zero drift against `memberships` |
@@ -106,6 +108,34 @@ empty: roles bootstrapped, 9 migrations applied, tenants seeded, preflight green
 
 Neon's sample table `playing_with_neon` (20 rows) was dropped — `public` has to
 be empty of anything without a policy or `assertRlsEnforced` refuses to serve.
+
+**Migration 0013 was applied as `neondb_owner`, and one object is owned by the
+wrong role because of it.** The documented route is `DATABASE_URL_OWNER`, the
+`zeeraa_owner` connection string generated during bring-up, which is not in the
+working checkout — the only production strings there are `NEON_DATABASE_URL` and
+`NEON_DIRECT_URL`, both `neondb_owner`. `neondb_owner` is a member of
+`zeeraa_owner` so the DDL succeeded and the table, indexes and constraints
+carry the right owner (an index inherits its table's), but
+`app.enforce_asset_review_authority()` is owned by `neondb_owner`, **which
+carries `BYPASSRLS`**.
+
+Nothing leaks today: the function reads no table of its own, it delegates
+membership to `app.effective_role()`, and that is SECURITY DEFINER owned by
+`zeeraa_owner`. What is wrong is latent — a SECURITY DEFINER body running with
+a role that can bypass row level security is one edit away from doing so
+silently, and it is the only `app.*` helper not owned by `zeeraa_owner`.
+
+One statement closes it, against the direct host:
+
+```sql
+ALTER FUNCTION app.enforce_asset_review_authority() OWNER TO zeeraa_owner;
+```
+
+And the durable fix is to put the real `DATABASE_URL_OWNER` in the environment
+that runs migrations, so `pnpm db:migrate` connects as `zeeraa_owner` the way it
+does locally. `scripts/migrate.ts` has no way to name a role, and setting
+`role` as a postgres.js startup parameter does not work — it was tried and the
+session still reported `neondb_owner`.
 
 **Endpoints.** The runtime roles use the pooled host
 (`...-pooler...`, PgBouncer transaction mode, which is what
@@ -145,10 +175,9 @@ outcome in the UI rather than that an event was queued.
    credentials do not decrypt against it — re-run
    `pnpm --filter @zeeraa/db set-credentials spartan google_ads` and
    `... salesforce` against Neon.
-2. Nothing is ingested there yet: 0 daily_metrics, 0 leads, 0 opportunities.
-   Production starts empty and the first sync fills it. The 90-day
-   `click_view` window is the one thing with an expiry, so the first
-   `run-scheduled nightly` against Neon should not wait.
+2. Ingestion has started: 7,327 leads and 720 opportunities as of
+   19 September 2026. The 90-day `click_view` window is the one thing with an
+   expiry, so `run-scheduled nightly` against Neon should not go long unrun.
 3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503),
    and `ALOWARE_WEBHOOK_SECRET` likewise for the call webhook — both fail
    closed, so an unset secret is a refusing endpoint rather than an open one.
