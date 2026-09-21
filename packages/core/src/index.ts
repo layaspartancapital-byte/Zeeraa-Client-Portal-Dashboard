@@ -3,6 +3,7 @@ export * from './password';
 export * from './provenance';
 export * from './format';
 export * from './metric-direction';
+export * from './ramp';
 export * from './dates';
 export * from './decline-reasons';
 export * from './bands';

@@ -156,6 +156,51 @@ export const milestones = pgTable(
 );
 
 /**
+ * The engagement ramp: what a channel is contracted to reach, month by month.
+ *
+ * Rows, not constants, for the reason every threshold here is a row — this is
+ * what one client signed, and the next will sign something else. `month_index`
+ * is 1-based and carries no calendar meaning on its own; M1 lands on whatever
+ * month the contract starts, which is `engagement_start_month` in
+ * `tenant_config` and is set when the engagement is signed.
+ *
+ * Per platform, because the model is per platform. Spartan's ramp is Google Ads
+ * only; Meta carries no target and must not inherit one — a target drawn on a
+ * channel nobody contracted for is a number with no source.
+ *
+ * Every figure is nullable. The engagement model states a budget, a CPA, an
+ * approvals count and a funded-deal count beside each month's cost per funded
+ * deal, and a column with no figure yet renders as an absence rather than as a
+ * zero, exactly like every other unmeasured thing in this product.
+ */
+export const engagementTargets = pgTable(
+  'engagement_targets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** Connector key: `google_ads`. Never null — a target belongs to a channel. */
+    platform: text('platform').notNull(),
+    /** 1-based month of the ramp. M1 is the contract's first month. */
+    monthIndex: integer('month_index').notNull(),
+    costPerFundedDeal: numeric('cost_per_funded_deal', { precision: 18, scale: 2 }),
+    budget: numeric('budget', { precision: 18, scale: 2 }),
+    cpa: numeric('cpa', { precision: 18, scale: 2 }),
+    approvals: integer('approvals'),
+    fundedDeals: integer('funded_deals'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('engagement_targets_tenant_platform_month_key').on(
+      t.tenantId,
+      t.platform,
+      t.monthIndex,
+    ),
+  ],
+);
+
+/**
  * Figures the source material states two ways.
  *
  * Several of Spartan's proposal numbers conflict — CPA quoted at $2,000 → $1,000

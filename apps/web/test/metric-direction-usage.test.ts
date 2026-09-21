@@ -53,29 +53,28 @@ describe('how screens obtain an improvement direction', () => {
       if (path.endsWith('ui/Delta.tsx')) continue;
       for (const match of text.matchAll(/\bdirection=\{([^}]*)\}/g)) {
         const expression = match[1]!.trim();
-        const fromMetric = /^metrics\.direction\(/.test(expression);
-        // A bare identifier is a prop threaded down from a page that resolved
-        // it — `HeroCard` takes `direction` and hands it to `Delta`.
-        const propPassThrough = /^[a-zA-Z_$][\w$]*$/.test(expression);
-        if (!fromMetric && !propPassThrough) {
-          offenders.push(`${path.replace(SRC, 'src')}: direction={${expression}}`);
+        if (/^metrics\.direction\(/.test(expression)) continue;
+
+        // A bare identifier is allowed only where the file says where it came
+        // from: a prop typed `ImprovementDirection | null` and threaded down
+        // (`HeroCard` does this), or a local bound to `metrics.direction(...)`
+        // because the page needs it more than once. Anything else — a literal,
+        // a ternary, a call to something else — is the card deciding.
+        const identifier = /^[a-zA-Z_$][\w$]*$/.test(expression) ? expression : null;
+        if (identifier) {
+          const typedAsProp = /direction:\s*ImprovementDirection\s*\|\s*null/.test(text);
+          const boundToMetric = new RegExp(
+            `\\b(const|let)\\s+${identifier}\\b[^=]*=\\s*metrics\\.direction\\(`,
+          ).test(text);
+          if (typedAsProp || boundToMetric) continue;
+          offenders.push(
+            `${path.replace(SRC, 'src')}: direction={${identifier}} — neither a typed prop nor bound to metrics.direction()`,
+          );
+          continue;
         }
+        offenders.push(`${path.replace(SRC, 'src')}: direction={${expression}}`);
       }
     }
     expect(offenders).toEqual([]);
-  });
-
-  it('types every threaded direction as one, so a card cannot widen it', () => {
-    // The pass-through allowed above is only safe while the prop is typed
-    // `ImprovementDirection | null`. If a component ever takes a `string`, the
-    // check above stops meaning anything.
-    for (const { path, text } of files) {
-      if (!/\bdirection=\{[a-zA-Z_$][\w$]*\}/.test(text)) continue;
-      if (path.endsWith('ui/Delta.tsx')) continue;
-      expect(
-        text,
-        `${path.replace(SRC, 'src')} threads a direction prop without typing it`,
-      ).toMatch(/direction:\s*ImprovementDirection\s*\|\s*null/);
-    }
   });
 });

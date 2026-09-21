@@ -212,6 +212,18 @@ export const spartan: TenantSeed = {
 
   config: [
     {
+      key: 'engagement_start_month',
+      description:
+        'The calendar month the engagement begins, as YYYY-MM. M1 of the ' +
+        'ramp in `engagement_targets` lands on it, and every later month ' +
+        'follows from it. Null until the contract is signed — and null is the ' +
+        'reason the executive hero shows actual cost per funded deal with no ' +
+        'target line today. It is not a date to guess: assuming the engagement ' +
+        'began when ingestion did would put M1 in June 2026 and report the ' +
+        'client as five months behind a curve nobody started.',
+      value: { month: null },
+    },
+    {
       key: 'min_rate_denominator',
       description:
         'The smallest denominator a rate may be *compared* against. The rate ' +
@@ -354,6 +366,31 @@ export const spartan: TenantSeed = {
     metricKey: 'funded_volume',
     ladder: [30000, 100000, 200000, 400000, 750000, 1000000, 1500000, 2000000],
   },
+
+  /**
+   * Zeeraa's engagement model: an eight-month decline in cost per funded deal,
+   * Google Ads only. Meta carries no target.
+   *
+   * The curve is 4000 × 0.92 × 0.95^(n−2) from M2, which is what the stated
+   * figures are the rounding of — written out as the stated figures rather
+   * than as the formula, because the contract states numbers and a formula
+   * would be this codebase's reconstruction of them.
+   *
+   * Budget, CPA, approvals and funded-deal targets are part of the model and
+   * are **not** here: only M1's budget has been supplied so far. They are
+   * nullable columns awaiting the model file rather than figures anybody
+   * invented. See `docs/state.md`.
+   */
+  engagementTargets: [
+    { platform: 'google_ads', monthIndex: 1, costPerFundedDeal: 4000, budget: 30000 },
+    { platform: 'google_ads', monthIndex: 2, costPerFundedDeal: 3680 },
+    { platform: 'google_ads', monthIndex: 3, costPerFundedDeal: 3496 },
+    { platform: 'google_ads', monthIndex: 4, costPerFundedDeal: 3321 },
+    { platform: 'google_ads', monthIndex: 5, costPerFundedDeal: 3155 },
+    { platform: 'google_ads', monthIndex: 6, costPerFundedDeal: 2997 },
+    { platform: 'google_ads', monthIndex: 7, costPerFundedDeal: 2848 },
+    { platform: 'google_ads', monthIndex: 8, costPerFundedDeal: 2705 },
+  ],
 
   /**
    * Placeholder rows so connection health has something to say from day one.

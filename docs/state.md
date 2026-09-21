@@ -800,6 +800,51 @@ Nothing to verify on screen today — the cost-per-deal delta renders "not
 ingested before 2026-06-20" rather than a number, because the baseline period
 predates ingestion and §12 forbids dividing by it.
 
+## The executive hero tracks the engagement ramp (21 September 2026)
+
+The cost-per-funded-deal panels now show actual against **what the engagement
+contracted**, for Google Ads. Full reasoning in `docs/brief-amendments.md`,
+"§12 — the executive hero tracks the engagement ramp".
+
+| | |
+| --- | --- |
+| Model | 8-month CPF ramp, $4,000 → $2,705, Google Ads only |
+| Stored in | `engagement_targets` (tenant, platform, month_index), new in 0020 |
+| M1 lands on | `engagement_start_month` in `tenant_config` — **null today** |
+| Meta | no target, no curve, no gap line |
+
+**The start month is not set, and that is the current on-screen state.** The
+Google Ads panel shows actual with no target line and one sentence: "Ramp
+targets begin when the engagement starts." Guessing would mean assuming the
+engagement began when ingestion did — June 2026 — which places M1 four months
+back and reports the client as far behind a schedule nobody started.
+
+To switch it on, set the month and nothing else:
+
+```sql
+update tenant_config set value = '{"month": "2026-10"}'::jsonb
+  where key = 'engagement_start_month' and tenant_id = '<tenant>';
+```
+
+35 of 35 mutations killed — including one that found a vacuous assertion in
+the new isolation test, which passed whether or not the policy existed because
+dropping it returns zero rows rather than the wrong ones.
+
+Verified locally by doing exactly that: the dashed curve appeared beneath the
+measured line and the gap read `Aug · $5,087 above the M3 target of $3,496`,
+which is M3 of a June start. Reverted to null afterwards, and production has
+never had it set.
+
+**The gap is month against month, not window against month.** The figure above
+it covers the selected window; the ramp contracts a monthly number. The gap uses
+the last completed, non-provisional month that has both a target and a
+measurement, and names it.
+
+**Still missing, and deliberately null:** the budget, CPA, approvals and
+funded-deal targets. `engagement_targets` has a nullable column for each and
+only M1's budget ($30,000) has been supplied — the rest await the model file
+rather than being invented. Nothing renders them yet.
+
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
 Neon carries the full 90 days as of 19 September 2026. The three passes below

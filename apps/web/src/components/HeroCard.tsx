@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
-import type { ChannelCostPerDeal, ImprovementDirection } from '@zeeraa/core';
+import { formatCurrency, type ChannelCostPerDeal, type ImprovementDirection, type TargetGap } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Delta, NoDelta } from '@/components/ui/Delta';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { ProvisionalBadge } from '@/components/ui/Badge';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
-import { MiniChart, type MiniPoint } from '@/components/charts/MiniChart';
+import { MiniChart, type MiniPoint, type SeriesTone } from '@/components/charts/MiniChart';
 
 export type HeroChannel = {
   platform: string;
@@ -16,6 +16,35 @@ export type HeroChannel = {
   /** This channel's own series — never a share of a combined one. */
   points: MiniPoint[];
   provisional: boolean;
+  /** How the measured line is coloured: the trend, by this metric's direction. */
+  tone: SeriesTone;
+  /**
+   * The contracted ramp for this channel, where one exists.
+   *
+   * Null for a channel nobody contracted a target for — Meta is that channel,
+   * and drawing Google Ads' curve on it would be a number with no source.
+   */
+  ramp: HeroChannelRamp | null;
+};
+
+export type HeroChannelRamp = {
+  /**
+   * The contracted figure per bucket, aligned one-to-one with `points`. Null
+   * for a month the ramp does not cover.
+   */
+  curve: (number | null)[];
+  /** Where the current figure sits against the current month's target. */
+  gap: TargetGap | null;
+  /** `M3` — which month of the ramp the gap belongs to. */
+  monthLabel: string | null;
+  /** `Dec 2026` — the calendar month, so the gap's period is never ambiguous. */
+  periodLabel: string | null;
+  /**
+   * True where the ramp is recorded but its first month is not. The curve is a
+   * shape with no position on the calendar until the engagement starts, so
+   * nothing is drawn and the panel says why.
+   */
+  awaitingStart: boolean;
 };
 
 /**
@@ -52,7 +81,6 @@ export function HeroCard({
   periodToggle,
   definition,
   blendedNote,
-  target,
 }: {
   metricLabel: string;
   /** Every connected channel with spend in the window, in a stable order. */
@@ -64,15 +92,6 @@ export function HeroCard({
   definition: string | null;
   /** Why no blended figure appears. Carried in the ⓘ, never on the card. */
   blendedNote: string;
-  /**
-   * The engagement's target, where one is configured and reconciled.
-   *
-   * Stated once on the card and deliberately **not** drawn on either channel's
-   * chart. The engagement states one number; configuration carries no per
-   * channel target, and a line drawn across both panels would assert that each
-   * channel is independently held to it — which is a claim nobody has made.
-   */
-  target: { label: string; note: string } | null;
 }) {
   return (
     <Card span={8}>
@@ -89,19 +108,7 @@ export function HeroCard({
             {blendedNote}
           </InfoTip>
         }
-        controls={
-          <>
-            {target && (
-              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-text-2 tabular">
-                {target.label}
-                <InfoTip label="What this target applies to" align="center">
-                  {target.note}
-                </InfoTip>
-              </span>
-            )}
-            {periodToggle}
-          </>
-        }
+        controls={periodToggle}
       />
 
       <div
@@ -173,6 +180,8 @@ function ChannelPanel({
         )}
       </div>
 
+      {channel.ramp && <RampLine ramp={channel.ramp} currency={currency} />}
+
       {/* Anchored to the bottom of the panel so both channels' series sit on
           one baseline and are read against each other rather than floating at
           different heights. */}
@@ -181,8 +190,65 @@ function ChannelPanel({
           points={channel.points}
           height={150}
           label={`${metricLabel}, ${channel.label}`}
+          tone={channel.tone}
+          target={channel.ramp?.awaitingStart ? undefined : channel.ramp?.curve}
+          targetLabel="contracted target"
         />
       </div>
     </section>
+  );
+}
+
+/**
+ * The gap to the contracted target, as a number.
+ *
+ * A chart shows that one line is above another; it does not say by how much,
+ * and "by how much" is what the engagement is judged on. So the distance is
+ * written out, with the month it belongs to, and its colour follows the same
+ * `improvement_direction` as every other assessment here — a cost under target
+ * is ahead and reads green while the number itself is negative.
+ *
+ * Where the ramp has no start month there is no target for any month, and this
+ * says so in one line. Drawing the curve from an assumed start would report the
+ * client against a schedule nobody has begun.
+ */
+function RampLine({ ramp, currency }: { ramp: HeroChannelRamp; currency: string }) {
+  if (ramp.awaitingStart) {
+    return (
+      <p className="text-[12px] leading-snug text-text-3">
+        Ramp targets begin when the engagement starts.
+      </p>
+    );
+  }
+  if (!ramp.gap) {
+    return (
+      <p className="text-[12px] leading-snug text-text-3">
+        No completed month yet with both a target and a measured figure.
+      </p>
+    );
+  }
+
+  const tone =
+    ramp.gap.assessment === 'ahead'
+      ? 'text-up-text'
+      : ramp.gap.assessment === 'shortfall'
+        ? 'text-down-text'
+        : 'text-text-2';
+  const distance = formatCurrency(Math.abs(ramp.gap.absolute), currency);
+  const target = formatCurrency(ramp.gap.target, currency);
+  const month = ramp.monthLabel ? `${ramp.monthLabel} target` : 'target';
+
+  return (
+    <p className="text-[12px] leading-snug tabular text-text-3">
+      {/* The period is stated because the figure above it covers the selected
+          window while this gap is one month — the grain the ramp contracts. */}
+      {ramp.periodLabel && <>{ramp.periodLabel} · </>}
+      <span className={`font-semibold ${tone}`}>
+        {ramp.gap.assessment === 'level'
+          ? `on the ${month}`
+          : `${distance} ${ramp.gap.assessment === 'shortfall' ? 'above' : 'below'} the ${month}`}
+      </span>{' '}
+      of {target}
+    </p>
   );
 }

@@ -1759,6 +1759,79 @@ this is a table and not a rule about the word "rate": `duplicate_rate` and
 
 ---
 
+## §12 — the executive hero tracks the engagement ramp
+
+**21 September 2026.** The hero's cost-per-funded-deal panels showed a figure, a
+delta and a bare series. They now show the figure against **what the engagement
+contracted it to be**, for Google Ads.
+
+Zeeraa signs against a curve rather than a number: an eight-month decline in
+cost per funded deal, starting at $4,000 on a $30,000 budget and reaching $2,705
+by M8, with a budget, CPA, approvals and funded-deal target beside each month.
+The stated figures are the rounding of 4000 × 0.92 × 0.95^(n−2) from M2, and are
+stored as the stated figures rather than as the formula — the contract states
+numbers, and a formula would be this codebase's reconstruction of them.
+
+### The start month is configuration, and today it is unset
+
+**M1 is whenever the contract begins.** That is decided when the engagement is
+signed and is not knowable from the data, so it is `engagement_start_month` in
+`tenant_config` and it is null.
+
+Null is rendered, not worked around. The Google Ads panel shows actual cost per
+funded deal with no target line and one sentence — *"Ramp targets begin when the
+engagement starts."* Assuming a start would be the worst available option: the
+obvious guess is the month ingestion began, June 2026, which would place M1 four
+months back and report the client as far behind a schedule nobody has started.
+
+Set the month and the whole curve takes its position: M1 lands on it, every
+later month follows, and the target draws alongside actual. Verified by setting
+it locally and watching the curve and the gap appear.
+
+### Google Ads only
+
+`engagement_targets` is keyed by platform, and only Google Ads has rows. Meta's
+panel renders exactly as before — no curve, no gap, no line. A target drawn on a
+channel nobody contracted for is a number with no source, which §16 forbids
+outright, and inheriting Google's curve would be precisely that.
+
+### The gap is a number, and it is month against month
+
+A chart shows one line above another; it does not say by how much, and "by how
+much" is what the engagement is judged on. So the distance is written out:
+
+> Aug · **$5,087 above the M3 target** of $3,496
+
+**The month matters and is stated.** The figure above it covers the selected
+window — ninety days by default — while the ramp contracts a *monthly* number.
+Subtracting one from the other would be a category error dressed as a variance,
+so the gap is computed from the last completed, non-provisional month that has
+both a target and a measurement, and the line names that month. Where no month
+qualifies yet, it says so rather than comparing mismatched grains.
+
+### Colour follows the metric, as everywhere else
+
+The measured line is drawn green where cost fell and red where it rose, from
+`seriesTrend` — first measured point against last, so a month of noise in the
+middle is not a trend — assessed by the same `improvement_direction` that
+colours every delta. The gap's colour comes from `gapToTarget`, which runs
+through `delta` rather than through `actual < target`, so "better" has one
+definition in this product and not two.
+
+The contracted curve itself is dashed and drawn in the muted mark colour,
+beneath the measured line: it is a commitment, not something anybody observed.
+Both series are scaled together, so the gap between them is the distance on
+screen rather than an artefact of scaling to one of them.
+
+### What is not here
+
+The budget, CPA, approvals and funded-deal targets are part of the model and
+`engagement_targets` has a nullable column for each. Only M1's budget has been
+supplied; the rest await the model file and are **null rather than invented**.
+Nothing renders them yet.
+
+---
+
 ## §7 and §8 — Meta Ads, at campaign grain, with channel-only attribution
 
 Built 19 September 2026. Meta was scheduled last in the connector order because

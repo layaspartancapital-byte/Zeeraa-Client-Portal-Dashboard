@@ -4,12 +4,14 @@ import {
   addDays,
   bucketLabel,
   improvementDirectionFor,
+  isMonthKey,
   evenBucketsIn,
   monthBucketsIn,
   type AttributionModel,
   type DateRange,
   type DayBucket,
   type ImprovementDirection,
+  type RampTarget,
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
@@ -812,6 +814,82 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
         since: row.blockedSince ?? null,
       };
     });
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* The engagement ramp                                                       */
+/* ------------------------------------------------------------------------- */
+
+export type EngagementRamp = {
+  /**
+   * `YYYY-MM`, or null until the contract is signed. Null is a state the
+   * screens render, not a reason to fall back to a guess: assuming the
+   * engagement began when ingestion did would report the client against a curve
+   * nobody started.
+   */
+  startMonth: string | null;
+  /** Contracted figures by platform. A platform with no ramp has no target. */
+  byPlatform: Map<string, RampTarget[]>;
+};
+
+/**
+ * The contracted curve, and where M1 sits on the calendar.
+ *
+ * Both halves are configuration and both can be absent independently: a tenant
+ * may have a ramp recorded before the start month is decided, which is exactly
+ * where Spartan is today.
+ */
+export async function engagementRamp(session: TenantSession): Promise<EngagementRamp> {
+  return queryTenant(session, async (tx) => {
+    const tenantId = session.tenant.id;
+    const [config, rows] = await Promise.all([
+      tx
+        .select({ value: schema.tenantConfig.value })
+        .from(schema.tenantConfig)
+        .where(
+          and(
+            eq(schema.tenantConfig.tenantId, tenantId),
+            eq(schema.tenantConfig.key, 'engagement_start_month'),
+          ),
+        )
+        .limit(1),
+      tx
+        .select({
+          platform: schema.engagementTargets.platform,
+          monthIndex: schema.engagementTargets.monthIndex,
+          costPerFundedDeal: schema.engagementTargets.costPerFundedDeal,
+          budget: schema.engagementTargets.budget,
+          cpa: schema.engagementTargets.cpa,
+          approvals: schema.engagementTargets.approvals,
+          fundedDeals: schema.engagementTargets.fundedDeals,
+        })
+        .from(schema.engagementTargets)
+        .where(eq(schema.engagementTargets.tenantId, tenantId))
+        .orderBy(asc(schema.engagementTargets.platform), asc(schema.engagementTargets.monthIndex)),
+    ]);
+
+    const raw = (config[0]?.value as { month?: unknown } | undefined)?.month;
+    // Validated rather than trusted: this is a jsonb column somebody edits by
+    // hand, and a malformed value must read as "not set" rather than shift the
+    // whole curve onto a month that does not exist.
+    const startMonth = typeof raw === 'string' && isMonthKey(raw) ? raw : null;
+
+    const byPlatform = new Map<string, RampTarget[]>();
+    for (const row of rows) {
+      const list = byPlatform.get(row.platform) ?? [];
+      list.push({
+        monthIndex: row.monthIndex,
+        costPerFundedDeal: row.costPerFundedDeal === null ? null : Number(row.costPerFundedDeal),
+        budget: row.budget === null ? null : Number(row.budget),
+        cpa: row.cpa === null ? null : Number(row.cpa),
+        approvals: row.approvals,
+        fundedDeals: row.fundedDeals,
+      });
+      byPlatform.set(row.platform, list);
+    }
+
+    return { startMonth, byPlatform };
   });
 }
 

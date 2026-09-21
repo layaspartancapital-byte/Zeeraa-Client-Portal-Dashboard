@@ -1,5 +1,10 @@
 import {
   channelCostPerDeal,
+  gapToTarget,
+  monthKeyOf,
+  rampMonthIndex,
+  seriesTrend,
+  targetForMonth,
   formatCount,
   formatCurrency,
   formatRate,
@@ -28,6 +33,7 @@ import {
   covers,
   dataQuality,
   firstSentence,
+  engagementRamp,
   ingestionStart,
   loadMetrics,
   minRateDenominator,
@@ -78,6 +84,18 @@ const HERO_MONTHS = [
  * Where that used to be a paragraph on a black band, it is now the card's
  * subtitle, its ⓘ and a row in the data-quality card (spec v2 §2).
  */
+/**
+ * A series assessment to the chart's stroke.
+ *
+ * `level` is `primary` rather than a third colour: no movement, or a metric
+ * that declares no direction, is not a judgement and must not look like one.
+ */
+const TONE = {
+  ahead: 'ahead',
+  shortfall: 'shortfall',
+  level: 'primary',
+} as const;
+
 export default async function ExecutiveView({
   params,
   searchParams,
@@ -109,6 +127,7 @@ export default async function ExecutiveView({
     metrics,
     quality,
     ingestion,
+    ramp,
     rateFloor,
     submissions,
   ] = await Promise.all([
@@ -122,6 +141,7 @@ export default async function ExecutiveView({
     loadMetrics(session),
     dataQuality(session),
     ingestionStart(session),
+    engagementRamp(session),
     minRateDenominator(session),
     submissionReport(session, range),
   ]);
@@ -170,20 +190,86 @@ export default async function ExecutiveView({
    * and no attributed deal has no cost per deal, and that is a different fact
    * from a bucket where it spent nothing.
    */
-  const heroChannels: HeroChannel[] = channels.map((channel) => ({
-    platform: channel.platform,
-    label: channel.label,
-    cost: channel.costPerDeal,
-    previousCost: spendComparable
-      ? (previous.channels.find((c) => c.platform === channel.platform)?.costPerDeal ?? null)
-      : null,
-    points: heroBuckets.map((bucket) => ({
+  const costDirection = metrics.direction('cost_per_funded_deal');
+
+  const heroChannels: HeroChannel[] = channels.map((channel) => {
+    const points = heroBuckets.map((bucket) => ({
       label: bucket.label,
       value: !bucket.spendIngested ? null : bucketCost(bucket, channel.platform).value,
       provisional: bucket.provisional,
-    })),
-    provisional: heroBuckets.at(-1)?.provisional ?? false,
-  }));
+    }));
+
+    /**
+     * The contracted curve for this channel, month by month.
+     *
+     * `byPlatform` has an entry only for a channel somebody contracted a target
+     * for — Google Ads here — so Meta gets null and draws no curve. Inheriting
+     * one would put a number on screen that no engagement states.
+     */
+    const contracted = ramp.byPlatform.get(channel.platform) ?? null;
+    const curve = contracted
+      ? heroBuckets.map(
+          (bucket) =>
+            targetForMonth(contracted, ramp.startMonth, monthKeyOf(bucket.start))
+              ?.costPerFundedDeal ?? null,
+        )
+      : [];
+
+    /**
+     * The gap, taken from the **last completed month**, not from the figure
+     * above it.
+     *
+     * The hero's figure covers the selected window — ninety days by default —
+     * and the ramp contracts a monthly number. Subtracting one from the other
+     * would be a category error dressed as a variance, so the gap is computed
+     * month against month and the line states which month it is.
+     */
+    const comparable = contracted
+      ? heroBuckets
+          .map((bucket, i) => ({ bucket, target: curve[i] ?? null }))
+          .filter((row) => {
+            const value = points[heroBuckets.indexOf(row.bucket)]?.value;
+            return row.target !== null && value !== null && value !== undefined && !row.bucket.provisional;
+          })
+          .at(-1)
+      : undefined;
+
+    const actual = comparable
+      ? (points[heroBuckets.indexOf(comparable.bucket)]?.value ?? null)
+      : null;
+
+    const monthIndex =
+      comparable && ramp.startMonth
+        ? rampMonthIndex(ramp.startMonth, monthKeyOf(comparable.bucket.start))
+        : null;
+
+    return {
+      platform: channel.platform,
+      label: channel.label,
+      cost: channel.costPerDeal,
+      previousCost: spendComparable
+        ? (previous.channels.find((c) => c.platform === channel.platform)?.costPerDeal ?? null)
+        : null,
+      points,
+      provisional: heroBuckets.at(-1)?.provisional ?? false,
+      // Coloured by where the series went, assessed by this metric's own
+      // direction — falling cost is green because lower is better, and the rule
+      // is the metric's rather than the chart's.
+      tone: TONE[seriesTrend(points.map((p) => p.value), costDirection)],
+      ramp: contracted
+        ? {
+            curve,
+            awaitingStart: ramp.startMonth === null,
+            gap:
+              actual !== null && comparable?.target != null && costDirection
+                ? gapToTarget(actual, comparable.target, costDirection)
+                : null,
+            monthLabel: monthIndex === null ? null : `M${monthIndex}`,
+            periodLabel: comparable?.bucket.label ?? null,
+          }
+        : null,
+    };
+  });
 
   /**
    * A mini series. `source` decides which ingestion boundary blanks a bucket:
@@ -279,7 +365,7 @@ export default async function ExecutiveView({
             channels={heroChannels}
             comparisonUnavailable={notIngested(ingestion.spendFrom)}
             currency={currency}
-            direction={metrics.direction('cost_per_funded_deal')}
+            direction={costDirection}
             periodToggle={
               <Segmented
                 label="Chart period"
@@ -289,16 +375,6 @@ export default async function ExecutiveView({
             }
             definition={metrics.northStar?.definition ?? null}
             blendedNote={BLENDED_NOTE(valueLabel)}
-            target={
-              metrics.target('cost_per_funded_deal') !== null
-                ? {
-                    label: `Target ${formatCurrency(metrics.target('cost_per_funded_deal')!, currency)}`,
-                    note:
-                      'The engagement states one target. It is not a per-channel figure, so it ' +
-                      'is shown once here rather than drawn across each channel’s chart.',
-                  }
-                : null
-            }
           />
         ) : (
           <DataQualityCard

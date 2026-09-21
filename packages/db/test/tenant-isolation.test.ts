@@ -416,6 +416,76 @@ describe('a Zeeraa admin', () => {
   });
 });
 
+describe('engagement targets', () => {
+  /**
+   * A contracted ramp is commercially sensitive in its own right: it states
+   * what one client pays and what Zeeraa promised them. A competitor reading
+   * another engagement's curve would learn the pricing.
+   */
+  it('show this tenant its own ramp and not another tenant’s', async () => {
+    // Both halves, and the first is the one that matters. Asserting only that
+    // tenant B's rows are absent passes when the policy is *dropped* entirely —
+    // under FORCE with nothing applicable the read returns zero rows and the
+    // assertion is vacuously true. The mutation suite caught exactly that.
+    await asOwner(owner.db, (tx) =>
+      tx.insert(schema.engagementTargets).values([
+        {
+          tenantId: fx.tenantA,
+          platform: 'google_ads',
+          monthIndex: 1,
+          costPerFundedDeal: '4000.00',
+        },
+        {
+          tenantId: fx.tenantB,
+          platform: 'google_ads',
+          monthIndex: 1,
+          costPerFundedDeal: '9999.00',
+        },
+      ]),
+    );
+
+    const seen = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) => tx.select().from(schema.engagementTargets),
+      app.db,
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.tenantId).toBe(fx.tenantA);
+    expect(seen.some((r) => r.tenantId === fx.tenantB)).toBe(false);
+  });
+
+  it('cannot be written into another tenant', async () => {
+    const error = await failure(() =>
+      withTenant(
+        { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+        (tx) =>
+          tx.insert(schema.engagementTargets).values({
+            tenantId: fx.tenantB,
+            platform: 'google_ads',
+            monthIndex: 2,
+            costPerFundedDeal: '1.00',
+          }),
+        app.db,
+      ),
+    );
+    expect(error.code).toBe('42501');
+  });
+
+  it('refuses a month index before the engagement begins', async () => {
+    const error = await failure(() =>
+      asOwner(owner.db, (tx) =>
+        tx.insert(schema.engagementTargets).values({
+          tenantId: fx.tenantA,
+          platform: 'google_ads',
+          monthIndex: 0,
+          costPerFundedDeal: '4000.00',
+        }),
+      ),
+    );
+    expect(error.code).toBe('23514');
+  });
+});
+
 describe('membership cardinality', () => {
   it('refuses to attach a client-role user to a second tenant', async () => {
     const error = await failure(() =>

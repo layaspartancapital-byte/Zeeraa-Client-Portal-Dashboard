@@ -288,6 +288,18 @@ const MUTATIONS: Mutation[] = [
             as $x$ select exists (select 1 from public.memberships m where m.user_id = target) $x$`,
   },
   {
+    // A ramp states what one client pays and what was promised them. Another
+    // engagement reading it learns the pricing.
+    name: 'drop-engagement-targets-policy',
+    description: 'Drop the tenant_isolation policy on engagement_targets',
+    sql: 'drop policy tenant_isolation on public.engagement_targets',
+  },
+  {
+    name: 'unforce-engagement-targets',
+    description: 'Drop FORCE on engagement_targets, leaving the owner outside its policies',
+    sql: 'alter table public.engagement_targets no force row level security',
+  },
+  {
     name: 'session-scoped-tenant-context',
     description: 'Set tenant context on the session instead of the transaction',
     edit: {

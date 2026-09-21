@@ -166,6 +166,38 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
     ),
   );
 
+  for (const t of seed.engagementTargets) {
+    await db
+      .insert(schema.engagementTargets)
+      .values({
+        tenantId,
+        platform: t.platform,
+        monthIndex: t.monthIndex,
+        costPerFundedDeal: t.costPerFundedDeal != null ? money(t.costPerFundedDeal) : null,
+        budget: t.budget != null ? money(t.budget) : null,
+        cpa: t.cpa != null ? money(t.cpa) : null,
+        approvals: t.approvals ?? null,
+        fundedDeals: t.fundedDeals ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.engagementTargets.tenantId,
+          schema.engagementTargets.platform,
+          schema.engagementTargets.monthIndex,
+        ],
+        // Re-running the seed restores the contracted figures. A null in the
+        // seed clears a stale value rather than leaving one behind, so the
+        // table always says exactly what has been supplied.
+        set: {
+          costPerFundedDeal: t.costPerFundedDeal != null ? money(t.costPerFundedDeal) : null,
+          budget: t.budget != null ? money(t.budget) : null,
+          cpa: t.cpa != null ? money(t.cpa) : null,
+          approvals: t.approvals ?? null,
+          fundedDeals: t.fundedDeals ?? null,
+        },
+      });
+  }
+
   for (const c of seed.connections) {
     /*
      * A platform's account identifier can be corrected, and the upsert key

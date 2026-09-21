@@ -28,6 +28,20 @@ export type TenantSeed = {
     definition?: string;
   }[];
   config: { key: string; description?: string; value: unknown }[];
+  /**
+   * The engagement ramp, per platform. `monthIndex` is 1-based and lands on
+   * whatever month `engagement_start_month` records; a figure nobody has
+   * supplied is null, never zero.
+   */
+  engagementTargets: {
+    platform: string;
+    monthIndex: number;
+    costPerFundedDeal?: number;
+    budget?: number;
+    cpa?: number;
+    approvals?: number;
+    fundedDeals?: number;
+  }[];
   baselines: {
     key: string;
     label: string;

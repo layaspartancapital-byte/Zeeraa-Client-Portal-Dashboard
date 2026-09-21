@@ -23,6 +23,23 @@ export type MiniPoint = {
   provisional?: boolean;
 };
 
+/**
+ * How the measured line is drawn.
+ *
+ * `primary` is the default and says nothing about whether the movement is good.
+ * `ahead` and `shortfall` colour it by the metric's own improvement direction —
+ * a falling cost per funded deal is green while it points down — and are only
+ * ever passed a value derived from `seriesTrend`, never from the direction of
+ * travel on its own.
+ */
+export type SeriesTone = 'primary' | 'ahead' | 'shortfall';
+
+const STROKE: Record<SeriesTone, string> = {
+  primary: 'var(--color-primary)',
+  ahead: 'var(--color-up)',
+  shortfall: 'var(--color-down)',
+};
+
 const W = 200;
 const H = 56;
 
@@ -40,14 +57,33 @@ export function MiniChart({
   variant = 'area',
   height = H,
   label,
+  tone = 'primary',
+  target,
+  targetLabel = 'target',
 }: {
   points: MiniPoint[];
   variant?: 'area' | 'bars';
   height?: number;
   /** What the series shows, for the accessible description. */
   label: string;
+  tone?: SeriesTone;
+  /**
+   * A contracted curve drawn behind the measured one, bucket for bucket.
+   *
+   * Same length and same order as `points` — a target for a month nobody
+   * measured is still a target and still draws, which is the whole point of
+   * showing the two together. Null entries are months the ramp does not cover,
+   * and they break the line rather than being bridged.
+   */
+  target?: (number | null)[];
+  targetLabel?: string;
 }) {
-  const s = scale(points);
+  // Scaled over both series together, so the gap between them is the distance
+  // on screen. Scaling to the measured line alone would put the target off the
+  // top of the chart and draw a flat line at the edge.
+  const s = scale(
+    target ? [...points, ...target.map((value, i) => ({ label: `t${i}`, value }))] : points,
+  );
 
   if (!s || points.length === 0) {
     return (
@@ -64,12 +100,16 @@ export function MiniChart({
   }
 
   const measured = points.filter((p) => p.value !== null).length;
-  const described = `${label}: ${measured} of ${points.length} periods measured, from ${points[0]?.label} to ${points.at(-1)?.label}`;
+  const targeted = target?.filter((v) => v !== null).length ?? 0;
+  const described =
+    `${label}: ${measured} of ${points.length} periods measured, ` +
+    `from ${points[0]?.label} to ${points.at(-1)?.label}` +
+    (targeted > 0 ? `, against a ${targetLabel} in ${targeted} of them` : '');
 
   return variant === 'bars' ? (
     <Bars points={points} s={s} height={height} described={described} />
   ) : (
-    <Area points={points} s={s} height={height} described={described} />
+    <Area points={points} s={s} height={height} described={described} tone={tone} target={target} />
   );
 }
 
@@ -89,12 +129,17 @@ function Area({
   s,
   height,
   described,
+  tone = 'primary',
+  target,
 }: {
   points: MiniPoint[];
   s: Scale;
   height: number;
   described: string;
+  tone?: SeriesTone;
+  target?: (number | null)[];
 }) {
+  const stroke = STROKE[tone];
   // Contiguous runs of measured points. A gap breaks the line rather than
   // being bridged, because bridging invents the months nobody looked at.
   const runs: { i: number; p: MiniPoint }[][] = [];
@@ -111,6 +156,21 @@ function Area({
 
   const id = `mini-${described.length}-${points.length}`;
 
+  // The contracted curve, in the same runs-with-gaps form as the measured one.
+  const targetRuns: { i: number; v: number }[][] = [];
+  if (target) {
+    let tRun: { i: number; v: number }[] = [];
+    target.forEach((v, i) => {
+      if (v === null) {
+        if (tRun.length) targetRuns.push(tRun);
+        tRun = [];
+      } else {
+        tRun.push({ i, v });
+      }
+    });
+    if (tRun.length) targetRuns.push(tRun);
+  }
+
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
@@ -122,10 +182,26 @@ function Area({
     >
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0" />
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
         </linearGradient>
       </defs>
+
+      {/* Drawn first, so the measured line sits on top of it: the target is the
+          reference and the measurement is the subject. Dashed and in the muted
+          mark colour — it is a commitment, not something anybody observed. */}
+      {targetRuns.map((r, ri) => (
+        <path
+          key={`t${ri}`}
+          d={`M ${r.map(({ i, v }) => `${x(i, points.length)},${y(v, s)}`).join(' L ')}`}
+          fill="none"
+          stroke="var(--color-mark)"
+          strokeWidth={1.5}
+          strokeDasharray="3 3"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
 
       {runs.map((r, ri) => {
         const line = r.map(({ i, p }) => `${x(i, points.length)},${y(p.value!, s)}`).join(' L ');
@@ -140,7 +216,7 @@ function Area({
             <path
               d={`M ${line}`}
               fill="none"
-              stroke="var(--color-primary)"
+              stroke={stroke}
               strokeWidth={2}
               strokeLinecap="round"
               strokeDasharray={provisional ? '4 3' : undefined}
@@ -151,7 +227,7 @@ function Area({
                 cx={first}
                 cy={y(r[0]!.p.value!, s)}
                 r={2.5}
-                fill="var(--color-primary)"
+                fill={stroke}
                 vectorEffect="non-scaling-stroke"
               />
             )}
