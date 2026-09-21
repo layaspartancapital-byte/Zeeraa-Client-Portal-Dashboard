@@ -3,6 +3,7 @@ import { schema } from '@zeeraa/db';
 import {
   addDays,
   bucketLabel,
+  improvementDirectionFor,
   evenBucketsIn,
   monthBucketsIn,
   type AttributionModel,
@@ -219,7 +220,28 @@ export async function loadMetrics(session: TenantSession): Promise<Metrics> {
   return {
     byKey,
     northStar: configs.find((c) => c.isNorthStar) ?? null,
-    direction: (key) => byKey.get(key)?.improvementDirection ?? null,
+    /**
+     * Which way is better, from the metric's own definition.
+     *
+     * Resolved from `formula_key` in `@zeeraa/core`, not from the row's
+     * `improvement_direction`: the direction is a property of the formula — a
+     * falling cost per funded deal is good news for every client — and a config
+     * row that said otherwise would paint a rising cost green with nothing to
+     * catch it. The configured value is the fallback for a formula core has
+     * never heard of, which is how a tenant's own metric still renders.
+     *
+     * A key with no configuration row at all still resolves, by treating the
+     * key as the formula name. `paid_media_spend` has no row and is declared
+     * neutral in core, so it renders in `--text-2` by decision rather than by
+     * the absence of a row.
+     */
+    direction: (key) => {
+      const metric = byKey.get(key);
+      return improvementDirectionFor(
+        metric?.formulaKey ?? key,
+        metric?.improvementDirection ?? null,
+      );
+    },
     target: (key) => {
       const metric = byKey.get(key);
       if (!metric || metric.needsReconciliation) return null;

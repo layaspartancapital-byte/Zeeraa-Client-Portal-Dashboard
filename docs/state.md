@@ -762,6 +762,44 @@ password sign-in. Verified against the live deployment: a wrong password returns
 `/signin?error=1`, the correct one signs in, and `/spartan` redirects to
 `/change-password` until the password is replaced.
 
+## Improvement direction is a property of the metric (21 September 2026)
+
+Audited every place a cost metric reaches a screen — executive hero, KPI row,
+monthly performance, the month-over-month bar chart, the platform pages, the
+monthly table — after a question about whether cost per funded deal was being
+treated as lower-is-better.
+
+**It was, everywhere.** No miscolouring on any screen, and every configured row
+on production was already correct: `cost_per_funded_deal` and `cpa` both `down`,
+`total_program_cost` and `stage_velocity` `down`, rates `up` apart from
+`duplicate_rate` and `resubmission_rate`. The platform pages render CPC, CPM and
+cost per conversion as plain figures with no delta and no colour, so there was
+nothing there to be wrong.
+
+What was wrong was that nothing guaranteed it. Direction lived in
+`tenant_metrics.improvement_direction` — a per-tenant config row — and each card
+looked it up by a string key. A missing row rendered neutral, a mis-seeded row
+rendered green on a rising cost, and `cpc`/`cpm`/`cost_per_conversion` had no
+rows at all.
+
+It is now declared in `packages/core/src/metric-direction.ts`, keyed on
+`formula_key`, because the formula fixes the direction and the metric key is
+just the tenant's name for an instance of it. The config column is the fallback
+for a formula core does not know, and is overridden where they disagree.
+**Nothing defaults to `up`**: an undeclared formula is neutral, and one whose
+name is cost-shaped is `down`, so `cost_per_mql` added next month is right
+without anybody remembering. `paid_media_spend` is declared explicitly neutral
+rather than omitted.
+
+Four tests hold it, and one of them reads the TSX sources and fails if any
+screen states a direction as a literal — verified by hardcoding one and watching
+it fail. Behaviour is unchanged: every key in use resolves to exactly what it
+resolved to before, checked against the real database.
+
+Nothing to verify on screen today — the cost-per-deal delta renders "not
+ingested before 2026-06-20" rather than a number, because the baseline period
+predates ingestion and §12 forbids dividing by it.
+
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
 Neon carries the full 90 days as of 19 September 2026. The three passes below

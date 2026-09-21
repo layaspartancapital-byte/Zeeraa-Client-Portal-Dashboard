@@ -1684,6 +1684,81 @@ same gate that protects every other cross-tenant operation here.
 
 ---
 
+## §12 — improvement direction belongs to the metric, not to the card
+
+**21 September 2026.** §12 says green and red mean improvement and regression as
+each metric's `improvement_direction` defines them. That was implemented as a
+column on `tenant_metrics` which each card looked up by key. The colouring was
+right — every configured row on production was correct, and cost per funded deal
+and CPA both read `down` — but nothing made it so.
+
+Three things were wrong with it as a design, none of which had bitten yet:
+
+1. **A direction is not client configuration.** There is no client for whom a
+   rising cost per deal is an achievement. Putting it in a config row invites a
+   per-tenant answer to a question that has one answer.
+2. **A missing row rendered neutral and a wrong row rendered wrong.** `cpc`,
+   `cpm` and `cost_per_conversion` have no rows at all — they are computed in
+   core and shown on the platform pages — so a delta added to any of them would
+   have come out grey, and a row seeded `up` by mistake would have painted a
+   rising cost green with nothing to catch it.
+3. **Every card named its own metric key**, so the direction was one typo away
+   from being the wrong metric's.
+
+Direction is now declared in `packages/core/src/metric-direction.ts`, **keyed on
+`formula_key` rather than on the tenant's metric key**: the formula is what
+fixes the direction, and two tenants may call `cost_per_stage` different things.
+`tenant_metrics.improvement_direction` survives as the fallback for a formula
+core has never heard of — a tenant may define a metric this codebase has not
+seen — and is overridden wherever they disagree.
+
+**Nothing defaults to `up`.** An undeclared formula resolves neutral, and an
+undeclared formula whose *name* is a cost resolves `down`:
+
+```ts
+const COST_SHAPED = /(^|_)(cost|cpa|cpc|cpm|cpl|cac|spend_per)(_|$)/;
+```
+
+So `cost_per_mql`, added next month and declared nowhere, is lower-is-better
+without anybody remembering. The one answer that paints a rising cost green is
+the one this cannot produce.
+
+`paid_media_spend` is declared **explicitly neutral** rather than left out, so
+it reads as the decision §12 describes — spending less is not an achievement and
+spending more is not a failure — rather than as a gap, and so a stray config row
+cannot colour it.
+
+### What was checked, and what it found
+
+Every place a cost metric reaches a screen: the executive hero, the KPI row, the
+monthly performance page, the month-over-month bar chart, the platform pages and
+the monthly table. **No live miscolouring.** The platform pages render CPC, CPM
+and cost per conversion as figures with no delta and no colour, so there was
+nothing there to get wrong; those formulas are declared now so that a delta
+added later is right on the day it is added.
+
+Rates stay higher-is-better, with two deliberate exceptions that are the reason
+this is a table and not a rule about the word "rate": `duplicate_rate` and
+`resubmission_rate`. A duplicate is waste and a resubmission is rework.
+
+### Enforcement, rather than a convention
+
+- `metric-direction.test.ts` in core asserts the direction of every cost metric
+  and every rate, and that no undeclared formula — invented names included —
+  can resolve `up`.
+- `delta-tone.test.ts` in the web app asserts the join nothing else covers:
+  definition → assessment → the colour class on screen. `toneFor` moved into its
+  own module to be testable, since that app's vitest has no JSX transform.
+- `metric-direction-seed.test.ts` fails if a seeded row disagrees with the
+  formula it names, so configuration cannot drift from the definition unnoticed.
+- `metric-direction-usage.test.ts` reads the TSX sources and fails if any screen
+  states a direction as a literal instead of taking it from the metric. A
+  source-level test is unusual and earns its place here: the thing being
+  prevented is a plausible one-line edit that produces a plausible-looking
+  screen, and no type or runtime check can see it.
+
+---
+
 ## §7 and §8 — Meta Ads, at campaign grain, with channel-only attribution
 
 Built 19 September 2026. Meta was scheduled last in the connector order because

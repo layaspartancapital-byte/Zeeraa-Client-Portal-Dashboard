@@ -2,6 +2,7 @@ export * from './roles';
 export * from './password';
 export * from './provenance';
 export * from './format';
+export * from './metric-direction';
 export * from './dates';
 export * from './decline-reasons';
 export * from './bands';

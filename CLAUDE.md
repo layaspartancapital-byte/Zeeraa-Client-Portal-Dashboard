@@ -87,6 +87,15 @@ commit history and get it wrong.
 - Metrics are named, unit-tested functions in `packages/core`. Never recompute a
   metric inline in a component — the same word must mean the same thing on every
   screen.
+- **Which way is better is part of the metric, not of the card.** Declare it in
+  `packages/core/src/metric-direction.ts`, keyed on `formula_key` — a falling
+  cost per funded deal is good news for every client, so it is not a config row.
+  `tenant_metrics.improvement_direction` is consulted only for a formula core
+  does not declare, and is overridden where they disagree. Nothing defaults to
+  `up`: an undeclared formula is neutral and an undeclared *cost* is `down`, so
+  a new cost metric cannot render green as it rises. A screen never states a
+  direction — `apps/web/test/metric-direction-usage.test.ts` reads the sources
+  and fails if one does.
 - **A channel's metric takes both halves from that channel.** Cost per deal is
   that channel's spend over the deals attributed to that channel; a channel's
   conversion rate is its own numerator over its own denominator. Deals no

@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
 import { delta, formatDelta, type ImprovementDirection } from '@zeeraa/core';
+import { toneFor } from '@/components/ui/delta-tone';
 
 /**
  * A change, with its sign, an arrow and a colour — in that order of importance.
@@ -42,14 +43,7 @@ export function Delta({
   // in the record" and "up 100%" are different statements.
   if (d.relative === null) return <NoDelta reason="none in the previous period" />;
   const assessment = direction === null ? 'level' : d.assessment;
-  // The text variants, not the fill tokens: the spec's green is 2.6:1 on white
-  // and will not carry type.
-  const tone =
-    assessment === 'ahead'
-      ? 'text-up-text'
-      : assessment === 'shortfall'
-        ? 'text-down-text'
-        : 'text-text-2';
+  const tone = toneFor(assessment);
   const Arrow = d.sign === '+' ? ArrowUp : d.sign === '−' ? ArrowDown : Minus;
 
   return (
