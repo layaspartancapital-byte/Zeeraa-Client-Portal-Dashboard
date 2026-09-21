@@ -1287,6 +1287,12 @@ tested across a daylight-saving boundary.
 
 ## §10 and §14 — asset storage is S3, and a delivered count is derived from approvals
 
+**Superseded 21 September 2026 — see "§9, §10 and §14 — the workspace and the
+delivery view are removed" below. Everything in this section describes software
+that no longer exists; it is left as the record of what was built and on what
+reasoning, because the removal is a product decision rather than a correction
+of it.**
+
 **The brief names Vercel Blob (§14, `BLOB_READ_WRITE_TOKEN`). Storage is AWS S3
 instead.** The decision is the client's and was made on 19 September 2026. It
 changes nothing about the rule §10 states — blob keys prefixed
@@ -1385,6 +1391,99 @@ is built. The **audit trail** is written regardless: `activity_log` takes a row
 for every upload, submission, approval and rejection, because "we never signed
 off on that" is settled by rows and not by a feed, and the table is append-only
 at the database level.
+
+---
+
+## §9, §10 and §14 — the workspace and the delivery view are removed
+
+**21 September 2026.** §9.4 (the delivery view), §10 (the content and approval
+workspace) and the §14 storage variables that served it are removed from the
+product. The screens, the API routes, the S3 upload path and nine tables are
+gone; migration `0016_remove_workspace_and_delivery.sql` drops them.
+
+**The reason is not that they did not work.** The review loop shipped on
+19 September 2026 and did what the section above describes. It is that
+**Zeeraa's delivery flow happens in Slack and Drive**, and nothing was going to
+move it. A workspace nobody uploads to does not sit neutrally in the product:
+the board reads `Empty` in all five columns and eleven commitments read
+`Not recorded`, which is the shape of a client being failed rather than of a
+feature going unused. An empty workspace is worse than no workspace.
+
+That is also why this is a removal rather than a hidden feature flag. A screen
+behind a flag is still a screen somebody has to keep correct, and the tables
+behind it still have to carry policies, grants, FORCE and a maintenance path
+for as long as they exist.
+
+### What went
+
+| | |
+| --- | --- |
+| Screens | `/{tenant}/delivery`, `/{tenant}/workspace` |
+| Routes | `/api/assets/…` (3), the `delivery` table of the CSV export |
+| Storage | `lib/storage.ts`, the S3 presign path, both `@aws-sdk` dependencies, `S3_*` |
+| Core | `packages/core/src/delivery.ts` and its tests; `canApproveAssets`, `canUploadAssets`, `canComment`, `canSeeInternalDeliveryColumns` |
+| Tables | `assets`, `asset_types`, `asset_comments`, `deliverable_commitments`, `deliverable_records`, `sla_commitments`, `sla_events`, `mentions`, `activity_log` |
+| Database controls | `app.enforce_asset_review_authority()` and its trigger; five enum types |
+| Config | the `sla_compliance` and `delivery_completion` rows in `tenant_metrics` |
+
+`docs/asset-storage.md` goes with the bucket it documented. The IAM reasoning
+in it — no `s3:ListBucket`, no `s3:DeleteObject` — is worth recovering from git
+history if this product ever stores a client's files again.
+
+### The audit trail goes too, and that is the one worth arguing about
+
+The section above states that the audit trail is written regardless of whether
+collaboration is built, because "we never signed off on that" is settled by
+rows and not by a feed. That reasoning was sound while there were approvals to
+audit. There are none now: `lib/assets.ts` was `activity_log`'s only writer and
+nothing ever read it, so keeping the table would preserve not a record but an
+empty table with two restrictive policies and a mutation guarding it.
+
+It is dropped rather than left in place, on the client's decision of
+21 September 2026. If the product ever records an act somebody could later
+dispute, the table comes back with that feature — `0000_initial_schema.sql` has
+its shape and `0001_rls_policies.sql` has the append-only policies.
+
+### The mentions feature, which never existed
+
+`memberships.slack_user_id` is dropped with it. It was per membership rather
+than per user because Zeeraa staff sit in several client Slack workspaces with
+a different member ID in each — a decision worth keeping the reasoning for, and
+the only thing that was ever built of @mentions.
+
+`memberships.slack_enabled` and `notifications.delivered_slack_at` stay. Those
+belong to notification delivery, which is a separate feature.
+
+### What stays, and is now dormant
+
+`notifications` keeps its table, its policies and its grants. Nothing writes to
+it and nothing reads it any more — **the bell in the top bar is removed**,
+because its only destination was the workspace and its count was always zero.
+It is a table waiting for a feature rather than the remains of one, which is
+the opposite of the case for `activity_log`.
+
+The **reconciliation item for the backlink commitment** stays as well. It
+records that the proposal states 30–40 per month in one place and 30–50 in the
+first thirty days in another. That contradiction is a fact about the proposal
+and is still unresolved; it does not depend on the platform tracking delivery.
+
+### Deploy order
+
+**The migration runs after the deploy, not before.** For an addition the schema
+leads — the code that needs a column cannot ship before the column exists. For
+a removal it follows: between the two, the old code is still serving and would
+be querying tables that had already been dropped. Applied to Neon on
+21 September 2026, after the Vercel deploy went live.
+
+One thing in that migration is worth reading before copying it. The `DELETE`
+against `tenant_metrics` is bracketed by `NO FORCE` / `FORCE ROW LEVEL
+SECURITY`, because `tenant_metrics` carries FORCE and its policies name
+`zeeraa_app`, `zeeraa_jobs` and `zeeraa_maintenance` — not the owner role
+migrations run as. Without the bracket the owner is default-denied, the
+statement matches zero rows, reports `DELETE 0`, and the migration succeeds
+having changed nothing. It did exactly that when first written. `ALTER TABLE`
+holds ACCESS EXCLUSIVE, so no session sees the table unforced, and a failure
+anywhere in the migration rolls back with FORCE still on.
 
 ---
 

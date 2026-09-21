@@ -15,7 +15,7 @@ import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
-import { connectionHealth, unreadNotifications, type ConnectionCard } from '@/lib/dashboard';
+import { connectionHealth, type ConnectionCard } from '@/lib/dashboard';
 import { requireRole } from '@/lib/tenant';
 
 export const metadata = { title: 'Connections' };
@@ -63,10 +63,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
   const { tenant: slug } = await params;
   const session = await requireRole(slug, canManageConnections);
 
-  const [connections, unread] = await Promise.all([
-    connectionHealth(session),
-    unreadNotifications(session),
-  ]);
+  const connections = await connectionHealth(session);
 
   const live = connections.filter((c) => c.status === 'healthy' || c.status === 'degraded');
   const waiting = connections.filter((c) => c.status === 'waiting_on_client');
@@ -74,7 +71,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title="Connections" unread={unread}>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title="Connections">
         <PrintButton />
       </TopBar>
 

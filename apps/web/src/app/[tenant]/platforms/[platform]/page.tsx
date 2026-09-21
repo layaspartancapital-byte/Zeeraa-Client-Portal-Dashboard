@@ -31,7 +31,6 @@ import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
 import { reportingPlatforms } from '@/lib/platforms';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
-import { unreadNotifications } from '@/lib/dashboard';
 import { queryTenant, requireTenant } from '@/lib/tenant';
 
 const WINDOWS = [
@@ -120,16 +119,17 @@ export default async function PlatformPage({
     const seriesKey = seriesOptions.some((s) => s.key === query.series)
       ? query.series!
       : 'primary';
-    const [view, unreadCount] = await Promise.all([
-      organicView(session, platform as 'ga4' | 'search_console', entry.label, range),
-      unreadNotifications(session),
-    ]);
+    const view = await organicView(
+      session,
+      platform as 'ga4' | 'search_console',
+      entry.label,
+      range,
+    );
     return (
       <OrganicPlatformView
         session={session}
         view={view}
         slug={slug}
-        unread={unreadCount}
         days={days}
         windows={WINDOWS}
         seriesKey={seriesKey}
@@ -155,10 +155,14 @@ export default async function PlatformPage({
       .limit(1),
   );
 
-  const [view, unread] = await Promise.all([
-    platformView(session, platform, platformLabel(platform), range, valueStage ?? null, model),
-    unreadNotifications(session),
-  ]);
+  const view = await platformView(
+    session,
+    platform,
+    platformLabel(platform),
+    range,
+    valueStage ?? null,
+    model,
+  );
 
   const t = view.totals;
   const vocabulary = VOCABULARY[platform];
@@ -232,7 +236,7 @@ export default async function PlatformPage({
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label} unread={unread}>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
         <Segmented
           label="Date range"
           active={String(days)}

@@ -55,12 +55,6 @@ export const memberships = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     role: roleEnum('role').notNull(),
-    /**
-     * Slack identity is per tenant, not per user: Zeeraa staff sit in several
-     * client workspaces with a different member ID in each. Null renders as the
-     * unmapped state in settings and falls back to email (§11).
-     */
-    slackUserId: text('slack_user_id'),
     emailPreference: notificationChannelPrefEnum('email_preference').notNull().default('instant'),
     slackEnabled: boolean('slack_enabled').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

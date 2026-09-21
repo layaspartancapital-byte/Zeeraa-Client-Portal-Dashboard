@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bell, ChevronRight, Menu } from 'lucide-react';
+import { ChevronRight, Menu } from 'lucide-react';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { useShell } from '@/components/shell/shell-state';
 import { UserMenu } from '@/components/shell/Sidebar';
@@ -22,14 +22,11 @@ export function TopBar({
   tenant,
   viewer,
   title,
-  unread = 0,
   children,
 }: {
   tenant: TenantSummary;
   viewer: Viewer;
   title: string;
-  /** Unread notifications for this viewer in this tenant. */
-  unread?: number;
   /** The page's own controls: date range, model toggle, export, print, sync. */
   children?: React.ReactNode;
 }) {
@@ -77,21 +74,6 @@ export function TopBar({
         */}
         <div className="flex min-w-0 basis-full flex-wrap items-center justify-start gap-2 print-hidden md:basis-auto md:justify-end">
           {children}
-
-          <Link
-            href={`/${tenant.slug}/workspace`}
-            aria-label={
-              unread === 0 ? 'Notifications, none unread' : `Notifications, ${unread} unread`
-            }
-            className="relative inline-flex h-9 w-9 items-center justify-center rounded-[8px] border border-border bg-surface text-text-2 transition-colors hover:bg-canvas hover:text-text"
-          >
-            <Bell aria-hidden="true" className="h-4 w-4" />
-            {unread > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-down px-1 text-[10px] font-semibold text-white tabular">
-                {unread > 9 ? '9+' : unread}
-              </span>
-            )}
-          </Link>
 
           <div className="w-9">
             <UserMenu viewer={viewer} tenant={tenant} collapsed align="down" />

@@ -114,8 +114,8 @@ describe('the ingestion role', () => {
 
   it('cannot reach tables ingestion has no business in', async () => {
     // A connector written in a hurry against a vendor API should not be one
-    // typo away from the approval workspace or the identity tables.
-    for (const table of [schema.assets, schema.notifications, schema.memberships]) {
+    // typo away from the notification queue or the identity tables.
+    for (const table of [schema.notifications, schema.memberships]) {
       const error = await failure(() =>
         withJobTenant(fx.tenantA, (tx) => tx.select().from(table), jobs),
       );

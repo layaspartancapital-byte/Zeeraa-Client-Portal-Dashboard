@@ -23,7 +23,6 @@ export function OrganicPlatformView({
   session,
   view,
   slug,
-  unread,
   days,
   windows,
   seriesKey,
@@ -32,7 +31,6 @@ export function OrganicPlatformView({
   session: TenantSession;
   view: OrganicView;
   slug: string;
-  unread: number;
   days: number;
   windows: { key: string; label: string }[];
   seriesKey: string;
@@ -78,7 +76,7 @@ export function OrganicPlatformView({
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label} unread={unread}>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
         <Segmented
           label="Date range"
           active={String(days)}

@@ -208,22 +208,6 @@ export const spartan: TenantSeed = {
       improvementDirection: 'down',
       definition: 'Median days between the Lead and Funded stage timestamps.',
     },
-    {
-      key: 'sla_compliance',
-      label: 'SLA compliance',
-      formulaKey: 'sla_compliance',
-      improvementDirection: 'up',
-      targetValue: '1',
-      definition: 'SLA events meeting their commitment divided by all SLA events in the period.',
-    },
-    {
-      key: 'delivery_completion',
-      label: 'Delivery completion',
-      formulaKey: 'delivery_completion',
-      improvementDirection: 'up',
-      targetValue: '1',
-      definition: 'Delivered quantity divided by committed quantity, per commitment, per period.',
-    },
   ],
 
   config: [
@@ -370,40 +354,6 @@ export const spartan: TenantSeed = {
     metricKey: 'funded_volume',
     ladder: [30000, 100000, 200000, 400000, 750000, 1000000, 1500000, 2000000],
   },
-
-  commitments: [
-    { key: 'ad_creatives', label: 'Ad creatives', quantity: 20, unit: 'creatives', period: 'monthly', requiresClientApproval: true },
-    { key: 'landing_pages', label: 'Landing pages', quantity: 2, unit: 'pages', period: 'monthly', requiresClientApproval: true },
-    { key: 'articles', label: 'Articles, guides & case studies', quantity: 8, unit: 'pieces', period: 'monthly', requiresClientApproval: true },
-    { key: 'backlinks', label: 'Quality backlinks', quantity: 30, quantityMax: 40, unit: 'links', period: 'monthly' },
-    { key: 'ab_tests', label: 'Concurrent A/B tests', quantity: 2, quantityMax: 3, unit: 'tests', period: 'monthly' },
-    { key: 'geo_prompts', label: 'GEO / AI prompts tracked', quantity: 50, unit: 'prompts', period: 'monthly' },
-    { key: 'ceo_pitch', label: 'CEO thought-leadership pitch', quantity: 1, unit: 'pitches', period: 'monthly', requiresClientApproval: true },
-    { key: 'email_flow', label: 'Email flow', quantity: 1, unit: 'flows', period: 'monthly', requiresClientApproval: true },
-    { key: 'newsletter', label: 'Newsletter', quantity: 1, unit: 'sends', period: 'monthly', requiresClientApproval: true },
-    { key: 'webinar', label: 'Produced webinar', quantity: 1, unit: 'webinars', period: 'quarterly' },
-    { key: 'qbr', label: 'Quarterly business review', quantity: 1, unit: 'reviews', period: 'quarterly' },
-  ],
-
-  slaCommitments: [
-    { type: 'slack_response', label: 'Slack response in working hours', targetMinutes: 60, cadence: '9am–3pm ET, Mon–Fri' },
-    { type: 'daily_update', label: 'Daily progress update', cadence: 'Each working day' },
-    { type: 'weekly_call', label: 'Weekly strategy call', cadence: 'Weekly' },
-    { type: 'monthly_report', label: 'Monthly report', cadence: 'Monthly' },
-    { type: 'qbr', label: 'Quarterly business review', cadence: 'Quarterly' },
-  ],
-
-  assetTypes: [
-    { key: 'article', label: 'Article / blog' },
-    { key: 'pr_placement', label: 'PR placement' },
-    { key: 'ad_creative', label: 'Ad creative' },
-    { key: 'landing_page', label: 'Landing page design or spec' },
-    { key: 'video_script', label: 'Video script' },
-    { key: 'email_flow', label: 'Email flow' },
-    { key: 'report', label: 'Report or deck' },
-    { key: 'webinar', label: 'Webinar material' },
-    { key: 'other', label: 'Other' },
-  ],
 
   /**
    * Placeholder rows so connection health has something to say from day one.

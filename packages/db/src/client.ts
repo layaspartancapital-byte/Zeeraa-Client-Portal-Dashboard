@@ -85,7 +85,7 @@ export function getAuthDb(): Database {
  *
  * Connects as `zeeraa_jobs_runner`, whose policies scope it to a tenant but not
  * to a user — a sync writes on nobody's behalf. It reaches only the tables
- * ingestion writes: no assets, no comments, no notifications, no memberships,
+ * ingestion writes: no notifications, no memberships,
  * no identity tables, and no maintenance door.
  */
 let jobsSql: ReturnType<typeof postgres> | undefined;

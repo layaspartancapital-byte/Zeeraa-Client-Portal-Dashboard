@@ -166,60 +166,6 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
     ),
   );
 
-  for (const [i, c] of seed.commitments.entries()) {
-    await db
-      .insert(schema.deliverableCommitments)
-      .values({
-        tenantId,
-        key: c.key,
-        label: c.label,
-        committedQuantity: money(c.quantity),
-        committedQuantityMax: c.quantityMax != null ? money(c.quantityMax) : null,
-        period: c.period,
-        unit: c.unit,
-        requiresClientApproval: c.requiresClientApproval ?? false,
-        position: i + 1,
-      })
-      .onConflictDoUpdate({
-        target: [schema.deliverableCommitments.tenantId, schema.deliverableCommitments.key],
-        set: {
-          label: c.label,
-          committedQuantity: money(c.quantity),
-          committedQuantityMax: c.quantityMax != null ? money(c.quantityMax) : null,
-          period: c.period,
-          unit: c.unit,
-          requiresClientApproval: c.requiresClientApproval ?? false,
-          position: i + 1,
-        },
-      });
-  }
-
-  for (const s of seed.slaCommitments) {
-    await db
-      .insert(schema.slaCommitments)
-      .values({
-        tenantId,
-        type: s.type,
-        label: s.label,
-        targetMinutes: s.targetMinutes ?? null,
-        cadence: s.cadence ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [schema.slaCommitments.tenantId, schema.slaCommitments.type],
-        set: { label: s.label, targetMinutes: s.targetMinutes ?? null, cadence: s.cadence ?? null },
-      });
-  }
-
-  for (const [i, t] of seed.assetTypes.entries()) {
-    await db
-      .insert(schema.assetTypes)
-      .values({ tenantId, key: t.key, label: t.label, position: i + 1 })
-      .onConflictDoUpdate({
-        target: [schema.assetTypes.tenantId, schema.assetTypes.key],
-        set: { label: t.label, position: i + 1 },
-      });
-  }
-
   for (const c of seed.connections) {
     /*
      * A platform's account identifier can be corrected, and the upsert key

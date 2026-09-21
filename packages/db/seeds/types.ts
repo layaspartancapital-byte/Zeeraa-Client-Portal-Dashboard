@@ -38,22 +38,6 @@ export type TenantSeed = {
     metrics: Record<string, number>;
   }[];
   milestones: { metricKey: string; ladder: number[] };
-  commitments: {
-    key: string;
-    label: string;
-    quantity: number;
-    quantityMax?: number;
-    unit: string;
-    period: 'monthly' | 'quarterly';
-    requiresClientApproval?: boolean;
-  }[];
-  slaCommitments: {
-    type: 'slack_response' | 'daily_update' | 'weekly_call' | 'monthly_report' | 'qbr';
-    label: string;
-    targetMinutes?: number;
-    cadence?: string;
-  }[];
-  assetTypes: { key: string; label: string }[];
   connections: {
     platform: string;
     accountIdentifier: string;

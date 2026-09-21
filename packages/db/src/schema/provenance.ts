@@ -52,7 +52,7 @@ export const syncRuns = pgTable(
  * The provenance registry (§4, §12).
  *
  * Every fact rendered in the UI resolves through here to either an API sync, a
- * named person, or a set of approved assets. A number with no row here never
+ * named person. A number with no row here never
  * renders — the UI shows an explicit empty state instead.
  *
  * `factKey` identifies the fact at the grain it is displayed, e.g.

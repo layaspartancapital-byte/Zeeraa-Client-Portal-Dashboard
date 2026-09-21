@@ -34,7 +34,6 @@ import {
   dataQuality,
   loadMetrics,
   maxRateLeakage,
-  unreadNotifications,
   windowBuckets,
 } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
@@ -82,11 +81,10 @@ export default async function Funnel({
   const today = tenantDay(new Date(), session.tenant.timezone);
   const range = trailingWindow(today, days);
 
-  const [data, quality, unread, buckets, metrics, submissions, leakageTolerance, calls] =
+  const [data, quality, buckets, metrics, submissions, leakageTolerance, calls] =
     await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
-    unreadNotifications(session),
     // `declined` is a stage event but not a configured funnel stage, so it is
     // absent from the stage totals and has to be read from the buckets.
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
@@ -193,7 +191,7 @@ export default async function Funnel({
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title="Funnel" unread={unread}>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title="Funnel">
         <Segmented
           label="Population"
           active={population.key}

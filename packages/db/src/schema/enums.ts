@@ -34,32 +34,6 @@ export const attributionModelEnum = pgEnum('attribution_model', ['first_touch', 
 
 export const improvementDirectionEnum = pgEnum('improvement_direction', ['up', 'down']);
 
-export const commitmentPeriodEnum = pgEnum('commitment_period', ['monthly', 'quarterly']);
-
-export const deliverableSourceEnum = pgEnum('deliverable_source', [
-  'manual',
-  'derived_from_assets',
-]);
-
-export const slaEventTypeEnum = pgEnum('sla_event_type', [
-  'slack_response',
-  'daily_update',
-  'weekly_call',
-  'monthly_report',
-  'qbr',
-]);
-
-export const assetStatusEnum = pgEnum('asset_status', [
-  'draft',
-  'submitted',
-  'in_review',
-  'changes_requested',
-  'approved',
-  'published',
-]);
-
-export const mentionSourceEnum = pgEnum('mention_source', ['asset', 'comment']);
-
 export const notificationChannelPrefEnum = pgEnum('notification_channel_pref', [
   'instant',
   'digest',

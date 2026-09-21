@@ -25,20 +25,6 @@ export function canSwitchTenant(role: Role): boolean {
   return isZeeraaRole(role);
 }
 
-/** Only `client_admin` approves or requests changes (§10). */
-export function canApproveAssets(role: Role): boolean {
-  return role === 'client_admin';
-}
-
-export function canComment(role: Role): boolean {
-  return true;
-}
-
-/** Uploading deliverables into the workspace is Zeeraa-side work. */
-export function canUploadAssets(role: Role): boolean {
-  return isZeeraaRole(role);
-}
-
 export function canManageConnections(role: Role): boolean {
   return role === 'zeeraa_admin';
 }
@@ -48,13 +34,8 @@ export function canAdministerTenant(role: Role): boolean {
   return role === 'zeeraa_admin';
 }
 
-/** Sync failures and SLA-breach warnings are Zeeraa-only notifications (§11). */
+/** Sync failures are Zeeraa-only notifications (§11). */
 export function canSeeOperationalAlerts(role: Role): boolean {
-  return isZeeraaRole(role);
-}
-
-/** Owner, due date and blocker columns on the delivery view (§9.4). */
-export function canSeeInternalDeliveryColumns(role: Role): boolean {
   return isZeeraaRole(role);
 }
 

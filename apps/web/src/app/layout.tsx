@@ -16,7 +16,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: 'Zeeraa performance platform',
-  description: 'Marketing performance, delivery and approvals.',
+  description: 'Marketing performance and attribution.',
   robots: { index: false, follow: false },
 };
 

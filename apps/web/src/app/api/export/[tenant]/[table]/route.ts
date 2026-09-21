@@ -2,7 +2,6 @@ import type { NextRequest } from 'next/server';
 import { tenantDay, trailingWindow, type AttributionModel } from '@zeeraa/core';
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
-import { deliveryStatus } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 
 /**
@@ -124,61 +123,6 @@ export async function GET(
     }
 
     return csvResponse(`${slug}-performance-${range.start}-to-${range.end}.csv`, rows);
-  }
-
-  if (table === 'delivery') {
-    const delivery = await deliveryStatus(session, today);
-    const rows: CsvCell[][] = [
-      [
-        'Commitment',
-        'Committed',
-        'Committed max',
-        'Unit',
-        'Period',
-        'Period start',
-        'Delivered',
-        'Source',
-        'Recorded by hand',
-        'Awaiting approval',
-        'Changes requested',
-        'Client approval required',
-        'Notes',
-      ],
-      ...delivery.commitments.map((row): CsvCell[] => [
-        row.label,
-        row.committed,
-        row.committedMax,
-        row.unit,
-        row.period,
-        row.periodStart,
-        // Null, not zero: no record written for the period is not a delivery of
-        // none, and the two must not be the same cell in a spreadsheet.
-        row.delivered,
-        row.source,
-        // Never added to `Delivered` — a separate column, because a hand-kept
-        // tally that disagrees with the approved artifacts is something the
-        // reader should see rather than something to reconcile silently.
-        row.recordedByHand,
-        row.awaitingApproval,
-        row.changesRequested,
-        row.requiresClientApproval ? 'yes' : 'no',
-        row.delivered === null
-          ? 'No delivery record written for this period'
-          : row.recordedByHand !== null
-            ? `${row.delivered} approved ${row.delivered === 1 ? 'artifact' : 'artifacts'}; ${row.recordedByHand} recorded by hand`
-            : '',
-      ]),
-      [],
-      ['Service level', 'Commitment', 'Events recorded', 'Met', 'Compliance'],
-      ...delivery.slas.map((row): CsvCell[] => [
-        row.label,
-        row.commitment,
-        row.events,
-        row.met,
-        row.compliance,
-      ]),
-    ];
-    return csvResponse(`${slug}-delivery-${delivery.periodStart}.csv`, rows);
   }
 
   return new Response(`Unknown table: ${table}`, { status: 404 });

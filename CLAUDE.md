@@ -17,6 +17,11 @@
   requests.
 - **Crossing tenants is explicit.** `withMaintenance()` is the only way, it
   needs a role the application does not have, and it greps.
+- **A migration that writes rows to a tenant-scoped table is default-denied.**
+  The owner role migrations run as holds no policy on a table with FORCE, so a
+  bare `UPDATE` or `DELETE` matches nothing, reports success and changes
+  nothing. Bracket it with `NO FORCE` / `FORCE ROW LEVEL SECURITY` in the same
+  migration and say why — `0016` is the worked example. Verify the row count.
 - **Ingestion uses `withJobTenant()`**, never `withMaintenance()`. A sync writes
   on nobody's behalf, so it is scoped to a tenant without a user — and a
   connector bug must not be able to reach a second client.
@@ -28,10 +33,14 @@
   scope assertions to the fixture's own tenants.
 - **A Zeeraa admin needs a membership row per tenant.** No blanket grant by
   role: access has to be answerable from `memberships`, and revocable there.
-- **Never expose a blob URL that is not signed and authorization-checked.**
-  Blob keys are prefixed `tenant/{tenant_id}/`. No public objects.
-- **The mention picker may never surface a user outside the current tenant.**
-  Enforced by the `users` and `memberships` policies, not by a query filter.
+- **This product stores no client files.** The workspace, the S3 bucket and the
+  signed-URL path were removed on 21 September 2026. If file storage ever
+  returns, the rule it returns under is in `docs/brief-amendments.md`, "§9, §10
+  and §14 — the workspace and the delivery view are removed": keys prefixed
+  `tenant/{tenant_id}/`, no public objects, every URL signed and
+  authorization-checked.
+- **No screen may surface a user outside the current tenant.** Enforced by the
+  `users` and `memberships` policies, not by a query filter.
 - **A missing data dependency is an explicit blocked state in the UI**, not a
   silent gap. A visible dependency is a conversation; a gap looks like failure.
 
@@ -123,7 +132,7 @@ The short version:
 - No horizontal page scroll at any width down to 375px. Anything wide scrolls
   inside its own card, and the scroll container needs `min-w-0` or it widens the
   page instead.
-- No celebration states anywhere. The delivery view is a compliance record.
+- No celebration states anywhere. These screens are a record, not a report card.
 
 **Attribution on screen.** The separation rule is not only arithmetic; it
 governs layout, because a table puts two numbers on one line and the reader

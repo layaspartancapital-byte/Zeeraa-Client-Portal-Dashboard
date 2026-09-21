@@ -4,5 +4,4 @@ export * from './provenance';
 export * from './ads';
 export * from './crm';
 export * from './config';
-export * from './delivery';
-export * from './workspace';
+export * from './notifications';

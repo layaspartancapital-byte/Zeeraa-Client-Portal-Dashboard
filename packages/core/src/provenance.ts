@@ -21,15 +21,6 @@ export type Provenance =
       recordedByUserId: string;
       recordedByName: string;
       recordedAt: Date;
-      activityLogId?: string;
-    }
-  | {
-      kind: 'derived_from_assets';
-      /** The approved artifacts standing behind the figure. */
-      assetIds: string[];
-      assetCount: number;
-      /** Timestamp of the most recent contributing publication. */
-      asOf: Date;
     };
 
 export type Sourced<T> = {
@@ -58,7 +49,5 @@ export function provenanceLabel(source: Provenance): string {
       return `Synced from ${source.platform}`;
     case 'manual':
       return `Recorded by ${source.recordedByName}`;
-    case 'derived_from_assets':
-      return `${source.assetCount} approved ${source.assetCount === 1 ? 'asset' : 'assets'}`;
   }
 }

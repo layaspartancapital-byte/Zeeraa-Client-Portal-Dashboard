@@ -145,7 +145,6 @@ export function tenantRoster(session: TenantSession) {
         title: schema.users.title,
         image: schema.users.image,
         role: schema.memberships.role,
-        slackUserId: schema.memberships.slackUserId,
       })
       .from(schema.memberships)
       .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))

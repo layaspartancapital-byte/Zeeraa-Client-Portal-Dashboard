@@ -7,9 +7,7 @@ import {
   Building2,
   ChevronsLeft,
   ChevronsRight,
-  ClipboardCheck,
   Filter,
-  KanbanSquare,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -53,16 +51,9 @@ const GROUPS: {
       { segment: 'funnel', label: 'Funnel', icon: Filter },
     ],
   },
-  // Platforms is spliced in below, between Performance and Delivery: its items
+  // Platforms is spliced in below, between Performance and Setup: its items
   // are the channels this client has actually connected, which is data rather
   // than a constant.
-  {
-    label: 'Delivery',
-    items: [
-      { segment: 'delivery', label: 'Delivery', icon: ClipboardCheck },
-      { segment: 'workspace', label: 'Workspace', icon: KanbanSquare },
-    ],
-  },
   {
     label: 'Setup',
     items: [

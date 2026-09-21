@@ -40,7 +40,6 @@ import {
   ingestionStart,
   loadMetrics,
   minRateDenominator,
-  unreadNotifications,
   windowBuckets,
   type WindowBucket,
 } from '@/lib/dashboard';
@@ -108,7 +107,6 @@ export default async function Performance({
     buckets,
     metrics,
     quality,
-    unread,
     ingestion,
     rateFloor,
     submissions,
@@ -118,7 +116,6 @@ export default async function Performance({
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
     loadMetrics(session),
     dataQuality(session),
-    unreadNotifications(session),
     ingestionStart(session),
     minRateDenominator(session),
     submissionReport(session, range),
@@ -301,7 +298,6 @@ export default async function Performance({
         tenant={session.tenant}
         viewer={session.viewer}
         title="Monthly performance"
-        unread={unread}
       >
         <MonthSelect base={base} params={active} months={monthOptions} active={monthPick} />
         {!monthPick && (

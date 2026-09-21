@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 19 September 2026, end of session.**
+**Last updated: 21 September 2026, end of session.**
 
 ---
 
@@ -23,12 +23,17 @@ deltas, no explanatory prose anywhere on a dashboard screen. The departures from
 v2, and the product rules that survived it unchanged, are in
 `docs/brief-amendments.md`, "§12 — replaced in full by design spec v2".
 
-Executive, monthly performance, funnel, delivery, connections, reconciliation
-and the workspace are all built. **Delivery tracking is real as of 19 September
-2026**: work is uploaded to S3, tagged to one of the eleven configured
-commitments and a period, approved or sent back by the client, and approved
-artifacts are what the delivered figure counts. Mentions, the activity rail and
-asset comments are still out — they are collaboration, not delivery tracking.
+Executive, monthly performance, funnel, platform pages, connections and
+reconciliation are built.
+
+**The workspace and the delivery view were removed on 21 September 2026**, the
+day after delivery tracking was finished. Zeeraa's delivery flow happens in
+Slack and Drive, and an empty workspace is worse than no workspace: five empty
+board columns and eleven commitments reading `Not recorded` is the shape of a
+client being failed, not of a feature going unused. The screens, the API routes,
+the S3 path and nine tables are gone — see
+`docs/brief-amendments.md`, "§9, §10 and §14 — the workspace and the delivery
+view are removed", and the section below.
 
 ## Done
 
@@ -193,11 +198,10 @@ outcome in the UI rather than that an event was queued.
    and `ALOWARE_WEBHOOK_SECRET` likewise for the call webhook — both fail
    closed, so an unset secret is a refusing endpoint rather than an open one.
    `NEXTAUTH_URL` and the OAuth and Resend credentials are still unset for
-   production, as are `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and
-   `S3_SECRET_ACCESS_KEY` — without those four the workspace renders
-   `Storage not configured` and the upload endpoints answer 503 naming them,
-   rather than failing obscurely. `BLOB_READ_WRITE_TOKEN` and `INNGEST_*` are no
-   longer used by anything.
+   production. `S3_*`, `SLACK_*`, `BLOB_READ_WRITE_TOKEN` and `INNGEST_*` are no
+   longer used by anything — the `S3_*` four were never set, and the workspace
+   they served is gone. **They can be deleted from the Vercel project**; nothing
+   reads them and an unused secret is one more thing to rotate.
 
 ## Three unmeasured items became measured (18 September 2026)
 
@@ -336,7 +340,13 @@ upsert key includes the account identifier, so renaming one inserted a second
 row and left the stale one rendering — now pruned, but only for rows holding no
 credentials.
 
-## The workspace, and delivery counts that come from it (19 September 2026)
+## The workspace, and delivery counts that come from it (19 September 2026 — removed 21 September)
+
+**Everything in this section was removed on 21 September 2026.** It is kept
+because the two bugs at the end of it are worth not re-introducing, and because
+the reasoning about what "delivered" means is the reasoning that would have to
+be redone if this ever returns. See "The workspace and delivery view are
+removed" below for what actually stands today.
 
 Delivery read `Not recorded` against all eleven commitments because nothing
 wrote to `assets` or `deliverable_records`. The loop is now closed: upload →
@@ -393,6 +403,86 @@ its reason, a v2 replacing a sent-back v1, the delivered figure moving 1 → 2 a
 not 1 → 3, the object returning 403 to an anonymous GET, and the signed
 redirect serving the file. Screenshots at 1440px and 390px, no horizontal page
 scroll at either.
+
+## The workspace and delivery view are removed (21 September 2026)
+
+Zeeraa's delivery flow happens in Slack and Drive. The workspace was built for a
+flow that does not exist, and an empty one is worse than none: the board reads
+`Empty` in all five columns and eleven commitments read `Not recorded`, which a
+client reads as being failed rather than as a feature going unused.
+
+Removed: the `/{tenant}/delivery` and `/{tenant}/workspace` screens, the three
+`/api/assets` routes, the `delivery` table of the CSV export, `lib/storage.ts`
+and the whole S3 presign path, both `@aws-sdk` packages, `packages/core`'s
+`delivery.ts`, and the sidebar group that held the two screens.
+
+**Nine tables dropped**, in migration `0016_remove_workspace_and_delivery.sql`:
+`assets`, `asset_types`, `asset_comments`, `deliverable_commitments`,
+`deliverable_records`, `sla_commitments`, `sla_events`, `mentions` and
+`activity_log`. With them go `app.enforce_asset_review_authority()` and its
+trigger, five enum types, `memberships.slack_user_id`, and the
+`sla_compliance` and `delivery_completion` rows in `tenant_metrics`, whose
+formulas named functions that no longer exist.
+
+**The activity log went too.** It was checked first: `lib/assets.ts` was its
+only writer and nothing read it, so after the workspace it would have been an
+empty table with two restrictive policies and a mutation guarding it. Dropped on
+the client's decision. `0000` has its shape and `0001` has the append-only
+policies if an auditable act ever returns.
+
+**The notification bell is gone**, because its only destination was the
+workspace and nothing has ever written a `notifications` row. The table, its
+policies and its grants stay: it is a table waiting for a feature rather than
+the remains of one.
+
+**Deploy order: code first, schema second.** The reverse of an addition. Between
+the deploy and the migration the running application is simply not asking for
+those tables; do it the other way and it spends the gap querying tables that
+have already been dropped.
+
+**One thing in that migration is worth reading before writing another like it.**
+The `DELETE` against `tenant_metrics` is bracketed by `NO FORCE` / `FORCE ROW
+LEVEL SECURITY`. `tenant_metrics` carries FORCE and its policies name
+`zeeraa_app`, `zeeraa_jobs` and `zeeraa_maintenance` — not the owner role
+migrations run as — so without the bracket the owner is default-denied, the
+statement matches zero rows, reports `DELETE 0` and the migration succeeds
+having changed nothing. It did exactly that on the first run, locally, and the
+only reason it was caught is that the row count was checked afterwards. `ALTER
+TABLE` takes ACCESS EXCLUSIVE, so no session sees the table unforced.
+
+Verified: `pnpm -r typecheck` clean, 502 tests across 34 files green, a fresh
+database migrated 0000 → 0016 with every remaining table still carrying RLS, and
+the mutation suite re-run against a throwaway database — **24 of 24 killed**,
+none surviving and none inapplicable. Seven mutations went with the tables they
+guarded: the two `assets` policy mutations, the review trigger, the approval
+role check, the version-chain index, the `deliverable_records` upsert key and
+the `activity_log` append-only pair.
+
+### A trap in `.env` that cost half an hour
+
+`.env` defines `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT` **twice** — local
+first, then Neon further down, and the second wins. Sourcing the whole file
+before `pnpm test` therefore points the ingestion and maintenance roles at
+production while the owner seeds locally, and five isolation tests fail on
+foreign keys to a tenant that exists only in the local database.
+
+Nothing was written to Neon: every fixture insert failed on
+`*_tenant_id_tenants_id_fk` and rolled back, confirmed afterwards by querying
+production for the fixture rows. But the failure mode is a test suite pointed
+half at production and half at localhost, which is worth knowing about.
+
+Run the suite the way `CLAUDE.md` documents it, and pass the local role URLs
+explicitly if they are needed:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa \
+DATABASE_URL_JOBS=postgres://zeeraa_jobs_runner:...@localhost:5433/zeeraa \
+DATABASE_URL_MAINT=postgres://zeeraa_maint:...@localhost:5433/zeeraa \
+pnpm test
+```
+
+The duplicate keys in `.env` should be collapsed; that file is not in the
+repository, so it has to be done by hand.
 
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
@@ -728,7 +818,8 @@ Done:
     switcher; a per-page 64px top bar carrying the breadcrumb, title, date
     range, attribution toggle, export, print and "Sync now".
   - `components/ui` — `Card`, `CardHeader`, `EmptyLine`, `Badge`, `Delta`,
-    `Progress`, `Ring`, `InfoTip`, `Segmented`, `Button`, `MethodDrawer`.
+    `Progress`, `InfoTip`, `Segmented`, `Button`, `MethodDrawer`. (`Ring` went
+    with the delivery view on 21 September 2026; it had one call site.)
   - `components/charts` — `AreaSeries`, `StackedBars`, `RangeBars`,
     `DivergingBars`, `MiniChart`, and `chart-kit` holding the palette, the
     tooltip and the animate-once rule.

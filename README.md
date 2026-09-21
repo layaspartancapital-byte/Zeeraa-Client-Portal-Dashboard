@@ -1,6 +1,6 @@
 # Zeeraa client performance platform
 
-A multi-tenant marketing performance and delivery platform. Spartan Capital
+A multi-tenant marketing performance and attribution platform. Spartan Capital
 Group is tenant #1, not the only tenant: nothing client-specific lives in code,
 only in configuration rows.
 
@@ -29,10 +29,16 @@ click ID → opportunity → stage timestamps → funded amount     (Salesforce)
 | — | Ingestion: Inngest jobs, Postgres writer, click-ID backfill | Done |
 | 3 | The join and the executive view — Google Ads, metric definitions, provenance | Not started |
 | 4 | Monthly performance and funnel | Not started |
-| 5 | Content and approval workspace | Not started |
+| 5 | Content and approval workspace | **Removed** — see below |
 | 6 | Notifications | Not started |
 | 7 | Remaining connectors | Not started |
 | 8 | Hardening, print, CSV, second tenant | Not started |
+
+**Phase 5 was built and then removed**, on 21 September 2026. Zeeraa's delivery
+flow happens in Slack and Drive, and an empty workspace reads as a client being
+failed rather than as a feature going unused. The reasoning, and everything the
+removal took with it, is in `docs/brief-amendments.md`, "§9, §10 and §14 — the
+workspace and the delivery view are removed".
 
 What phase 1 deliberately does **not** include: any ingested data. Every screen
 that would show a figure renders an explicit empty state naming what is missing,
@@ -75,8 +81,8 @@ Ingestion connects as **`zeeraa_jobs_runner`**, a fifth role. A sync writes on
 nobody's behalf, so it cannot use the user-scoped policies — but giving it the
 maintenance connection would let one connector bug reach every tenant at once.
 Instead its policies scope it to a tenant without a user, and grant it only the
-tables ingestion writes: no assets, no comments, no notifications, no
-memberships, no identity tables, and no maintenance door.
+tables ingestion writes: no notifications, no memberships, no identity tables,
+and no maintenance door.
 
 The converted-Lead backfill is a first-class, re-runnable sync step rather than
 a script. It recovers click IDs for opportunities that converted before the
@@ -227,8 +233,8 @@ failure mode, rather than a quietly unprotected table.
 ## Adding a tenant
 
 A tenant is a seed file implementing `TenantSeed` plus one call to
-`applyTenantSeed`. Funnel stages, metrics, targets, commitments, SLAs, asset
-types and conflicting figures are all rows. The funnel engine reads
+`applyTenantSeed`. Funnel stages, metrics, targets and conflicting figures are
+all rows. The funnel engine reads
 `funnel_stages`, so a tenant running Lead → Demo → Trial → Subscription renders
 on the same screens with no code change.
 

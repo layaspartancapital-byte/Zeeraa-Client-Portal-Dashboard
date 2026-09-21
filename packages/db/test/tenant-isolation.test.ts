@@ -254,7 +254,7 @@ describe('a client admin in tenant A', () => {
   });
 });
 
-describe('the mention picker boundary', () => {
+describe('the user boundary', () => {
   it('never surfaces a user from another tenant', async () => {
     const visible = await withTenant(
       { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
@@ -413,42 +413,6 @@ describe('a Zeeraa admin', () => {
       app.db,
     );
     expect(rows).toHaveLength(0);
-  });
-});
-
-describe('the audit trail', () => {
-  it('rejects updates and deletes on activity_log', async () => {
-    const ctx = { tenantId: fx.tenantA, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' as const };
-    await withTenant(
-      ctx,
-      (tx) =>
-        tx.insert(schema.activityLog).values({
-          tenantId: fx.tenantA,
-          actorUserId: fx.zeeraaAdmin,
-          verb: 'tested',
-          objectType: 'test',
-        }),
-      app.db,
-    );
-
-    const updated = await withTenant(
-      ctx,
-      (tx) =>
-        tx
-          .update(schema.activityLog)
-          .set({ verb: 'rewrote history' })
-          .where(eq(schema.activityLog.tenantId, fx.tenantA))
-          .returning(),
-      app.db,
-    );
-    expect(updated).toHaveLength(0);
-
-    const deleted = await withTenant(
-      ctx,
-      (tx) => tx.delete(schema.activityLog).returning(),
-      app.db,
-    );
-    expect(deleted).toHaveLength(0);
   });
 });
 

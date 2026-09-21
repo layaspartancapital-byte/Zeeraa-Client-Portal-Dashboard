@@ -31,7 +31,6 @@ import {
   ingestionStart,
   loadMetrics,
   minRateDenominator,
-  unreadNotifications,
   windowBuckets,
   type WindowBucket,
 } from '@/lib/dashboard';
@@ -109,7 +108,6 @@ export default async function ExecutiveView({
     heroBuckets,
     metrics,
     quality,
-    unread,
     ingestion,
     rateFloor,
     submissions,
@@ -123,7 +121,6 @@ export default async function ExecutiveView({
     windowBuckets(session, trailingMonths(today, heroMonths), 'month', model),
     loadMetrics(session),
     dataQuality(session),
-    unreadNotifications(session),
     ingestionStart(session),
     minRateDenominator(session),
     submissionReport(session, range),
@@ -255,7 +252,7 @@ export default async function ExecutiveView({
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive" unread={unread}>
+      <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive">
         <Segmented
           label="Date range"
           active={String(days)}

@@ -7,7 +7,7 @@ import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
 import { DataQualityCard } from '@/components/DataQualityCard';
-import { dataQuality, unreadNotifications } from '@/lib/dashboard';
+import { dataQuality } from '@/lib/dashboard';
 import { queryTenant, requireRole } from '@/lib/tenant';
 
 export const metadata = { title: 'Reconciliation' };
@@ -26,7 +26,7 @@ export default async function Admin({ params }: { params: Promise<{ tenant: stri
   const { tenant: slug } = await params;
   const session = await requireRole(slug, canAdministerTenant);
 
-  const [items, metrics, quality, unread] = await Promise.all([
+  const [items, metrics, quality] = await Promise.all([
     queryTenant(session, (tx) =>
       tx
         .select()
@@ -42,7 +42,6 @@ export default async function Admin({ params }: { params: Promise<{ tenant: stri
         .orderBy(asc(schema.tenantMetrics.key)),
     ),
     dataQuality(session),
-    unreadNotifications(session),
   ]);
 
   const unresolved = items.filter((item) => !item.resolvedValue);
@@ -53,7 +52,6 @@ export default async function Admin({ params }: { params: Promise<{ tenant: stri
         tenant={session.tenant}
         viewer={session.viewer}
         title="Reconciliation"
-        unread={unread}
       >
         <PrintButton />
       </TopBar>

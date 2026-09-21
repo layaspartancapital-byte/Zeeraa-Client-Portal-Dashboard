@@ -12,8 +12,6 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
-    "@aws-sdk/client-s3": "^3.1135.0",
-    "@aws-sdk/s3-request-presigner": "^3.1135.0",
     "@zeeraa/core": "workspace:*",
     "@zeeraa/db": "workspace:*",
     "@zeeraa/jobs": "workspace:*",
