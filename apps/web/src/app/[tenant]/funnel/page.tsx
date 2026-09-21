@@ -5,12 +5,13 @@ import {
   formatRate,
   tenantDay,
   trailingMonths,
-  trailingWindow,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
@@ -45,11 +46,7 @@ const MODELS = [
   { key: 'first_touch', label: 'First touch' },
 ];
 
-const WINDOWS = [
-  { key: '30', label: '30d' },
-  { key: '90', label: '90d' },
-  { key: '365', label: '365d' },
-];
+
 
 /**
  * The funnel.
@@ -70,16 +67,23 @@ export default async function Funnel({
   searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{ channel?: string; model?: string; days?: string; dim?: string }>;
+  searchParams: Promise<{
+    channel?: string;
+    model?: string;
+    from?: string;
+    to?: string;
+    preset?: string;
+    /** Read only so a link made before the date picker existed still works. */
+    days?: string;
+    dim?: string;
+  }>;
 }) {
   const { tenant: slug } = await params;
   const query = await searchParams;
   const session = await requireTenant(slug);
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
-  const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
-  const today = tenantDay(new Date(), session.tenant.timezone);
-  const range = trailingWindow(today, days);
+  const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
 
   const [data, quality, buckets, metrics, submissions, leakageTolerance, calls] =
     await Promise.all([
@@ -187,7 +191,17 @@ export default async function Funnel({
   ];
 
   const base = `/${slug}/funnel`;
-  const active = { channel: population.key, model, days: String(days), dim: dimension.key };
+  const { preserve, presetHref } = rangeLinks(base, {
+    channel: population.key,
+    model,
+    dim: dimension.key,
+  });
+  const active = {
+    channel: population.key,
+    model,
+    dim: dimension.key,
+    ...rangeParams(range),
+  };
 
   return (
     <>
@@ -202,12 +216,18 @@ export default async function Funnel({
           active={model}
           options={segments(base, active, 'model', MODELS)}
         />
-        <Segmented
-          label="Window"
-          active={String(days)}
-          options={segments(base, active, 'days', WINDOWS)}
+        <DateRangePicker
+          range={range}
+          preset={preset}
+          presetHref={presetHref}
+          preserve={preserve}
+          problem={problem}
+          earliest={earliest}
+          today={today}
         />
-        <ButtonLink href={`/api/export/${slug}/funnel?model=${model}&days=${days}`}>
+        <ButtonLink
+          href={`/api/export/${slug}/funnel?${new URLSearchParams({ model, ...rangeParams(range) }).toString()}`}
+        >
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>

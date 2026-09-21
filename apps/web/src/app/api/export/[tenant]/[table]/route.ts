@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { tenantDay, trailingWindow, type AttributionModel } from '@zeeraa/core';
+import { resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core';
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
 import { requireTenant } from '@/lib/tenant';
@@ -22,9 +22,23 @@ export async function GET(
   const search = request.nextUrl.searchParams;
   const model: AttributionModel =
     search.get('model') === 'first_touch' ? 'first_touch' : 'last_touch';
-  const days = Number(search.get('days')) > 0 ? Math.min(Number(search.get('days')), 365) : 90;
+  /**
+   * The same resolution the screens use, so an export matches the page it was
+   * taken from — including a legacy `?days=` link somebody bookmarked.
+   *
+   * `earliest` is null here rather than queried: the only preset that needs it
+   * is "All time", and the pages link to exports with explicit `from`/`to`
+   * rather than a preset name.
+   */
   const today = tenantDay(new Date(), session.tenant.timezone);
-  const range = trailingWindow(today, days);
+  const { range } = resolveDateRange({
+    from: search.get('from'),
+    to: search.get('to'),
+    preset: search.get('preset'),
+    days: search.get('days'),
+    today,
+    earliest: null,
+  });
 
   if (table === 'performance' || table === 'funnel') {
     const data = await monthlyPerformance(session, range, model);

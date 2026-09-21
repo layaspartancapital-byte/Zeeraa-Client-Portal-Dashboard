@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { formatCurrency, type ChannelCostPerDeal, type ImprovementDirection, type TargetGap } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Delta, NoDelta } from '@/components/ui/Delta';
@@ -78,7 +77,6 @@ export function HeroCard({
   currency,
   direction,
   comparisonUnavailable = 'no comparable previous period',
-  periodToggle,
   definition,
   blendedNote,
 }: {
@@ -88,7 +86,6 @@ export function HeroCard({
   currency: string;
   direction: ImprovementDirection | null;
   comparisonUnavailable?: string;
-  periodToggle: ReactNode;
   definition: string | null;
   /** Why no blended figure appears. Carried in the ⓘ, never on the card. */
   blendedNote: string;
@@ -108,7 +105,6 @@ export function HeroCard({
             {blendedNote}
           </InfoTip>
         }
-        controls={periodToggle}
       />
 
       <div

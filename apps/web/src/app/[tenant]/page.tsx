@@ -10,14 +10,16 @@ import {
   formatRate,
   previousRange,
   tenantDay,
+  granularityFor,
   trailingMonths,
-  trailingWindow,
   type AttributionModel,
 } from '@zeeraa/core';
 import { canAdministerTenant } from '@zeeraa/core';
 import { Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Delta, NoDelta } from '@/components/ui/Delta';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
@@ -48,27 +50,6 @@ export async function generateMetadata({ params }: { params: Promise<{ tenant: s
   const { tenant } = await requireTenant(slug);
   return { title: { absolute: `${tenant.name} · Executive` } };
 }
-
-const WINDOWS = [
-  { key: '30', label: '30d' },
-  { key: '90', label: '90d' },
-  { key: '365', label: '365d' },
-];
-
-/**
- * The hero chart's own length, in months.
- *
- * Separate from the page's date range, and in months rather than days, because
- * the north star is a ratio with one or two funded deals in its numerator each
- * month: bucketed by week it is a line that is mostly gaps, and a 30-day
- * version of it is two points. The page range drives every figure; this drives
- * the trend behind the biggest one.
- */
-const HERO_MONTHS = [
-  { key: '3', label: '3m' },
-  { key: '6', label: '6m' },
-  { key: '12', label: '12m' },
-];
 
 /**
  * The executive view.
@@ -101,21 +82,24 @@ export default async function ExecutiveView({
   searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{ days?: string; hero?: string; model?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    to?: string;
+    preset?: string;
+    /** Read only so a link made before the date picker existed still works. */
+    days?: string;
+    model?: string;
+  }>;
 }) {
   const { tenant: slug } = await params;
   const query = await searchParams;
   const session = await requireTenant(slug);
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
-  const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
-  // Six months by default. Twelve leaves two thirds of the plot area blank
-  // until a year of spend has been ingested, and the blank is honest but it is
-  // not informative.
-  const heroMonths = HERO_MONTHS.some((m) => m.key === query.hero) ? Number(query.hero) : 6;
-
-  const today = tenantDay(new Date(), session.tenant.timezone);
-  const range = trailingWindow(today, days);
+  const { range, preset, problem, today, earliest, ingestion } = await resolvePageRange(
+    session,
+    query,
+  );
   const prior = previousRange(range);
   const currency = session.tenant.currency;
 
@@ -126,7 +110,6 @@ export default async function ExecutiveView({
     heroBuckets,
     metrics,
     quality,
-    ingestion,
     ramp,
     rateFloor,
     submissions,
@@ -137,10 +120,16 @@ export default async function ExecutiveView({
     // sparkline of three weeks says nothing, and the figure above it already
     // carries the range.
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
-    windowBuckets(session, trailingMonths(today, heroMonths), 'month', model),
+    /**
+     * The hero series follows the page range now that the chart has no control
+     * of its own. A short range therefore draws a short series — a week-long
+     * range is a couple of points — which is the honest consequence of one date
+     * control rather than two, and `MiniChart` already renders a single point
+     * as a point rather than as a line.
+     */
+    windowBuckets(session, range, granularityFor(range), model),
     loadMetrics(session),
     dataQuality(session),
-    ingestionStart(session),
     engagementRamp(session),
     minRateDenominator(session),
     submissionReport(session, range),
@@ -334,17 +323,26 @@ export default async function ExecutiveView({
   ];
 
   const base = `/${slug}`;
-  const activeParams = { days: String(days), hero: String(heroMonths), model };
+  // Every other filter on this page, carried through the date form and the
+  // preset links so that changing the range does not silently reset them.
+  const { preserve, presetHref } = rangeLinks(base, { model });
+  const activeParams = { ...rangeParams(range), model };
 
   return (
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive">
-        <Segmented
-          label="Date range"
-          active={String(days)}
-          options={segments(base, activeParams, 'days', WINDOWS)}
+        <DateRangePicker
+          range={range}
+          preset={preset}
+          presetHref={presetHref}
+          preserve={preserve}
+          problem={problem}
+          earliest={earliest}
+          today={today}
         />
-        <ButtonLink href={`/api/export/${slug}/performance?model=${model}&days=${days}`}>
+        <ButtonLink
+          href={`/api/export/${slug}/performance?${new URLSearchParams(activeParams).toString()}`}
+        >
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>
@@ -366,13 +364,6 @@ export default async function ExecutiveView({
             comparisonUnavailable={notIngested(ingestion.spendFrom)}
             currency={currency}
             direction={costDirection}
-            periodToggle={
-              <Segmented
-                label="Chart period"
-                active={String(heroMonths)}
-                options={segments(base, activeParams, 'hero', HERO_MONTHS)}
-              />
-            }
             definition={metrics.northStar?.definition ?? null}
             blendedNote={BLENDED_NOTE(valueLabel)}
           />

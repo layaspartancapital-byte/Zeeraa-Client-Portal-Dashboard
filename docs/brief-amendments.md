@@ -1832,6 +1832,67 @@ Nothing renders them yet.
 
 ---
 
+## §12 — one date range picker, replacing the window pills
+
+**21 September 2026.** Every screen carried a 30/90/365 segmented pill. It could
+express three periods, all of them trailing today, so "how did August go" had no
+answer and "since the engagement started" had none either. It is now two date
+fields with the common ranges beside them.
+
+- `?from=&to=` in the URL, so a range is bookmarkable, survives a reload, opens
+  in a new tab, and is what the CSV export reads — every property the pill had.
+- **Presets**: Today, 7d, 30d, 90d, MTD, All time. "All time" starts at the
+  first day anything was ingested; with nothing ingested it falls back to 90
+  days rather than starting at the epoch and drawing sixty years of nothing.
+- **The resolved period is stated in words** beneath the control —
+  `Jun 24 – Sep 21, 2026 · 90 days`. A pill saying "90d" does not say which 90
+  days, and the period is the first thing questioned in a meeting.
+
+Resolution lives in `packages/core/src/date-range.ts` because five screens read
+the same params and must not disagree about what they mean.
+
+### A plain GET form
+
+No client state and no server action: submitting navigates to `?from=&to=`,
+which is the same shape the presets link to. It works with JavaScript off, like
+every other form here. The page's other filters travel as hidden inputs — a GET
+form replaces the whole query string, so without them choosing a date would
+silently drop the attribution model or the selected channel.
+
+### What it refuses, and what it does not decide
+
+A reversed pair is **not** swapped. Two dates the wrong way round is as likely
+to be the wrong field filled in as a transposition, so it falls back to 90 days
+and says why in one line. Half a pair, an impossible date (`2026-02-31` — which
+`new Date` would roll into March) and a span over three years are refused the
+same way. The range always resolves to *something*, because a page with no range
+is a blank page.
+
+`?days=` is still read. A bookmark or a saved export URL made before this
+existed keeps meaning what it meant rather than silently resolving to something
+else.
+
+### The hero lost its own toggle
+
+§12's executive hero had a 3m/6m/12m control of its own, because the north star
+is a ratio with one or two funded deals a month and a weekly bucketing of it is
+mostly gaps. That reasoning was sound and the control still had to go: two date
+controls on one page is two answers to "what period am I looking at".
+
+The hero series now follows the page range, bucketed monthly at ten weeks and
+above and weekly below. A short range therefore draws a short series — a
+seven-day range is a couple of points — which is the honest consequence, and
+`MiniChart` already draws a single point as a point rather than as a line.
+
+### Before ingestion, unchanged
+
+A range reaching back before anything was ingested keeps the existing treatment:
+the figure renders "not ingested before 2026-06-20" rather than a zero. Verified
+by asking for January to September and checking that no zero appears where a
+month has no measurement — a bar at the axis is a measurement, and nobody looked.
+
+---
+
 ## §7 and §8 — Meta Ads, at campaign grain, with channel-only attribution
 
 Built 19 September 2026. Meta was scheduled last in the connector order because

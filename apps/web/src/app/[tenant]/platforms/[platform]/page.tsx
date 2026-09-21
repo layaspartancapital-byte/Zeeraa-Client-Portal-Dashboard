@@ -13,13 +13,15 @@ import {
   frequency,
   linkClickShare,
   tenantDay,
-  trailingWindow,
+  rangeLengthDays,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Segmented, segments } from '@/components/ui/Segmented';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
@@ -33,11 +35,7 @@ import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
 
-const WINDOWS = [
-  { key: '30', label: '30d' },
-  { key: '90', label: '90d' },
-  { key: '365', label: '365d' },
-];
+
 
 const SERIES = [
   { key: 'spend', label: 'Spend' },
@@ -90,7 +88,15 @@ export default async function PlatformPage({
   searchParams,
 }: {
   params: Promise<{ tenant: string; platform: string }>;
-  searchParams: Promise<{ days?: string; model?: string; series?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    to?: string;
+    preset?: string;
+    /** Read only so a link made before the date picker existed still works. */
+    days?: string;
+    model?: string;
+    series?: string;
+  }>;
 }) {
   const { tenant: slug, platform } = await params;
   const query = await searchParams;
@@ -104,9 +110,8 @@ export default async function PlatformPage({
   const entry = reporting.find((p) => p.key === platform);
   if (!entry) notFound();
 
-  const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
-  const today = tenantDay(new Date(), session.tenant.timezone);
-  const range = trailingWindow(today, days);
+  const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
+  const days = rangeLengthDays(range);
 
   /*
    * Organic sources take a different page, not the same page with the numbers
@@ -119,6 +124,9 @@ export default async function PlatformPage({
     const seriesKey = seriesOptions.some((s) => s.key === query.series)
       ? query.series!
       : 'primary';
+    // The organic branch returns before the paid-media controls are built, so
+    // it resolves its own links. Same range, different companion params.
+    const organicLinks = rangeLinks(`/${slug}/platforms/${platform}`, { series: seriesKey });
     const view = await organicView(
       session,
       platform as 'ga4' | 'search_console',
@@ -130,8 +138,18 @@ export default async function PlatformPage({
         session={session}
         view={view}
         slug={slug}
-        days={days}
-        windows={WINDOWS}
+        rangeControl={
+          <DateRangePicker
+            range={range}
+            preset={preset}
+            presetHref={organicLinks.presetHref}
+            preserve={organicLinks.preserve}
+            problem={problem}
+            earliest={earliest}
+            today={today}
+          />
+        }
+        rangeParams={rangeParams(range)}
         seriesKey={seriesKey}
         seriesOptions={seriesOptions}
       />
@@ -175,7 +193,8 @@ export default async function PlatformPage({
   const stageWord = (view.outcomes.stageLabel ?? 'funded').toLowerCase();
 
   const base = `/${slug}/platforms/${platform}`;
-  const active = { days: String(days), model, series: seriesKey };
+  const { preserve, presetHref } = rangeLinks(base, { model, series: seriesKey });
+  const active = { ...rangeParams(range), model, series: seriesKey };
 
   const notes: MethodNote[] = [
     {
@@ -237,10 +256,14 @@ export default async function PlatformPage({
   return (
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
-        <Segmented
-          label="Date range"
-          active={String(days)}
-          options={segments(base, active, 'days', WINDOWS)}
+        <DateRangePicker
+          range={range}
+          preset={preset}
+          presetHref={presetHref}
+          preserve={preserve}
+          problem={problem}
+          earliest={earliest}
+          today={today}
         />
         <PrintButton />
       </TopBar>

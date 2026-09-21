@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { formatCount, formatRate, ctr } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -23,22 +24,24 @@ export function OrganicPlatformView({
   session,
   view,
   slug,
-  days,
-  windows,
+  rangeControl,
+  rangeParams,
   seriesKey,
   seriesOptions,
 }: {
   session: TenantSession;
   view: OrganicView;
   slug: string;
-  days: number;
-  windows: { key: string; label: string }[];
+  /** The page's date picker, rendered by the page that resolved the range. */
+  rangeControl: ReactNode;
+  /** The resolved range as params, so the series toggle keeps the period. */
+  rangeParams: Record<string, string>;
   seriesKey: string;
   seriesOptions: { key: string; label: string }[];
 }) {
   const isGa4 = view.kind === 'ga4';
   const base = `/${slug}/platforms/${view.kind}`;
-  const active = { days: String(days), series: seriesKey };
+  const active = { ...rangeParams, series: seriesKey };
   const g = view.ga4;
   const s = view.searchConsole;
 
@@ -77,11 +80,7 @@ export function OrganicPlatformView({
   return (
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
-        <Segmented
-          label="Date range"
-          active={String(days)}
-          options={segments(base, active, 'days', windows)}
-        />
+        {rangeControl}
         <PrintButton />
       </TopBar>
 

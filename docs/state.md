@@ -845,6 +845,37 @@ funded-deal targets. `engagement_targets` has a nullable column for each and
 only M1's budget ($30,000) has been supplied — the rest await the model file
 rather than being invented. Nothing renders them yet.
 
+## One date range picker, replacing the window pills (21 September 2026)
+
+The 30/90/365 pill on every screen is gone. In its place: two date fields, the
+presets Today / 7d / 30d / 90d / MTD / All time, and the resolved period in
+words — `Jun 24 – Sep 21, 2026 · 90 days`. Reasoning in
+`docs/brief-amendments.md`, "§12 — one date range picker, replacing the window
+pills".
+
+- `?from=&to=` drives the executive, monthly performance, funnel and both
+  platform views, and the CSV export links carry it.
+- A plain GET form, so it works with JavaScript off; the page's other filters
+  travel as hidden inputs so choosing a date cannot drop the attribution model.
+- `?days=` is still honoured, so older bookmarks and saved export URLs keep
+  meaning what they meant.
+- **The executive hero's 3m/6m/12m toggle is removed** — one date control per
+  page. The hero series follows the page range now, monthly at ten weeks and
+  above, weekly below.
+- A range reaching before ingestion keeps the "not ingested before 2026-06-20"
+  treatment rather than drawing zeros.
+
+Refusals are explicit rather than guessed: a reversed pair is not swapped (as
+likely to be the wrong field filled in as a transposition), and half a pair, an
+impossible date and a span over three years all fall back to 90 days with one
+line saying why.
+
+Verified in a browser across all five screens: presets keep the page's other
+filters, an exact range typed into the fields lands as `?from=&to=`, a range
+back to January keeps the not-ingested treatment with no zeros, a reversed pair
+falls back with its message, `?days=30` still resolves to 30 days, and the
+export href carries the range. No horizontal scroll at 1600px or 375px.
+
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
 Neon carries the full 90 days as of 19 September 2026. The three passes below

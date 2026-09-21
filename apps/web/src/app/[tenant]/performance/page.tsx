@@ -11,13 +11,14 @@ import {
   previousRange,
   tenantDay,
   trailingMonths,
-  trailingWindow,
   type AttributionModel,
   type DateRange,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Delta, NoDelta } from '@/components/ui/Delta';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { ProvisionalBadge } from '@/components/ui/Badge';
@@ -53,11 +54,7 @@ const MODELS = [
   { key: 'first_touch', label: 'First touch' },
 ];
 
-const WINDOWS = [
-  { key: '30', label: '30d' },
-  { key: '90', label: '90d' },
-  { key: '365', label: '365d' },
-];
+
 
 const COMPARE = [
   { key: 'previous', label: 'Previous period' },
@@ -77,24 +74,40 @@ export default async function Performance({
   searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{ model?: string; days?: string; month?: string; compare?: string }>;
+  searchParams: Promise<{
+    model?: string;
+    from?: string;
+    to?: string;
+    preset?: string;
+    /** Read only so a link made before the date picker existed still works. */
+    days?: string;
+    month?: string;
+    compare?: string;
+  }>;
 }) {
   const { tenant: slug } = await params;
   const query = await searchParams;
   const session = await requireTenant(slug);
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
-  const days = WINDOWS.some((w) => w.key === query.days) ? Number(query.days) : 90;
   const compare = COMPARE.some((c) => c.key === query.compare) ? query.compare! : 'previous';
 
-  const today = tenantDay(new Date(), session.tenant.timezone);
+  const page = await resolvePageRange(session, query);
+  const { today, earliest, ingestion, problem } = page;
   const monthPick = /^\d{4}-\d{2}$/.test(query.month ?? '') ? query.month! : null;
 
-  // A named month or a trailing window. One range drives every figure on the
-  // screen, so nothing here can be reading a different period from its neighbour.
-  const range: DateRange = monthPick
-    ? clip(monthRange(monthPick), today)
-    : trailingWindow(today, days);
+  /**
+   * A named month or the picked range. One range drives every figure on the
+   * screen, so nothing here reads a different period from its neighbour.
+   *
+   * The month selector is kept beside the date picker because it does
+   * something the picker cannot: it also switches the baseline to the previous
+   * *month* rather than the preceding equal-length window. It is a shortcut
+   * with comparison semantics, not a second date control — picking a range or
+   * a preset clears it, because `month` is absent from the links they build.
+   */
+  const range: DateRange = monthPick ? clip(monthRange(monthPick), today) : page.range;
+  const preset = monthPick ? null : page.preset;
 
   const baseline: DateRange =
     compare === 'year' ? shiftYear(range) : monthPick ? clip(monthRange(previousMonth(monthPick)), today) : previousRange(range);
@@ -107,7 +120,6 @@ export default async function Performance({
     buckets,
     metrics,
     quality,
-    ingestion,
     rateFloor,
     submissions,
   ] = await Promise.all([
@@ -116,7 +128,6 @@ export default async function Performance({
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
     loadMetrics(session),
     dataQuality(session),
-    ingestionStart(session),
     minRateDenominator(session),
     submissionReport(session, range),
   ]);
@@ -282,10 +293,14 @@ export default async function Performance({
   ];
 
   const base = `/${slug}/performance`;
+  // `month` is deliberately absent from what the date controls carry: choosing
+  // a range or a preset means choosing a period, and leaving the month behind
+  // would have it silently win.
+  const { preserve, presetHref } = rangeLinks(base, { model, compare });
   const active = {
     model,
-    days: String(days),
     compare,
+    ...rangeParams(range),
     ...(monthPick ? { month: monthPick } : {}),
   };
 
@@ -299,20 +314,24 @@ export default async function Performance({
         viewer={session.viewer}
         title="Monthly performance"
       >
+        <DateRangePicker
+          range={range}
+          preset={preset}
+          presetHref={presetHref}
+          preserve={preserve}
+          problem={problem}
+          earliest={earliest}
+          today={today}
+        />
         <MonthSelect base={base} params={active} months={monthOptions} active={monthPick} />
-        {!monthPick && (
-          <Segmented
-            label="Window"
-            active={String(days)}
-            options={segments(base, active, 'days', WINDOWS)}
-          />
-        )}
         <Segmented
           label="Attribution model"
           active={model}
           options={segments(base, active, 'model', MODELS)}
         />
-        <ButtonLink href={`/api/export/${slug}/performance?model=${model}&days=${days}`}>
+        <ButtonLink
+          href={`/api/export/${slug}/performance?${new URLSearchParams({ model, ...rangeParams(range) }).toString()}`}
+        >
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>

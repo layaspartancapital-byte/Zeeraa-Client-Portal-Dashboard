@@ -5,6 +5,7 @@ export * from './format';
 export * from './metric-direction';
 export * from './ramp';
 export * from './dates';
+export * from './date-range';
 export * from './decline-reasons';
 export * from './bands';
 export * from './qualification';
