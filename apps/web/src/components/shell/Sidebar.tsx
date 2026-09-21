@@ -13,11 +13,19 @@ import {
   Megaphone,
   Plug,
   Scale,
+  Users,
   Share2,
   TrendingUp,
   X,
 } from 'lucide-react';
-import { canAdministerTenant, canSwitchTenant, isZeeraaRole, ROLE_LABELS } from '@zeeraa/core';
+import {
+  canAdministerTenant,
+  canManageUsers,
+  canSwitchTenant,
+  isZeeraaRole,
+  ROLE_LABELS,
+  type Role,
+} from '@zeeraa/core';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { useShell } from '@/components/shell/shell-state';
 
@@ -31,15 +39,25 @@ import { useShell } from '@/components/shell/shell-state';
  * misreading one for the other is the worst thing this application can do.
  */
 
-const GROUPS: {
+/**
+ * A per-item permission rather than one `adminOnly` flag.
+ *
+ * People is open to both admin roles and Reconciliation is not, so a single
+ * boolean cannot express the rail any more. The predicate is the same function
+ * the page guards itself with, so a link and the screen it opens can never
+ * disagree about who may see it.
+ */
+type NavGroup = {
   label: string;
   items: {
     segment: string;
     label: string;
     icon: typeof LayoutDashboard;
-    adminOnly?: boolean;
+    permitted?: (role: Role) => boolean;
   }[];
-}[] = [
+};
+
+const GROUPS: NavGroup[] = [
   {
     label: 'Overview',
     items: [{ segment: '', label: 'Executive', icon: LayoutDashboard }],
@@ -57,8 +75,9 @@ const GROUPS: {
   {
     label: 'Setup',
     items: [
-      { segment: 'connections', label: 'Connections', icon: Plug, adminOnly: true },
-      { segment: 'admin', label: 'Reconciliation', icon: Scale, adminOnly: true },
+      { segment: 'people', label: 'People', icon: Users, permitted: canManageUsers },
+      { segment: 'connections', label: 'Connections', icon: Plug, permitted: canAdministerTenant },
+      { segment: 'admin', label: 'Reconciliation', icon: Scale, permitted: canAdministerTenant },
     ],
   },
 ];
@@ -93,7 +112,7 @@ export function Sidebar({
   const { collapsed, setCollapsed, drawerOpen, setDrawerOpen } = useShell();
   const pathname = usePathname();
 
-  const withPlatforms =
+  const withPlatforms: NavGroup[] =
     platforms.length === 0
       ? GROUPS
       : [
@@ -109,14 +128,13 @@ export function Sidebar({
           ...GROUPS.slice(2),
         ];
 
-  // Client roles never see Setup at all — not the items and not the heading,
-  // which would otherwise advertise a section they cannot open.
+  // A group whose every item is filtered away loses its heading too, which
+  // would otherwise advertise a section with nothing in it. A client viewer
+  // sees no Setup heading at all; a client admin sees it with People alone.
   const groups = withPlatforms
     .map((group) => ({
       ...group,
-      items: group.items.filter(
-        (item) => !('adminOnly' in item && item.adminOnly) || canAdministerTenant(tenant.role),
-      ),
+      items: group.items.filter((item) => !item.permitted || item.permitted(tenant.role)),
     }))
     .filter((group) => group.items.length > 0);
 

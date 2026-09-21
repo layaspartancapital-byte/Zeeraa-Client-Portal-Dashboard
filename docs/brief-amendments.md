@@ -1487,6 +1487,124 @@ anywhere in the migration rolls back with FORCE still on.
 
 ---
 
+## §11 and §14 — sign-in is a password, and accounts are created by an admin
+
+**21 September 2026.** §11 specifies a magic link over Resend, with Google as a
+second provider, and §14 names `RESEND_API_KEY`, `EMAIL_FROM`,
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the Auth.js secrets. All of it is
+removed. Sign-in is an email address and a password; an admin creates the
+account, sets the first password and passes it on out of band.
+
+**No email leaves this product now.** That is the requirement, not a consequence
+of it: the client does not want a mailbox in the trust path, and a magic link
+makes whoever controls the inbox the account holder.
+
+### What replaced it
+
+| | |
+| --- | --- |
+| Credential | argon2id, 19 MiB / t=2 / p=1, PHC format, in `users.password_hash` |
+| Session | a row in `sessions`, named by a 256-bit opaque cookie |
+| First login | `users.must_change_password`, enforced in `requireTenant` |
+| Reset | an admin issues a new password and every session of that user is closed |
+| Recovery | none — there is no mailbox to recover through |
+
+`next-auth` and `@auth/drizzle-adapter` are gone with the providers. With only
+a password left they were carrying a cookie and a session lookup, and **Auth.js
+does not support the Credentials provider with database sessions at all** — it
+requires a JWT strategy. Keeping the library would have meant either giving up
+database sessions or minting the session row ourselves anyway. The route that
+used to be `api/dev-signin` already did exactly that, so the mechanism was
+proven before it was adopted.
+
+### Why not a JWT
+
+§12's rule that revoked access takes effect on the next request is the reason
+sessions were rows in the first place, and it survives unchanged. A JWT cannot
+be withdrawn — it is valid until it expires — and the whole shape of this
+product now depends on withdrawal working: initial passwords are read out over
+chat, and an admin reset exists precisely because one may have reached the
+wrong person. A reset that left the old sessions alive would not be a reset.
+
+### Creating an account is not granting access
+
+Two statements, two policies, on purpose. `users_admin_create` checks the
+*actor* — a new row has no membership yet and so nothing tenant-scoped to test —
+and `memberships_admin_write` carries the tenant half. An account with no
+membership can sign in and reaches `/no-access`, exactly as an unrecognised
+magic-link address did.
+
+One consequence worth knowing, because it caught this implementation once: the
+`users` SELECT policy admits only people who share the current tenant, so a
+just-created account is **invisible to the admin who created it** until the
+membership row exists. `INSERT … RETURNING` returns nothing, and so does a
+read-back. `createUser` therefore generates the id itself and detects a
+duplicate address from the `23505` unique violation rather than by looking to
+see whether the row landed — the first version read back, found nothing on the
+happy path, and reported every successful creation as "an account already
+exists".
+
+### Client admins can now grant access, within limits
+
+§11 left account administration entirely with Zeeraa. The client asked for
+client admins to manage their own people, so `memberships_admin_write` is
+widened — and the widening is one clause:
+
+```sql
+OR (app.effective_role() = 'client_admin' AND role IN ('client_admin','client_viewer'))
+```
+
+**`zeeraa_member` and `zeeraa_admin` are the roles `canSwitchTenant` lets out of
+the tenant.** A client admin able to grant one could mint an account that reads
+every other client in the system, so this is privilege escalation rather than a
+matter of taste. Two mutations cover it.
+
+### A self-promotion hole, closed on the way past
+
+`memberships_update_own` exists so somebody can change their own notification
+preferences, and its comment said so. What it allowed was an UPDATE of any
+column of your own row — including `role` — and `app.effective_role()` reads
+`app.membership_index`, which is maintained from that table. `UPDATE memberships
+SET role='zeeraa_admin' WHERE user_id = me` would have taken effect at once.
+
+It was not reachable: nothing in the application wrote to `memberships` at all.
+It is closed now because this work makes the table writable from the application
+for the first time, and a latent hole beside a new write path is not one to
+leave. Row level security cannot restrict columns, so the column grant does:
+
+```sql
+REVOKE UPDATE ON public.memberships FROM zeeraa_app;
+GRANT UPDATE (email_preference, slack_enabled) ON public.memberships TO zeeraa_app;
+```
+
+### One mutation that could not be made to bite
+
+`users_admin_manage` scopes a password reset to somebody in the current tenant.
+Removing that clause survives the whole suite — and that is a fact about the
+schema, not a gap in the tests. `users_visible_within_tenant` already refuses to
+surface a user from another tenant, so the row cannot be found to update and the
+statement reports `UPDATE 0`. Checked against a mutated schema rather than
+assumed. The clause stays, because a policy should read correctly on its own and
+because a future change to the SELECT policy must not silently widen what a
+reset can reach; the mutation now drops the policy outright, which a test does
+catch, and `users-visible-to-all` covers the lock that is actually load-bearing.
+
+### Deploy order
+
+**This migration runs before the deploy** — the reverse of the workspace
+removal. For an addition the schema leads: the code that reads `password_hash`
+cannot ship before the column exists. It is written so the old deploy keeps
+working across the gap; the new columns are nullable or defaulted, and the two
+tables it drops (`accounts`, `verification_tokens`) are only touched by a
+sign-in attempt on the old code.
+
+**Every existing account has a null `password_hash` and cannot sign in.** That
+is deliberate and is the one operational consequence: the four seeded accounts
+authenticated by email and hold no password, so somebody has to set one. There
+is no default password and no grace period.
+
+---
+
 ## §7 and §8 — Meta Ads, at campaign grain, with channel-only attribution
 
 Built 19 September 2026. Meta was scheduled last in the connector order because

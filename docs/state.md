@@ -23,8 +23,13 @@ deltas, no explanatory prose anywhere on a dashboard screen. The departures from
 v2, and the product rules that survived it unchanged, are in
 `docs/brief-amendments.md`, "§12 — replaced in full by design spec v2".
 
-Executive, monthly performance, funnel, platform pages, connections and
-reconciliation are built.
+Executive, monthly performance, funnel, platform pages, connections,
+reconciliation and People are built.
+
+**Sign-in is an email address and a password as of 21 September 2026.** Magic
+links and Google OAuth are gone, and with them `next-auth`. Accounts are created
+by an admin on the People screen, which also resets passwords and removes
+access. See "Sign-in is a password" below.
 
 **The workspace and the delivery view were removed on 21 September 2026**, the
 day after delivery tracking was finished. Zeeraa's delivery flow happens in
@@ -203,11 +208,20 @@ outcome in the UI rather than that an event was queued.
 3. `CRON_SECRET` must be set in Vercel or the hourly endpoint refuses (503),
    and `ALOWARE_WEBHOOK_SECRET` likewise for the call webhook — both fail
    closed, so an unset secret is a refusing endpoint rather than an open one.
-   `NEXTAUTH_URL` and the OAuth and Resend credentials are still unset for
-   production. `S3_*`, `SLACK_*`, `BLOB_READ_WRITE_TOKEN` and `INNGEST_*` are no
-   longer used by anything — the `S3_*` four were never set, and the workspace
-   they served is gone. **They can be deleted from the Vercel project**; nothing
-   reads them and an unused secret is one more thing to rotate.
+
+   **Sign-in needs no environment variable at all** as of 21 September 2026.
+   `DATABASE_URL_AUTH` is the whole configuration. These are now dead and should
+   be **deleted from the Vercel project**: `NEXTAUTH_SECRET`, `NEXTAUTH_URL`,
+   `AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`,
+   `EMAIL_FROM`, and from the earlier removal `S3_*`, `SLACK_*`,
+   `BLOB_READ_WRITE_TOKEN` and `INNGEST_*`. Nothing reads any of them, and an
+   unused secret is one more thing to rotate.
+
+   **`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are the one pair to check
+   before deleting.** They were the sign-in OAuth client. The Google Ads
+   connector holds its own credentials encrypted in the connection row, per
+   tenant, so it does not read these — but confirm against the Vercel project
+   rather than on this note.
 
 ## Three unmeasured items became measured (18 September 2026)
 
@@ -517,6 +531,83 @@ locally (the case that used to fail); sourcing `.env` then `.env.neon` is
 refused by name, citing `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT`; and
 `git check-ignore` confirms `.env`, `.env.neon` and both `.env.local` files are
 ignored while `.env.example` stays tracked.
+
+## Sign-in is a password (21 September 2026)
+
+Magic links over Resend and Google OAuth are removed. Sign-in is an email
+address and a password; an admin creates the account on the new **People**
+screen, the app generates the first password and shows it once, and the person
+is required to replace it before reaching anything. **No email leaves this
+product.** Full reasoning in `docs/brief-amendments.md`, "§11 and §14 — sign-in
+is a password, and accounts are created by an admin".
+
+| | |
+| --- | --- |
+| Credential | argon2id, 19 MiB / t=2 / p=1, PHC format, ~12 ms per hash |
+| Session | a row in `sessions`, 256-bit opaque cookie `zeeraa_session` |
+| First login | `users.must_change_password`, enforced in `requireTenant` |
+| Reset | new password issued, every session of that user closed |
+| Recovery | none — an admin reset is the replacement |
+
+`next-auth` and `@auth/drizzle-adapter` are gone. **Auth.js does not support the
+Credentials provider with database sessions** — it requires a JWT strategy — so
+keeping it would have meant giving up the revocation guarantee or minting the
+session row by hand anyway. The old `api/dev-signin` route already minted one,
+so the mechanism was proven before it was adopted.
+
+**Every pre-existing account has a null `password_hash` and cannot sign in.**
+Deliberate, and the one operational consequence: the seeded accounts
+authenticated by email and hold no password. Somebody has to set one. There is
+no default password and no grace period.
+
+### What the policies now allow
+
+- `users_admin_create` — an admin may create an account. Checks the actor, not
+  the row: a new user has no membership yet and so nothing tenant-scoped to test.
+- `users_admin_manage` — an admin may reset the password of somebody in the
+  tenant they are working in.
+- `memberships_admin_write` / `_remove` — widened to client admins **for client
+  roles only**. `zeeraa_member` and `zeeraa_admin` are what `canSwitchTenant`
+  lets out of the tenant, so a client admin able to grant one could mint an
+  account that reads every other client.
+- `memberships` lost its table-wide UPDATE grant. `memberships_update_own` was
+  letting anybody update any column of their own row — including `role`, which
+  `app.membership_index` is maintained from, so the promotion would have taken
+  effect at once. Unreachable before this work, because nothing wrote to the
+  table; closed now that something does. The grant is column-scoped to
+  `email_preference` and `slack_enabled`, because RLS cannot restrict columns.
+
+### Three bugs found by running it rather than reading it
+
+1. **The decoy hash threw at module load.** `randomInt(2 ** 48)` is one past
+   Node's ceiling, and it ran at import, so every page importing `password.ts`
+   answered 500 — not a failed sign-in, a dead screen. `randomBytes` now.
+2. **Every successful account creation reported "an account already exists".**
+   The `users` SELECT policy admits only people who share the current tenant, so
+   a just-created account is invisible until its membership row exists. Reading
+   back to see whether the insert landed returns nothing on the happy path.
+   `createUser` now detects the duplicate from the `23505` unique violation.
+3. **Every form on the People screen was JavaScript-only.** They rendered
+   `action="javascript:throw new Error('React form unexpectedly submitted.')"`
+   while the sign-in form posted normally. A server action that closes over a
+   *function* cannot have its bound arguments encrypted, and React responds by
+   dropping the no-JS fallback silently. The shared `back()` helper moved to
+   module scope and all five forms post like the sign-in form does.
+
+### Verified
+
+`pnpm -r typecheck` clean, 524 tests across 36 files, **30 of 30 mutations
+killed** (six new: two on the client-admin role limit, one on the column grant
+that closes self-promotion, one on account creation, one on the reset policy,
+one on the session table), a production build with the native argon2 module,
+and the flows driven against the running app rather
+than asserted: wrong password and unknown address return byte-identical
+responses; a seeded account is forced to `/change-password` and cannot reach the
+dashboard until it changes; the old password stops working and exactly one
+session survives the change; a client admin creates an account, receives the
+one-time password, and that account signs in and is forced to change; a client
+viewer is refused the People screen; a forged `role=zeeraa_admin` post is
+refused, and so is `role=zeeraa_member`.
 
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
@@ -1017,11 +1108,12 @@ DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa_mu
 re-migrates and runs the whole isolation suite once per mutation. 16 of 16
 killed as of 18 September 2026.
 
-Looking at the UI locally: neither sign-in provider works without credentials,
-so `/api/dev-signin?email=admin@zeeraa.com` mints a real session for a seeded
-user and redirects. It is not an authorization bypass — RLS and `memberships`
-still decide everything afterwards — and it refuses unless `NODE_ENV` is not
-production *and* the auth database is on localhost.
+Looking at the UI locally: sign in at `/signin` as `admin@zeeraa.com` or
+`ceo@spartancapitalgroup.com` with `zeeraa-development-password`, which
+`SEED_USERS=yes` sets. Both are flagged to change it, so the first thing either
+lands on is `/change-password`. `/api/dev-signin` and `scripts/dev-session.ts`
+are gone — they existed because neither sign-in provider worked on a local
+machine, and a password works everywhere.
 
 They read `DATABASE_URL_OWNER` and `DATABASE_URL_JOBS`; a local `.env` carrying
 the documented defaults from `.env.example` is enough. Platform credentials come

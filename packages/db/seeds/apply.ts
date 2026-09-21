@@ -316,6 +316,12 @@ export async function ensureMembership(
   tenantId: string,
   role: 'zeeraa_admin' | 'zeeraa_member' | 'client_admin' | 'client_viewer',
   title?: string,
+  /**
+   * An argon2id hash. Optional, and omitted by anything but the development
+   * seed: a seeded account with no password cannot sign in, which is the right
+   * default for a production seed that must not invent credentials.
+   */
+  passwordHash?: string,
 ) {
   const existing = await db.select().from(schema.users).where(eq(schema.users.email, email));
   const user =
@@ -323,10 +329,29 @@ export async function ensureMembership(
     (
       await db
         .insert(schema.users)
-        .values({ email, name, title: title ?? null })
+        .values({
+          email,
+          name,
+          title: title ?? null,
+          passwordHash: passwordHash ?? null,
+          // A seeded password is known to whoever read the seed script, so it
+          // is spent on first use exactly like one an admin hands over.
+          mustChangePassword: passwordHash !== undefined,
+          passwordUpdatedAt: passwordHash !== undefined ? new Date() : null,
+        })
         .returning()
     )[0];
   if (!user) throw new Error(`could not create user ${email}`);
+
+  // Re-running the seed re-sets the development password, so a local database
+  // is recoverable after somebody changes it and forgets. It never touches an
+  // account the seed did not create with a password.
+  if (passwordHash !== undefined && existing[0]) {
+    await db
+      .update(schema.users)
+      .set({ passwordHash, mustChangePassword: true, passwordUpdatedAt: new Date() })
+      .where(eq(schema.users.id, user.id));
+  }
 
   await db
     .insert(schema.memberships)

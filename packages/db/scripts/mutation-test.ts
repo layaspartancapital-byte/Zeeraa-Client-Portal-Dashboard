@@ -204,6 +204,59 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop index public.search_console_metrics_upsert_key',
   },
   {
+    // The escalation `memberships_admin_write` exists to stop: a client admin
+    // handing out a role that `canSwitchTenant` lets out of the tenant.
+    name: 'client-admin-can-grant-zeeraa-roles',
+    description: 'Let a client admin grant any role, not only the client ones',
+    sql: `drop policy memberships_admin_write on public.memberships;
+          create policy memberships_admin_write on public.memberships
+            as permissive for insert to zeeraa_app
+            with check (tenant_id = app.current_tenant_id()
+                        and app.effective_role() in ('zeeraa_admin','client_admin'))`,
+  },
+  {
+    name: 'membership-write-unscoped',
+    description: 'Let an admin grant access to a tenant other than their own',
+    sql: `drop policy memberships_admin_write on public.memberships;
+          create policy memberships_admin_write on public.memberships
+            as permissive for insert to zeeraa_app
+            with check (app.effective_role() in ('zeeraa_admin','client_admin'))`,
+  },
+  {
+    // Row level security cannot restrict columns, so the column grant is the
+    // only thing standing between `memberships_update_own` and self-promotion.
+    name: 'membership-role-self-updatable',
+    description: 'Restore the table-wide UPDATE grant, making role self-writable',
+    sql: 'grant update on public.memberships to zeeraa_app',
+  },
+  {
+    name: 'user-create-open-to-anyone',
+    description: 'Let any role in the tenant create an account, not only an admin',
+    sql: `drop policy users_admin_create on public.users;
+          create policy users_admin_create on public.users
+            as permissive for insert to zeeraa_app with check (true)`,
+  },
+  {
+    // Dropped entirely rather than widened. Widening it — removing only the
+    // tenant clause — survives every test, and that is a fact about the schema
+    // rather than a gap in the suite: `users_visible_within_tenant` already
+    // refuses to surface a user from another tenant, so the row cannot be found
+    // to update and the statement reports `UPDATE 0`. The tenant clause on
+    // `users_admin_manage` is a second lock on a door the first one holds shut,
+    // and no test can observe it alone. `users-visible-to-all` covers the lock
+    // that is actually load-bearing.
+    name: 'password-reset-policy-dropped',
+    description: 'Remove the policy that lets an admin reset a password at all',
+    sql: 'drop policy users_admin_manage on public.users',
+  },
+  {
+    name: 'sessions-readable-by-app-role',
+    description: 'Grant the application role the session table, and with it every live token',
+    sql: `grant select on public.sessions to zeeraa_app;
+          create policy sessions_app_read on public.sessions
+            as permissive for select to zeeraa_app using (true)`,
+  },
+  {
     name: 'session-scoped-tenant-context',
     description: 'Set tenant context on the session instead of the transaction',
     edit: {

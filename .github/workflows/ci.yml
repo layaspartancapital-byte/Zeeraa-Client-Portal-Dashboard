@@ -15,8 +15,6 @@ env:
   DATABASE_URL_AUTH: postgres://zeeraa_auth:zeeraa_auth@localhost:5432/zeeraa
   DATABASE_URL_MAINT: postgres://zeeraa_maint:zeeraa_maint@localhost:5432/zeeraa
   DATABASE_URL_JOBS: postgres://zeeraa_jobs_runner:zeeraa_jobs_runner@localhost:5432/zeeraa
-  NEXTAUTH_SECRET: ci-only-not-a-real-secret
-  NEXTAUTH_URL: http://localhost:3000
 
 jobs:
   verify:

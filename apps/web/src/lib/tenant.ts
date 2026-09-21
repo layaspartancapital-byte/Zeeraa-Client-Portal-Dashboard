@@ -10,7 +10,7 @@ import {
   type Database,
   type TenantContext,
 } from '@zeeraa/db';
-import { auth } from '@/auth';
+import { readSession } from '@/lib/session';
 
 export type TenantSummary = {
   id: string;
@@ -27,6 +27,8 @@ export type Viewer = {
   email: string;
   name: string | null;
   image: string | null;
+  /** True until they replace the password an admin set for them. */
+  mustChangePassword: boolean;
   tenants: TenantSummary[];
 };
 
@@ -41,9 +43,9 @@ export type Viewer = {
  * request, not one per component.
  */
 export const getViewer = cache(async (): Promise<Viewer | null> => {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return null;
+  const session = await readSession();
+  if (!session) return null;
+  const { userId } = session;
 
   // Refuses to serve if the runtime role could bypass row level security, or
   // if transaction-local settings do not hold on this connection — tenant
@@ -70,9 +72,10 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 
   return {
     userId,
-    email: session.user?.email ?? '',
-    name: session.user?.name ?? null,
-    image: session.user?.image ?? null,
+    email: session.email,
+    name: session.name,
+    image: session.image,
+    mustChangePassword: session.mustChangePassword,
     tenants: rows,
   };
 });
@@ -89,6 +92,10 @@ export type TenantSession = { viewer: Viewer; tenant: TenantSummary; context: Te
 export async function requireTenant(slug: string): Promise<TenantSession> {
   const viewer = await getViewer();
   if (!viewer) redirect(`/signin?next=${encodeURIComponent(`/${slug}`)}`);
+  // Before the membership check, deliberately: somebody holding a password an
+  // admin read out over the phone should be replacing it whether or not they
+  // have been granted a tenant yet.
+  if (viewer.mustChangePassword) redirect('/change-password');
   if (viewer.tenants.length === 0) redirect('/no-access');
 
   const tenant = viewer.tenants.find((t) => t.slug === slug);

@@ -11,14 +11,13 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@auth/drizzle-adapter": "^1.11.3",
+    "@node-rs/argon2": "^2.2.1",
     "@zeeraa/core": "workspace:*",
     "@zeeraa/db": "workspace:*",
     "@zeeraa/jobs": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.47.0",
     "next": "^16.3.5",
-    "next-auth": "5.0.0-beta.32",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^2.15.0",

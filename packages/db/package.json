@@ -28,6 +28,7 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@node-rs/argon2": "^2.2.1",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",

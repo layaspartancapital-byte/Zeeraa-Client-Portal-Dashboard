@@ -124,13 +124,31 @@ pnpm dev
 Order matters: `bootstrap` creates the roles the migrations grant to, and makes
 `zeeraa_owner` own the schema.
 
-Sign-in needs a Resend key or Google credentials. To work without either:
+`SEED_USERS=yes` creates `admin@zeeraa.com` (Zeeraa admin) and
+`ceo@spartancapitalgroup.com` (client admin), both with the password
+`zeeraa-development-password` and both required to change it on first sign-in.
+It refuses to run against anything but a local database.
 
-```bash
-cd packages/db
-npx tsx scripts/dev-session.ts admin@zeeraa.com
-# paste the value as the `authjs.session-token` cookie on localhost:3000
-```
+## Sign-in
+
+An email address and a password. **No email is sent by this product and nobody
+registers themselves**: an admin creates the account on the People screen, the
+app generates the initial password and shows it once, the admin passes it on out
+of band, and the person is required to replace it before they can reach anything.
+
+- Passwords are argon2id (19 MiB, two passes), in PHC format, so the cost can be
+  raised later without invalidating a stored hash.
+- A session is a row in `sessions` named by a 256-bit opaque cookie — not a JWT,
+  because an admin resetting a password has to end the sessions that password
+  obtained, on the next request rather than whenever a token expires.
+- Creating an account and granting it access stay two acts. A user row with no
+  membership can sign in and reaches `/no-access`, nothing else.
+- A Zeeraa admin may add anybody to the tenant they are working in; a client
+  admin may add people to their own engagement, and may not grant a Zeeraa role.
+  The role picker reflects that and `memberships_admin_write` enforces it.
+- There is no password recovery, because there is no mailbox to recover through.
+  The replacement is an admin reset, which issues a new password and closes
+  every session the account holds.
 
 ## Tenant isolation
 
@@ -146,7 +164,9 @@ application uses. Five roles, each with the least it needs:
   local development would then be exercising a weaker rule than production.
 - **`zeeraa_app`** — the runtime role. Owns nothing, and every statement it
   issues is filtered by a policy.
-- **`zeeraa_auth`** — the Auth.js adapter. Identity tables only.
+- **`zeeraa_auth`** — sign-in and sessions. Identity tables only: a sign-in
+  happens before any tenant exists in the request, so it cannot satisfy the
+  tenant policies.
 - **`zeeraa_maint`** — backfill scripts and psql sessions. Member of
   `zeeraa_maintenance`.
 

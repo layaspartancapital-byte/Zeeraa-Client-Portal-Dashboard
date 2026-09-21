@@ -2,10 +2,8 @@ import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   index,
-  integer,
   jsonb,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -33,12 +31,29 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** The login identifier. Compared case-insensitively; never emailed to. */
     email: text('email').notNull(),
     name: text('name'),
-    /** Named `image` to satisfy the Auth.js Drizzle adapter contract. */
     image: text('avatar_url'),
     title: text('title'),
-    emailVerified: timestamp('email_verified', { withTimezone: true }),
+    /**
+     * argon2id, in PHC string format — the parameters travel with the hash, so
+     * raising the cost later does not invalidate what is already stored.
+     *
+     * Null means this account cannot sign in at all. That is a real state, not
+     * a gap: a user row can exist before anybody has set a password on it, and
+     * the sign-in path treats null as a failed attempt rather than as an
+     * account with no password.
+     */
+    passwordHash: text('password_hash'),
+    /**
+     * Set when an admin writes the password, cleared when the person replaces
+     * it. Every authenticated route sends them to `/change-password` while it
+     * is true — an initial password has been read aloud or pasted into a chat,
+     * so it is a delivery mechanism, not a credential.
+     */
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
+    passwordUpdatedAt: timestamp('password_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('users_email_key').on(sql`lower(${t.email})`)],
@@ -100,46 +115,22 @@ export const connections = pgTable(
   ],
 );
 
-// --- Auth.js adapter tables --------------------------------------------------
+// --- Sessions ----------------------------------------------------------------
 // Not tenant-scoped: identity is global, authorisation is the membership row.
-
-export const accounts = pgTable(
-  'accounts',
-  {
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    type: text('type').notNull(),
-    provider: text('provider').notNull(),
-    providerAccountId: text('provider_account_id').notNull(),
-    refresh_token: text('refresh_token'),
-    access_token: text('access_token'),
-    expires_at: integer('expires_at'),
-    token_type: text('token_type'),
-    scope: text('scope'),
-    id_token: text('id_token'),
-    session_state: text('session_state'),
-  },
-  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] })],
-);
+//
+// A session is a row rather than a signed token, so ending one takes effect on
+// the next request instead of whenever a token would have expired. That is what
+// makes an admin's password reset able to close the sessions it invalidates.
 
 export const sessions = pgTable('sessions', {
+  /** 256 bits from `randomBytes`, base64url. The cookie carries this verbatim. */
   sessionToken: text('session_token').primaryKey(),
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   expires: timestamp('expires', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
-
-export const verificationTokens = pgTable(
-  'verification_tokens',
-  {
-    identifier: text('identifier').notNull(),
-    token: text('token').notNull(),
-    expires: timestamp('expires', { withTimezone: true }).notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.identifier, t.token] })],
-);
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   memberships: many(memberships),

@@ -2,8 +2,8 @@
  * The campaign-type breakdown, as a pure rule.
  *
  * Its own module so it can be unit-tested: everything else in `platform.ts`
- * reaches the database, which reaches the session, which reaches next-auth —
- * and a test of a merge should not need any of that.
+ * reaches the database, which reaches the session cookie — and a test of a
+ * merge should not need either.
  */
 
 export type CampaignTypeRow = {

@@ -29,6 +29,35 @@ export function canManageConnections(role: Role): boolean {
   return role === 'zeeraa_admin';
 }
 
+/**
+ * Who may create accounts and reset passwords.
+ *
+ * Both admin roles, because there is no email in this product: nobody can
+ * invite themselves, and a client waiting on Zeeraa to add their own new hire
+ * is a support ticket rather than a security boundary. What a client admin
+ * cannot do is reach another tenant or mint a Zeeraa role — see
+ * `assignableRoles`, and the `memberships_admin_write` policy that actually
+ * enforces it.
+ */
+export function canManageUsers(role: Role): boolean {
+  return role === 'zeeraa_admin' || role === 'client_admin';
+}
+
+/**
+ * The roles an admin may grant in the tenant they are administering.
+ *
+ * A client admin may grant client roles only. Granting `zeeraa_member` would
+ * hand out a role that `canSwitchTenant` lets out of this tenant entirely, so
+ * this is privilege escalation rather than a matter of taste, and the policy
+ * repeats the restriction in SQL — this function decides what the form offers,
+ * and is not what decides what the database accepts.
+ */
+export function assignableRoles(role: Role): readonly Role[] {
+  if (role === 'zeeraa_admin') return ROLES;
+  if (role === 'client_admin') return CLIENT_ROLES;
+  return [];
+}
+
 /** "Sync now", admin screens, target reconciliation. */
 export function canAdministerTenant(role: Role): boolean {
   return role === 'zeeraa_admin';

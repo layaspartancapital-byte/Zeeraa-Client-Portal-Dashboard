@@ -33,6 +33,25 @@
   scope assertions to the fixture's own tenants.
 - **A Zeeraa admin needs a membership row per tenant.** No blanket grant by
   role: access has to be answerable from `memberships`, and revocable there.
+- **A client admin may never grant a Zeeraa role.** `zeeraa_admin` and
+  `zeeraa_member` are the roles `canSwitchTenant` lets out of the tenant, so a
+  client admin able to grant one could mint an account that reads every other
+  client. Enforced in `memberships_admin_write`, not by the role picker.
+- **`memberships` is not updatable from the application except for the two
+  notification columns.** Row level security cannot restrict columns, so the
+  column grant does it: `memberships_update_own` would otherwise let anybody
+  set their own `role`, and `app.membership_index` is maintained from that
+  table, so the promotion would take effect at once.
+- **A password is argon2id, and a session is a row.** Never a JWT: an admin
+  reset has to end the sessions it invalidates, on the next request. Password
+  handling lives in `apps/web/src/lib/password.ts` and `session.ts`; the policy
+  (length, no composition rules) is `packages/core/src/password.ts` so the
+  sign-in screen, the forced-change screen and the admin form cannot disagree.
+- **Sign-in must not say whether an account exists.** One message for a wrong
+  password and for an unknown address, and `verifyPassword` hashes against a
+  decoy when there is no row, so the timing does not say what the message
+  declines to. There is no self-registration and no email, so the list of
+  addresses holding an account is worth protecting.
 - **This product stores no client files.** The workspace, the S3 bucket and the
   signed-URL path were removed on 21 September 2026. If file storage ever
   returns, the rule it returns under is in `docs/brief-amendments.md`, "§9, §10
@@ -174,6 +193,12 @@ pnpm dev
 pnpm -r typecheck
 set -a && . ./.env && set +a && pnpm test        # every value in .env is local
 ```
+
+`SEED_USERS=yes` creates two development accounts with the password
+`zeeraa-development-password`, both flagged to change it on first sign-in. It
+refuses against anything but a local database: production accounts are created
+on the People screen, so the password is generated and handed over rather than
+written in a script.
 
 The isolation suite needs a real Postgres. It is testing properties of the
 database; a mock would prove nothing.
