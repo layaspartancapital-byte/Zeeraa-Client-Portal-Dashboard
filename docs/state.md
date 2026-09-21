@@ -692,9 +692,19 @@ DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db grant-membership <email> <slug> 
 
 **Production was repaired with it before the fix shipped**, since the deadlock
 had no route out through the UI: `lshah@spartancapitalgroup.com` is
-`client_admin` in Spartan again. One orphan remains and is now grantable or
-deletable as you prefer — `lshah@spartancaptialgroup.cm`, a mistyped address
-(`captial`, and `.cm`) with a password set and no membership.
+`client_admin` in Spartan again. The orphan it left behind —
+`lshah@spartancaptialgroup.cm`, a mistyped address (`captial`, and `.cm`) — was
+deleted on 21 September 2026 with the new `delete-account` script. Production
+holds two accounts: `hello@zeeraa.com` (zeeraa_admin) and
+`lshah@spartancapitalgroup.com` (client_admin), and `app.membership_index`
+matches `memberships` at two rows.
+
+`delete-account` **refuses while the account holds any membership.** Removing
+access and deleting an account are different acts: the People screen removes a
+membership and leaves the account, because it may hold other engagements and
+because history should survive somebody leaving one client. A cascade through
+`memberships` would be a revocation with nothing recording that it happened, so
+access comes off on the screen first, deliberately.
 
 Verified in a browser, as the whole reported cycle: create, remove, create
 refuses and points at the other form, add-existing succeeds, granting twice says

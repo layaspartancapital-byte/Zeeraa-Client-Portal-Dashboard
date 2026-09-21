@@ -164,7 +164,17 @@ DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db set-password someone@example.com
 
 # Moving an account between engagements.
 DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db grant-membership someone@example.com acme client_admin
+
+# Deleting an account outright — a mistyped address, say. Refuses while the
+# account still has access to anything.
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db delete-account someone@example.com
 ```
+
+Removing access and deleting an account are different acts and stay different.
+The People screen removes a membership and leaves the account, because it may
+hold other engagements. Only the last command above removes the account itself,
+and it refuses while any membership exists — a cascade through `memberships`
+would be a revocation with nothing saying it happened.
 
 ## Tenant isolation
 
