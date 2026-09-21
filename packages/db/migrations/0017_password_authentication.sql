@@ -6,12 +6,17 @@
 -- creates the account, sets an initial password, tells the person out of band,
 -- and the person is made to replace it on first sign-in.
 --
--- **This migration runs before the deploy.** For an addition the schema leads:
--- the code that reads `password_hash` cannot ship before the column exists. It
--- is written so that the old deploy keeps working while it is applied — the new
--- columns are nullable or defaulted, and the two tables it drops are Auth.js's
--- OAuth and magic-link tables, which the old code only touches on a sign-in
--- attempt. See `docs/brief-amendments.md`, "§11 — sign-in is a password".
+-- **This migration runs before the deploy, and adds only.** For an addition the
+-- schema leads: the code that reads `password_hash` cannot ship before the
+-- column exists. Every new column here is nullable or defaulted and every
+-- policy is new, so the deploy that is still serving does not notice it.
+--
+-- The Auth.js leftovers are dropped separately, in 0018, **after** the deploy.
+-- They cannot go here: the running code hydrates a session through the Drizzle
+-- adapter, which selects `users.email_verified` on every authenticated request,
+-- so dropping that column while the old deploy serves would take down every
+-- signed-in page rather than just the sign-in form. Expand, deploy, contract.
+-- See `docs/brief-amendments.md`, "§11 — sign-in is a password".
 --
 -- What does NOT change: access is still a membership row. A user row with no
 -- membership is an account that can sign in and see `/no-access`, exactly as an
@@ -30,20 +35,12 @@ ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "password_hash" text;--> statement-
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "must_change_password" boolean NOT NULL DEFAULT false;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "password_updated_at" timestamp with time zone;--> statement-breakpoint
 
--- `email_verified` was Auth.js's record that a magic link had been opened.
--- Nothing verifies an address any more because nothing sends to one.
-ALTER TABLE "users" DROP COLUMN IF EXISTS "email_verified";--> statement-breakpoint
-
--- --------------------------------------------------------------------------
--- The Auth.js tables that have no purpose left.
+-- `sessions` stays and becomes the session store proper — a session is a row
+-- rather than a signed token, so ending one takes effect on the next request
+-- rather than whenever a token would have expired.
 --
--- `accounts` held OAuth provider links; `verification_tokens` held magic-link
--- tokens. `sessions` stays and becomes the session store proper — a session is
--- a row rather than a signed token, so ending one takes effect on the next
--- request rather than whenever a token would have expired.
--- --------------------------------------------------------------------------
-DROP TABLE IF EXISTS "accounts";--> statement-breakpoint
-DROP TABLE IF EXISTS "verification_tokens";--> statement-breakpoint
+-- The Auth.js leftovers — `accounts`, `verification_tokens` and
+-- `users.email_verified` — are **not** dropped here. See 0018.
 
 ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "created_at" timestamp with time zone NOT NULL DEFAULT now();--> statement-breakpoint
 

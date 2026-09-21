@@ -556,9 +556,29 @@ session row by hand anyway. The old `api/dev-signin` route already minted one,
 so the mechanism was proven before it was adopted.
 
 **Every pre-existing account has a null `password_hash` and cannot sign in.**
-Deliberate, and the one operational consequence: the seeded accounts
-authenticated by email and hold no password. Somebody has to set one. There is
-no default password and no grace period.
+Deliberate — there is no default password and no grace period — but it needed a
+way back in, because passwords are set on the People screen and the People
+screen requires being signed in. Without one, this deploy locks everybody out of
+an application whose only entrance is to already be inside it.
+
+```bash
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db set-password hello@zeeraa.com
+```
+
+Generates the password rather than taking it as an argument, so it never reaches
+a shell history; prints it once; sets `must_change_password`; closes every
+session the account holds. Not a web route and not seedable — the gate is
+holding the maintenance connection string.
+
+### Two migrations, in two places in the sequence
+
+`0017` adds only and runs **before** the deploy. `0018` drops `accounts`,
+`verification_tokens` and `users.email_verified` and runs **after** it. They
+cannot be one migration: the old deploy hydrates every authenticated request
+through the Drizzle adapter, which selects `users.email_verified`, so dropping
+it while the old code served would have taken down every signed-in page rather
+than just the sign-in form. Production held four live sessions at the time, so
+the window was real.
 
 ### What the policies now allow
 

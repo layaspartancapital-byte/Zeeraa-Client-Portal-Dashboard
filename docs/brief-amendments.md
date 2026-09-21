@@ -1589,19 +1589,46 @@ because a future change to the SELECT policy must not silently widen what a
 reset can reach; the mutation now drops the policy outright, which a test does
 catch, and `users-visible-to-all` covers the lock that is actually load-bearing.
 
-### Deploy order
+### Deploy order: expand, deploy, contract
 
-**This migration runs before the deploy** — the reverse of the workspace
-removal. For an addition the schema leads: the code that reads `password_hash`
-cannot ship before the column exists. It is written so the old deploy keeps
-working across the gap; the new columns are nullable or defaulted, and the two
-tables it drops (`accounts`, `verification_tokens`) are only touched by a
-sign-in attempt on the old code.
+Two migrations, not one, and the split is not ceremony.
 
-**Every existing account has a null `password_hash` and cannot sign in.** That
-is deliberate and is the one operational consequence: the four seeded accounts
-authenticated by email and hold no password, so somebody has to set one. There
-is no default password and no grace period.
+`0017` **adds only** and runs *before* the deploy — for an addition the schema
+leads, because the code that reads `password_hash` cannot ship before the column
+exists. Every new column is nullable or defaulted and every policy is new, so
+the deploy still serving does not notice it.
+
+`0018` drops `accounts`, `verification_tokens` and `users.email_verified`, and
+runs *after*. They cannot go in `0017`: the old deploy hydrates a session
+through the Drizzle adapter, and that selects `users.email_verified` on **every
+authenticated request**. Dropping it while the old code served would have taken
+down every signed-in page, not merely the sign-in form. Production held four
+live sessions when this ran, so that was a real window rather than a theoretical
+one.
+
+### The lockout this would have shipped without a bootstrap path
+
+**Every pre-existing account has a null `password_hash` and cannot sign in.**
+That is deliberate — the accounts authenticated by email and hold no password,
+and there is no default and no grace period.
+
+What is not acceptable is the consequence: passwords are set on the People
+screen, the People screen requires being signed in, and after this deploy nobody
+can sign in. The first deploy would have locked everybody out of the application
+whose only way back in is to already be inside it.
+
+`packages/db/scripts/set-password.ts` is the way back in:
+
+```bash
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db set-password someone@example.com
+```
+
+It generates the password rather than taking it as an argument, so it never
+reaches a shell history; prints it once; sets `must_change_password`; and closes
+every session the account holds. It is not a web route and not seedable — the
+gate is holding the maintenance connection string, which the application does
+not have, and which `withMaintenance` requires a role membership to use. The
+same gate that protects every other cross-tenant operation here.
 
 ---
 

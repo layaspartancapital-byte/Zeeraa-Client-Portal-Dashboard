@@ -150,6 +150,14 @@ of band, and the person is required to replace it before they can reach anything
   The replacement is an admin reset, which issues a new password and closes
   every session the account holds.
 
+The first account on a new deployment has nobody to create it, so there is one
+bootstrap path, gated on holding the maintenance connection string rather than
+on being signed in:
+
+```bash
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db set-password someone@example.com
+```
+
 ## Tenant isolation
 
 Every tenant-scoped table carries `ENABLE` **and** `FORCE ROW LEVEL SECURITY`,
