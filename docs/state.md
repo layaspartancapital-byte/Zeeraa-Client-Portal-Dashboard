@@ -464,31 +464,59 @@ guarded: the two `assets` policy mutations, the review trigger, the approval
 role check, the version-chain index, the `deliverable_records` upsert key and
 the `activity_log` append-only pair.
 
-### A trap in `.env` that cost half an hour
+### The `.env` trap, and the split that closed it (21 September 2026)
 
-`.env` defines `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT` **twice** — local
-first, then Neon further down, and the second wins. Sourcing the whole file
-before `pnpm test` therefore points the ingestion and maintenance roles at
-production while the owner seeds locally, and five isolation tests fail on
-foreign keys to a tenant that exists only in the local database.
+`.env` defined `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT` **twice** — local
+first, then Neon further down, and the later definition wins. Sourcing the whole
+file before `pnpm test` therefore pointed the ingestion and maintenance roles at
+production while the owner seeded locally, and five isolation tests failed on
+foreign keys to a tenant that existed only on localhost.
 
 Nothing was written to Neon: every fixture insert failed on
 `*_tenant_id_tenants_id_fk` and rolled back, confirmed afterwards by querying
-production for the fixture rows. But the failure mode is a test suite pointed
-half at production and half at localhost, which is worth knowing about.
+production for the fixture rows. The foreign key caught it, which is luck rather
+than a control — the suite also writes `daily_metrics`, which has no such
+dependency.
 
-Run the suite the way `CLAUDE.md` documents it, and pass the local role URLs
-explicitly if they are needed:
+**Fixed.** `.env` now defines each `DATABASE_URL_*` exactly once, all local. The
+four production strings — `NEON_DATABASE_URL`, `NEON_DIRECT_URL` and the Neon
+`DATABASE_URL_JOBS` / `DATABASE_URL_MAINT` — moved to **`.env.neon`**, which
+nothing loads on its own:
+
+- Next.js's loader knows `.env`, `.env.local` and `.env.<NODE_ENV>[.local]` and
+  ignores any other suffix, so `pnpm dev` cannot pick it up.
+- No package here uses `dotenv`; every script reads `process.env` directly, so
+  the file is inert unless sourced by name.
+- `docker-compose.yml` has no `env_file`.
+- `.gitignore` now reads `.env.*` with `!.env.example`. The three rules it had
+  (`.env`, `.env.local`, `.env*.local`) did **not** match `.env.neon`, so
+  `git add -A` would have committed the production connection strings.
+
+`.env.neon` deliberately defines **no** `DATABASE_URL` and no
+`DATABASE_URL_OWNER`. Sourcing it leaves `db:migrate`, `db:seed`, `db:reset` and
+`bootstrap` pointed at localhost — which is what keeps `mutation-test.ts`, which
+drops the schema it points at, from ever reaching Neon. Name the URL on the one
+command that needs it:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa \
-DATABASE_URL_JOBS=postgres://zeeraa_jobs_runner:...@localhost:5433/zeeraa \
-DATABASE_URL_MAINT=postgres://zeeraa_maint:...@localhost:5433/zeeraa \
-pnpm test
+DATABASE_URL_OWNER="$NEON_DIRECT_URL" pnpm --filter @zeeraa/db migrate
 ```
 
-The duplicate keys in `.env` should be collapsed; that file is not in the
-repository, so it has to be done by hand.
+**And a backstop, because an export outlives the command it was sourced for.**
+`packages/db/test/fixtures.ts` now refuses to run when any `DATABASE_URL*` in
+the environment resolves to a non-local host, naming the offenders. It checks
+every such variable rather than the four it reads, because `job-role.test.ts`
+builds its own from `DATABASE_URL_JOBS` and `organic-isolation.test.ts` reaches
+it through `getJobsDb()`. An unparseable URL counts as remote. CI is unaffected
+— its Postgres is a service container on `localhost:5432` — and
+`ALLOW_REMOTE_TEST_DATABASE=yes` is the deliberate override for a disposable
+remote branch.
+
+Verified three ways: sourcing `.env` alone now runs 90 of 90 green entirely
+locally (the case that used to fail); sourcing `.env` then `.env.neon` is
+refused by name, citing `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT`; and
+`git check-ignore` confirms `.env`, `.env.neon` and both `.env.local` files are
+ignored while `.env.example` stays tracked.
 
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 

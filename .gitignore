@@ -3,9 +3,13 @@ node_modules/
 dist/
 .turbo/
 *.tsbuildinfo
+# Every env file is a secret except the checked-in template. The explicit
+# pattern matters: `.env.neon` holds the production connection strings and was
+# not covered by the three rules that used to be here, so `git add -A` would
+# have committed it.
 .env
-.env.local
-.env*.local
+.env.*
+!.env.example
 .DS_Store
 coverage/
 apps/web/.env.local

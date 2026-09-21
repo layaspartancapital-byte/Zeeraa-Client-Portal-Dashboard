@@ -5,6 +5,67 @@ import * as schema from '../src/schema/index';
 import { withMaintenance } from '../src/tenant-context';
 import type { Database } from '../src/client';
 
+/**
+ * Refuses to run the suite against anything but a local database.
+ *
+ * This suite is not read-only. It seeds two tenants and four users, writes
+ * opportunities, spend, submissions and calls, and deletes all of it again in
+ * `cleanup`; `scripts/mutation-test.ts` goes further and drops the schema it
+ * points at. Pointed at Neon it would be writing to the production database.
+ *
+ * The failure it exists to catch is not a typo. `.env` used to define
+ * `DATABASE_URL_JOBS` and `DATABASE_URL_MAINT` twice — local first, Neon
+ * second — so sourcing the whole file before `pnpm test` sent the ingestion and
+ * maintenance roles to production while the owner seeded locally. The
+ * duplicates are gone and the production strings are in `.env.neon` now, but
+ * that file exports the same variable names by design, and an export outlives
+ * the command it was sourced for.
+ *
+ * Every `DATABASE_URL*` in the environment is checked, not only the four this
+ * file reads: `job-role.test.ts` builds its own from `DATABASE_URL_JOBS` and
+ * `organic-isolation.test.ts` reaches it through `getJobsDb()`, and both would
+ * otherwise slip past. A URL that cannot be parsed is treated as remote —
+ * failing closed is the whole point.
+ *
+ * CI is covered: its Postgres is a service container on `localhost:5432`.
+ * `ALLOW_REMOTE_TEST_DATABASE=yes` is the deliberate escape hatch for a
+ * throwaway remote branch, and typing it is a different act from forgetting a
+ * `source`.
+ */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'postgres']);
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    // Passwords arrive with characters `URL` will not take. Fall back to the
+    // authority between the last `@` and the next `/`, `:` or `?`.
+    return /@([^/:?]+)/.exec(url)?.[1] ?? null;
+  }
+}
+
+function assertLocalDatabases(): void {
+  if (process.env.ALLOW_REMOTE_TEST_DATABASE === 'yes') return;
+
+  const remote = Object.entries(process.env)
+    .filter(([key, value]) => key.startsWith('DATABASE_URL') && value)
+    .map(([key, value]) => [key, hostOf(value as string)] as const)
+    .filter(([, host]) => host === null || !LOCAL_HOSTS.has(host));
+
+  if (remote.length === 0) return;
+
+  throw new Error(
+    'Refusing to run the isolation suite against a non-local database. This ' +
+      'suite writes and deletes rows.\n' +
+      remote.map(([key, host]) => `  ${key} → ${host ?? '<unparseable>'}`).join('\n') +
+      '\n\nThis usually means `.env.neon` was sourced in this shell. Open a new ' +
+      'one, or set ALLOW_REMOTE_TEST_DATABASE=yes if the target really is ' +
+      'disposable.',
+  );
+}
+
+assertLocalDatabases();
+
 export const OWNER_URL =
   process.env.DATABASE_URL_OWNER ?? 'postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa';
 export const ADMIN_URL =

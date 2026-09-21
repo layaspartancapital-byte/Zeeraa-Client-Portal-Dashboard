@@ -172,8 +172,23 @@ pnpm --filter @zeeraa/db bootstrap              # create runtime roles (once)
 pnpm db:migrate && SEED_USERS=yes pnpm db:seed
 pnpm dev
 pnpm -r typecheck
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa pnpm test
+set -a && . ./.env && set +a && pnpm test        # every value in .env is local
 ```
 
 The isolation suite needs a real Postgres. It is testing properties of the
 database; a mock would prove nothing.
+
+`DATABASE_URL` alone is not enough: `organic-isolation.test.ts` reads
+`DATABASE_URL_JOBS` through `getJobsDb()`, which has no default and throws.
+Sourcing `.env` is the shortest thing that works, and it is safe now — each key
+is defined exactly once and points at localhost.
+
+**The production strings live in `.env.neon`, which nothing loads on its own.**
+Source it by name, in a shell you then close, and prefer naming the URL on the
+one command that needs it. It defines no `DATABASE_URL` and no
+`DATABASE_URL_OWNER` on purpose, so `db:migrate`, `db:seed`, `db:reset` and
+`mutation-test.ts` stay local even with it sourced. `fixtures.ts` refuses any
+non-local `DATABASE_URL*` outright, so a forgotten `source` fails the suite
+loudly rather than writing to production — `.env` used to define
+`DATABASE_URL_JOBS` and `DATABASE_URL_MAINT` twice, and that is exactly what it
+did.
