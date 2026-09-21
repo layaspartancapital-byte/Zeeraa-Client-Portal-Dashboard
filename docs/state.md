@@ -614,6 +614,46 @@ the window was real.
    dropping the no-JS fallback silently. The shared `back()` helper moved to
    module scope and all five forms post like the sign-in form does.
 
+### The handover panel, after a report that no password appeared
+
+Reported 21 September 2026: "after creating a user I didn't see a password
+displayed." The password **was** being displayed — reproduced in dev, in a
+production build, in Chromium and without JavaScript. What the check turned up
+instead was three real faults around it, one of which explains the report.
+
+1. **"Add an existing account" succeeded in complete silence.** No confirmation,
+   no message, nothing — the page reloaded and a row appeared somewhere in the
+   middle of the roster. An admin who used that form rather than "Create an
+   account" would see exactly what was reported. Both it and "Remove" now say
+   what happened.
+2. **The password travelled in the query string.** It worked, and it wrote the
+   credential into browser history, the deployment's access logs (Vercel records
+   the request path) and the `Referer` of any link followed from the page. It
+   also made the panel's own "shown once" untrue. It is now a short-lived
+   `httpOnly` cookie scoped to `/{tenant}/people`, dismissed with a button
+   rather than by navigating away, and it survives a refresh.
+3. **Fixing (2) exposed the bug behind the report.** With the password out of
+   the URL the redirect target became the URL the admin was already on, so the
+   browser preserved scroll position — and the panel renders at the top while
+   the form that produces it is at the bottom, past the roster. It appeared
+   off-screen above them. Every action now redirects to `#handover` or
+   `#message`, which lands the result in view whether the navigation is handled
+   by the router or by the browser.
+
+Two more things found while checking: the `Actions` column header used
+`sr-only`, which is `position: absolute`, and with no positioned ancestor it
+escaped the table's horizontal scroll container and stretched the document —
+**205px of horizontal page scroll at 375px**, which spec v2 forbids outright and
+which no other screen has. The header is visible now and the scroll container is
+`relative`. And `redirect()` was being called inside a `try` whose `catch`
+inspects the error: `redirect` works by throwing, so the control-flow exception
+was caught and survived only because the fallthrough rethrew it.
+
+The panel now carries a Copy button that reports failure rather than silently
+doing nothing — `navigator.clipboard` is absent outside a secure context, and an
+admin who believes they copied a password and did not will paste the wrong thing
+to somebody waiting on it.
+
 ### Verified
 
 `pnpm -r typecheck` clean, 524 tests across 36 files, **30 of 30 mutations

@@ -15,6 +15,7 @@ export function Card({
   interactive = false,
   selfStart = false,
   as: Tag = 'section',
+  id,
 }: {
   children: ReactNode;
   className?: string;
@@ -29,9 +30,12 @@ export function Card({
    */
   selfStart?: boolean;
   as?: 'section' | 'div' | 'li' | 'article';
+  /** For an anchor target, so a redirect can bring a card into view. */
+  id?: string;
 }) {
   return (
     <Tag
+      id={id}
       className={`card print-full flex min-w-0 flex-col ${
         interactive ? 'card-lift' : ''
       } ${selfStart ? 'self-start' : ''} ${span ? SPAN[span] : ''} ${className}`}

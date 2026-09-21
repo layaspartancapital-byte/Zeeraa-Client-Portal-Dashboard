@@ -1,10 +1,12 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { assignableRoles, canManageUsers, ROLE_LABELS, type Role } from '@zeeraa/core';
-import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
+import { Card, CardBody, CardHeader, Grid } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
+import { CopyButton } from '@/components/CopyButton';
+import { clearHandover, readHandover, setHandover } from '@/lib/handover';
 import { requireRole } from '@/lib/tenant';
 import {
   createUser,
@@ -40,10 +42,24 @@ export const metadata = { title: 'People' };
  * the progressive-enhancement fallback and rendering
  * `action="javascript:throw ..."`, so every form on the page silently stops
  * working without JavaScript. At module scope this is not captured at all.
+ *
+ * **Nothing secret goes through here.** A generated password travels in a
+ * cookie (`lib/handover.ts`); what this carries is a notice or an error, which
+ * are fine in a URL and useful in one — they survive a refresh and can be
+ * linked to. `redirect` throws, so every call is the end of its action.
+ *
+ * **The fragment is not decoration.** These messages render at the top of the
+ * page and the forms that produce them are at the bottom, past the roster. When
+ * the redirect target differed from the current URL the browser reset the
+ * scroll and the message was the first thing in view; once the password moved
+ * out of the query string the target became the same URL the admin was already
+ * on, scroll position was preserved, and the result appeared off-screen above
+ * them. An anchor puts the message in view whichever way the navigation is
+ * treated, and it works without JavaScript.
  */
-function back(slug: string, params: Record<string, string>): never {
+function back(slug: string, params: Record<string, string>, fragment = '#message'): never {
   const qs = new URLSearchParams(params).toString();
-  redirect(`/${slug}/people${qs ? `?${qs}` : ''}`);
+  redirect(`/${slug}/people${qs ? `?${qs}` : ''}${fragment}`);
 }
 
 export default async function People({
@@ -51,76 +67,106 @@ export default async function People({
   searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{ error?: string; created?: string; password?: string; reset?: string }>;
+  searchParams: Promise<{ error?: string; notice?: string }>;
 }) {
   const { tenant: slug } = await params;
   const session = await requireRole(slug, canManageUsers);
   const query = await searchParams;
 
-  const roster = await tenantRoster(session);
+  const [roster, handover] = await Promise.all([tenantRoster(session), readHandover()]);
   const grantable = assignableRoles(session.tenant.role);
 
+  /**
+   * Every action ends by redirecting, and `redirect` works by throwing. So the
+   * redirect is outside the `try` — inside it, the control-flow exception is
+   * caught by the `catch` that is looking for a `UserAdminError`, and survives
+   * only because the fallthrough rethrows it. That is one edit away from an
+   * action that silently does nothing.
+   */
   async function create(formData: FormData): Promise<void> {
     'use server';
     const s = await requireRole(slug, canManageUsers);
+    let outcome: { email: string; initialPassword: string };
     try {
-      const result = await createUser(s, {
+      outcome = await createUser(s, {
         email: String(formData.get('email') ?? ''),
         name: String(formData.get('name') ?? ''),
         title: String(formData.get('title') ?? ''),
         role: String(formData.get('role') ?? '') as Role,
       });
-      revalidatePath(`/${slug}/people`);
-      back(slug, { created: result.email, password: result.initialPassword });
     } catch (e) {
       if (e instanceof UserAdminError) back(slug, { error: e.message });
       throw e;
     }
+    await setHandover(slug, {
+      kind: 'created',
+      email: outcome.email,
+      password: outcome.initialPassword,
+    });
+    revalidatePath(`/${slug}/people`);
+    back(slug, {}, '#handover');
   }
 
   async function grant(formData: FormData): Promise<void> {
     'use server';
     const s = await requireRole(slug, canManageUsers);
+    const email = String(formData.get('email') ?? '').trim().toLowerCase();
     try {
-      await grantMembership(s, {
-        email: String(formData.get('email') ?? ''),
-        role: String(formData.get('role') ?? '') as Role,
-      });
-      revalidatePath(`/${slug}/people`);
-      back(slug, {});
+      await grantMembership(s, { email, role: String(formData.get('role') ?? '') as Role });
     } catch (e) {
       if (e instanceof UserAdminError) back(slug, { error: e.message });
       throw e;
     }
+    revalidatePath(`/${slug}/people`);
+    // This used to redirect with nothing at all. Granting access succeeded
+    // silently: the page reloaded, the roster gained a row somewhere in the
+    // middle, and nothing said the thing you asked for had happened.
+    back(slug, { notice: `${email} now has access to this engagement.` });
   }
 
   async function reset(formData: FormData): Promise<void> {
     'use server';
     const s = await requireRole(slug, canManageUsers);
+    let outcome: { email: string; initialPassword: string };
     try {
-      const result = await resetPassword(s, String(formData.get('userId') ?? ''));
-      revalidatePath(`/${slug}/people`);
-      back(slug, { reset: result.email, password: result.initialPassword });
+      outcome = await resetPassword(s, String(formData.get('userId') ?? ''));
     } catch (e) {
       if (e instanceof UserAdminError) back(slug, { error: e.message });
       throw e;
     }
+    await setHandover(slug, {
+      kind: 'reset',
+      email: outcome.email,
+      password: outcome.initialPassword,
+    });
+    revalidatePath(`/${slug}/people`);
+    back(slug, {}, '#handover');
   }
 
   async function revoke(formData: FormData): Promise<void> {
     'use server';
     const s = await requireRole(slug, canManageUsers);
+    const userId = String(formData.get('userId') ?? '');
+    const person = roster.find((r) => r.userId === userId);
     try {
-      await revokeMembership(s, String(formData.get('userId') ?? ''));
-      revalidatePath(`/${slug}/people`);
-      back(slug, {});
+      await revokeMembership(s, userId);
     } catch (e) {
       if (e instanceof UserAdminError) back(slug, { error: e.message });
       throw e;
     }
+    revalidatePath(`/${slug}/people`);
+    back(slug, {
+      notice: `${person?.email ?? 'That person'} no longer has access to this engagement.`,
+    });
   }
 
-  const handedOver = query.created ?? query.reset;
+  /** Puts the handover away deliberately, rather than on the next navigation. */
+  async function dismiss(): Promise<void> {
+    'use server';
+    await requireRole(slug, canManageUsers);
+    await clearHandover(slug);
+    back(slug, {}, '');
+  }
 
   return (
     <>
@@ -128,7 +174,7 @@ export default async function People({
 
       <Grid>
         {query.error && (
-          <Card span={12}>
+          <Card span={12} id="message" className="scroll-mt-24 border-[#FECDCA]">
             <CardBody className="pt-5">
               <p role="alert" className="text-[13px] leading-relaxed text-[#B42318]">
                 {query.error}
@@ -137,23 +183,48 @@ export default async function People({
           </Card>
         )}
 
-        {handedOver && query.password && (
-          <Card span={12}>
+        {query.notice && (
+          <Card span={12} id="message" className="scroll-mt-24">
+            <CardBody className="pt-5">
+              <p role="status" className="text-[13px] leading-relaxed text-text-2">
+                {query.notice}
+              </p>
+            </CardBody>
+          </Card>
+        )}
+
+        {/*
+          The handover, first on the page and drawn in the accent so it cannot
+          be mistaken for another row of the roster. It is the only thing on
+          this screen that cannot be recovered by looking again.
+        */}
+        {handover && (
+          <Card span={12} id="handover" className="scroll-mt-24 border-primary">
             <CardHeader
-              title={query.created ? 'Account created' : 'Password reset'}
-              subtitle="Shown once. Nothing stores it in readable form."
+              title={handover.kind === 'created' ? 'Account created' : 'Password reset'}
+              subtitle={`Give this password to ${handover.email} directly — it is not sent to them.`}
+              controls={
+                <form action={dismiss}>
+                  <button
+                    type="submit"
+                    className="h-8 rounded-[8px] border border-border bg-surface px-2.5 text-[12px] font-medium text-text-2 transition-colors hover:bg-canvas hover:text-text"
+                  >
+                    Done
+                  </button>
+                </form>
+              }
             />
             <CardBody>
-              <p className="text-[13px] leading-relaxed text-text-2">
-                Give this to <span className="font-medium text-text">{handedOver}</span> directly.
-                They will be made to replace it when they sign in.
-              </p>
-              <p className="mt-3 select-all rounded-[8px] border border-border bg-canvas px-3 py-2 font-mono text-[14px] text-text">
-                {query.password}
-              </p>
-              <p className="mt-2 text-[12px] text-text-3">
-                Leaving this page discards it. If it is lost, reset the password again — there is
-                no way to read it back.
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 select-all break-all rounded-[8px] border border-primary-100 bg-primary-100/40 px-3 py-2.5 font-mono text-[16px] font-semibold tracking-tight text-text">
+                  {handover.password}
+                </code>
+                <CopyButton value={handover.password} label="Copy the password" />
+              </div>
+              <p className="mt-2.5 text-[12px] leading-relaxed text-text-3">
+                They will be required to replace it when they sign in. Nothing stores it in
+                readable form, so if it is lost the only way forward is another reset — this panel
+                stays until you choose Done.
               </p>
             </CardBody>
           </Card>
@@ -172,14 +243,14 @@ export default async function People({
             }
           />
           <CardBody flush>
-            <div className="scroll-x min-w-0 overflow-x-auto px-5 pb-1">
+            <div className="scroll-x relative min-w-0 overflow-x-auto px-5 pb-1">
               <table className="w-full min-w-[720px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] text-text-3">
                     <th className="py-2 pr-3 font-medium">Person</th>
                     <th className="py-2 pr-3 font-medium">Role</th>
                     <th className="py-2 pr-3 font-medium">Password</th>
-                    <th className="py-2 pr-3 font-medium sr-only">Actions</th>
+                    <th className="py-2 pr-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
