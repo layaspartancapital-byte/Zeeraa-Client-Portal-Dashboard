@@ -94,49 +94,55 @@ deals) and needs every channel ingested before it means anything. With only
 Google Ads live, a blended figure would be the Google Ads figure wearing a
 broader name.
 
-## Production database — Neon, migrated to 0013 on 19 September 2026
+## Production database — Neon, migrated to 0016 on 21 September 2026
 
 `neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
-empty: roles bootstrapped, tenants seeded, preflight green. **All 14 migrations
-(0000–0013) are applied**; 0013 was applied on 19 September 2026 against an
-empty `assets` table, so nothing existing had to satisfy the new constraints.
+empty: roles bootstrapped, tenants seeded, preflight green. **All 17 migrations
+(0000–0016) are applied.** 0016 was applied on 21 September 2026, **after** the
+deploy that removed the code — the order a removal requires. Verified
+afterwards: nine tables and five enum types gone, `memberships.slack_user_id`
+gone, `app.enforce_asset_review_authority()` gone, both dead `tenant_metrics`
+rows gone, every remaining table still RLS-enabled and FORCEd, and 720
+opportunities untouched.
 
 | | |
 | --- | --- |
-| Tables in `public` | 40, **all** with RLS enabled and FORCE |
+| Tables in `public` | 33, **all** with RLS enabled and FORCE |
 | `public` schema owner | `zeeraa_owner` (NOSUPERUSER, NOBYPASSRLS) |
 | Roles with BYPASSRLS or SUPERUSER | none of the seven `zeeraa*` roles |
 | `app.membership_index` | 2 rows, zero drift against `memberships` |
 | Memberships | `hello@zeeraa.com` zeeraa_admin · `lshah@spartancapitalgroup.com` client_admin |
-| `assertRlsEnforced` | ok |
-| `assertTransactionLocalContext` | ok |
+| `assertRlsEnforced` | ok (19 Sep, as the app role) |
+| `assertTransactionLocalContext` | ok (19 Sep, as the app role) |
+
+The two preflight rows were **not** re-run on 21 September: both connect as
+`zeeraa_app`, and that connection string lives in Vercel rather than in this
+checkout. Their substance was checked directly instead — no `public` table
+without RLS, none without FORCE, no `zeeraa*` role with `BYPASSRLS`. Put
+`preflight` in the Vercel build command and the deploy answers this properly.
 
 Neon's sample table `playing_with_neon` (20 rows) was dropped — `public` has to
 be empty of anything without a policy or `assertRlsEnforced` refuses to serve.
 
-**Migration 0013 was applied as `neondb_owner`, and one object is owned by the
-wrong role because of it.** The documented route is `DATABASE_URL_OWNER`, the
-`zeeraa_owner` connection string generated during bring-up, which is not in the
-working checkout — the only production strings there are `NEON_DATABASE_URL` and
-`NEON_DIRECT_URL`, both `neondb_owner`. `neondb_owner` is a member of
-`zeeraa_owner` so the DDL succeeded and the table, indexes and constraints
-carry the right owner (an index inherits its table's), but
-`app.enforce_asset_review_authority()` is owned by `neondb_owner`, **which
-carries `BYPASSRLS`**.
+**The wrongly-owned SECURITY DEFINER function is resolved — it was dropped.**
+0013 had been applied as `neondb_owner`, which left
+`app.enforce_asset_review_authority()` owned by a role carrying `BYPASSRLS`:
+latent rather than leaking, but a SECURITY DEFINER body one edit away from
+bypassing row level security silently, and the only `app.*` helper not owned by
+`zeeraa_owner`. 0016 drops the function with the workspace it guarded. Verified
+21 September 2026: **all ten `app.*` functions are owned by `zeeraa_owner`**,
+and no `zeeraa*` role carries `BYPASSRLS` or `SUPERUSER`.
 
-Nothing leaks today: the function reads no table of its own, it delegates
-membership to `app.effective_role()`, and that is SECURITY DEFINER owned by
-`zeeraa_owner`. What is wrong is latent — a SECURITY DEFINER body running with
-a role that can bypass row level security is one edit away from doing so
-silently, and it is the only `app.*` helper not owned by `zeeraa_owner`.
+**The cause is still here, and the next migration will hit it again.** The
+documented route is `DATABASE_URL_OWNER`, the `zeeraa_owner` connection string
+generated during bring-up, which is not in the working checkout — the only
+production strings there are `NEON_DATABASE_URL` and `NEON_DIRECT_URL`, both
+`neondb_owner`. `neondb_owner` is a member of `zeeraa_owner`, so the DDL
+succeeds and tables, indexes and constraints carry the right owner (an index
+inherits its table's); a `CREATE FUNCTION` does not. 0016 creates no objects, so
+it left nothing misowned, but the next migration that creates a function will.
 
-One statement closes it, against the direct host:
-
-```sql
-ALTER FUNCTION app.enforce_asset_review_authority() OWNER TO zeeraa_owner;
-```
-
-And the durable fix is to put the real `DATABASE_URL_OWNER` in the environment
+The durable fix is to put the real `DATABASE_URL_OWNER` in the environment
 that runs migrations, so `pnpm db:migrate` connects as `zeeraa_owner` the way it
 does locally. `scripts/migrate.ts` has no way to name a role, and setting
 `role` as a postgres.js startup parameter does not work — it was tried and the
