@@ -1599,7 +1599,12 @@ exists. Every new column is nullable or defaulted and every policy is new, so
 the deploy still serving does not notice it.
 
 `0018` drops `accounts`, `verification_tokens` and `users.email_verified`, and
-runs *after*. They cannot go in `0017`: the old deploy hydrates a session
+is meant to run *after*. **It did not, on 21 September 2026**: `pnpm db:migrate`
+applies every pending migration and drizzle's migrator has no "up to N", so both
+halves went out together and the contract landed before the deploy. See
+`docs/state.md`, "The deploy order went wrong on 0018". A split whose halves
+still run together is a comment rather than a control; staging them means not
+having the later file in the tree when the earlier one runs. They cannot go in `0017`: the old deploy hydrates a session
 through the Drizzle adapter, and that selects `users.email_verified` on **every
 authenticated request**. Dropping it while the old code served would have taken
 down every signed-in page, not merely the sign-in form. Production held four

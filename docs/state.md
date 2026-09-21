@@ -99,16 +99,16 @@ deals) and needs every channel ingested before it means anything. With only
 Google Ads live, a blended figure would be the Google Ads figure wearing a
 broader name.
 
-## Production database — Neon, migrated to 0016 on 21 September 2026
+## Production database — Neon, migrated to 0018 on 21 September 2026
 
 `neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
-empty: roles bootstrapped, tenants seeded, preflight green. **All 17 migrations
-(0000–0016) are applied.** 0016 was applied on 21 September 2026, **after** the
-deploy that removed the code — the order a removal requires. Verified
-afterwards: nine tables and five enum types gone, `memberships.slack_user_id`
-gone, `app.enforce_asset_review_authority()` gone, both dead `tenant_metrics`
-rows gone, every remaining table still RLS-enabled and FORCEd, and 720
-opportunities untouched.
+empty: roles bootstrapped, tenants seeded, preflight green. **All 19 migrations
+(0000–0018) are applied.** 0016 was applied on 21 September 2026 **after** the
+deploy that removed the workspace — the order a removal requires. 0017 and 0018
+followed the same day for password sign-in; see "The deploy order went wrong on
+0018" below. Verified afterwards: the Auth.js tables and `users.email_verified`
+gone, the password columns present, every remaining table still RLS-enabled and
+FORCEd, and 720 opportunities untouched.
 
 | | |
 | --- | --- |
@@ -628,6 +628,43 @@ session survives the change; a client admin creates an account, receives the
 one-time password, and that account signs in and is forced to change; a client
 viewer is refused the People screen; a forged `role=zeeraa_admin` post is
 refused, and so is `role=zeeraa_member`.
+
+### The deploy order went wrong on 0018
+
+The split into expand (`0017`) and contract (`0018`) was made precisely so the
+contract would land after the deploy. Then both were applied at once, because
+**`pnpm db:migrate` applies every pending migration** — drizzle's migrator has no
+"up to N" — and holding `0018` back needed a deliberate step that was not taken.
+
+So `accounts`, `verification_tokens` and `users.email_verified` were dropped
+while the old deploy was still serving. The old code selects
+`users.email_verified` on every authenticated request, so for the length of one
+Vercel build every signed-in page on production would have answered 500. Four
+sessions were live at the time. The window was closed by pushing immediately;
+the new deploy went out and `/signin`, `/change-password` and `/spartan` all
+answer correctly.
+
+**Next time, hold the contract migration back rather than trusting the order of
+two commands.** The migrator applies the whole pending set, so the only reliable
+way to stage them is to not have the later file in the tree when the earlier one
+runs — commit the expand, migrate, deploy, then commit the contract and migrate
+again. A split that both halves of still run together is a comment, not a
+control.
+
+### Production accounts, bootstrapped 21 September 2026
+
+Both accounts had a null `password_hash` after `0017`, as designed, and were
+given one with `set-password`:
+
+| | |
+| --- | --- |
+| `hello@zeeraa.com` | zeeraa_admin, password set, must change on first sign-in |
+| `lshah@spartancapitalgroup.com` | client_admin, password set, must change |
+
+Every session was cleared afterwards, so the next sign-in on production is a
+password sign-in. Verified against the live deployment: a wrong password returns
+`/signin?error=1`, the correct one signs in, and `/spartan` redirects to
+`/change-password` until the password is replaced.
 
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 
