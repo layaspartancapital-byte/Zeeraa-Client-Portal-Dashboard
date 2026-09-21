@@ -110,9 +110,12 @@ export default async function People({
   async function grant(formData: FormData): Promise<void> {
     'use server';
     const s = await requireRole(slug, canManageUsers);
-    const email = String(formData.get('email') ?? '').trim().toLowerCase();
+    let outcome: { email: string; alreadyHadAccess: boolean };
     try {
-      await grantMembership(s, { email, role: String(formData.get('role') ?? '') as Role });
+      outcome = await grantMembership(s, {
+        email: String(formData.get('email') ?? ''),
+        role: String(formData.get('role') ?? '') as Role,
+      });
     } catch (e) {
       if (e instanceof UserAdminError) back(slug, { error: e.message });
       throw e;
@@ -121,7 +124,11 @@ export default async function People({
     // This used to redirect with nothing at all. Granting access succeeded
     // silently: the page reloaded, the roster gained a row somewhere in the
     // middle, and nothing said the thing you asked for had happened.
-    back(slug, { notice: `${email} now has access to this engagement.` });
+    back(slug, {
+      notice: outcome.alreadyHadAccess
+        ? `${outcome.email} already had access to this engagement.`
+        : `${outcome.email} now has access to this engagement.`,
+    });
   }
 
   async function reset(formData: FormData): Promise<void> {
@@ -293,12 +300,12 @@ export default async function People({
         <Card span={6}>
           <CardHeader
             title="Add an existing account"
-            subtitle="For somebody who already has one"
+            subtitle="Including somebody whose access was removed"
             info={
               <InfoTip label="Why this is separate" align="end">
-                Creating an account and granting it access are two acts. Somebody joining a second
-                engagement already has an account, and a second one would give them two passwords
-                and two histories.
+                Creating an account and granting it access are two acts, so an address that already
+                has an account is added here rather than created twice. An account that belongs to
+                another engagement cannot be reached from this screen by anybody.
               </InfoTip>
             }
           />
@@ -313,12 +320,10 @@ export default async function People({
                 Grant access
               </button>
             </form>
-            {session.tenant.role === 'client_admin' && (
-              <p className="mt-3 text-[12px] leading-relaxed text-text-3">
-                An address held in another engagement will not be found here. Ask Zeeraa to add
-                them.
-              </p>
-            )}
+            <p className="mt-3 text-[12px] leading-relaxed text-text-3">
+              An address held in another engagement is not visible here, to anybody. Ask Zeeraa to
+              move it.
+            </p>
           </CardBody>
         </Card>
       </Grid>

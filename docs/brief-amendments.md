@@ -1577,6 +1577,53 @@ REVOKE UPDATE ON public.memberships FROM zeeraa_app;
 GRANT UPDATE (email_preference, slack_enabled) ON public.memberships TO zeeraa_app;
 ```
 
+### Removing access used to strand the account
+
+Reported 21 September 2026, and it is the sharpest edge this design had.
+
+Remove somebody's membership and they became **unreachable from the
+application**. "Create an account" refused, because `users_email_key` is global
+and the address was taken. "Add an existing account" refused too, because its
+lookup runs under `users_visible_within_tenant`, which admits a row only when it
+is the caller's own or the target shares the current tenant — and a user with no
+membership anywhere shares nothing with anybody. The two forms contradicted each
+other, and neither could finish the job.
+
+Migration `0019` adds a second permissive SELECT policy on `users`: an admin may
+see an account that belongs to **no tenant at all**. The roster policy is
+unchanged; this sits beside it.
+
+```sql
+CREATE POLICY users_admin_resolve_unattached ON public.users
+  AS PERMISSIVE FOR SELECT TO zeeraa_app
+  USING (
+    app.effective_role() IN ('zeeraa_admin', 'client_admin')
+    AND NOT app.holds_any_membership(users.id)
+  );
+```
+
+**`app.holds_any_membership` has to be SECURITY DEFINER over
+`app.membership_index`**, and that is the whole safety of it. As an
+invoker-rights function reading `public.memberships` it would see only the
+caller's own rows and the current tenant's, so a user attached solely to
+*another* engagement would read as unattached — and the policy would publish
+another client's roster. A mutation covers exactly that rewrite.
+
+**What this exposes, and why it is not new.** An admin can now discover that an
+address exists while belonging to nothing. `users_email_key` is global, so
+"Create an account" has always answered that question by refusing with a unique
+violation. What changed is that the answer leads somewhere.
+
+**What it deliberately does not do** is make an account that belongs to a
+different engagement visible — to a Zeeraa admin as much as to a client admin,
+because it is another client's roster. Moving one between engagements is
+`scripts/grant-membership.ts` on the maintenance connection, the same gate as
+`set-password.ts`. The screen says so rather than implying the form can do it.
+
+The messages are now a chain rather than a contradiction: create refuses with
+"use Add an existing account", that form succeeds for an unattached account, and
+where it cannot it names the reason and who can act.
+
 ### One mutation that could not be made to bite
 
 `users_admin_manage` scopes a password reset to somebody in the current tenant.

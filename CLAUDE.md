@@ -47,6 +47,14 @@
   handling lives in `apps/web/src/lib/password.ts` and `session.ts`; the policy
   (length, no composition rules) is `packages/core/src/password.ts` so the
   sign-in screen, the forced-change screen and the admin form cannot disagree.
+- **An account with no membership must stay reachable by an admin.** Removing
+  access previously stranded it: the address is taken on a global unique index,
+  so it cannot be created again, and `users_visible_within_tenant` cannot see a
+  row that shares no tenant. `users_admin_resolve_unattached` covers exactly
+  that case, and its unattached test must stay SECURITY DEFINER over
+  `app.membership_index` — read as the invoker it would see only the caller's
+  own memberships, and a user attached to another engagement would read as
+  unattached.
 - **Sign-in must not say whether an account exists.** One message for a wrong
   password and for an unknown address, and `verifyPassword` hashes against a
   decoy when there is no row, so the timing does not say what the message

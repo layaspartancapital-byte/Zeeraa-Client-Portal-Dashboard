@@ -150,12 +150,20 @@ of band, and the person is required to replace it before they can reach anything
   The replacement is an admin reset, which issues a new password and closes
   every session the account holds.
 
-The first account on a new deployment has nobody to create it, so there is one
-bootstrap path, gated on holding the maintenance connection string rather than
-on being signed in:
+An account that belongs to **no** engagement — because its access was removed —
+can be added back on the People screen. One that belongs to a **different**
+engagement cannot be seen from there by anybody, because it is another client's
+roster.
+
+Two operations therefore sit outside the application, gated on holding the
+maintenance connection string rather than on being signed in:
 
 ```bash
+# The first account on a new deployment, which has nobody to create it.
 DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db set-password someone@example.com
+
+# Moving an account between engagements.
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db grant-membership someone@example.com acme client_admin
 ```
 
 ## Tenant isolation

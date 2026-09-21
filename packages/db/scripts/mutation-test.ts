@@ -257,6 +257,37 @@ const MUTATIONS: Mutation[] = [
             as permissive for select to zeeraa_app using (true)`,
   },
   {
+    // The policy that lets a removed member be re-granted. Without the role
+    // test it hands every signed-in user the set of unattached accounts.
+    name: 'unattached-resolve-open-to-anyone',
+    description: 'Let any role resolve an account that belongs to no tenant',
+    sql: `drop policy users_admin_resolve_unattached on public.users;
+          create policy users_admin_resolve_unattached on public.users
+            as permissive for select to zeeraa_app
+            using (not app.holds_any_membership(users.id))`,
+  },
+  {
+    // The half that keeps it from becoming a directory of every client's
+    // people. `holds_any_membership` reads `app.membership_index` as definer
+    // for exactly this reason.
+    name: 'unattached-resolve-sees-every-user',
+    description: 'Drop the unattached test, surfacing other engagements’ rosters',
+    sql: `drop policy users_admin_resolve_unattached on public.users;
+          create policy users_admin_resolve_unattached on public.users
+            as permissive for select to zeeraa_app
+            using (app.effective_role() in ('zeeraa_admin','client_admin'))`,
+  },
+  {
+    // As an invoker-rights function the helper reads `memberships` under the
+    // caller's own policies, which show only their tenant — so a user attached
+    // solely to another tenant would read as unattached and become visible.
+    name: 'holds-any-membership-as-invoker',
+    description: 'Make the unattached test read memberships as the caller',
+    sql: `create or replace function app.holds_any_membership(target uuid) returns boolean
+            language sql stable
+            as $x$ select exists (select 1 from public.memberships m where m.user_id = target) $x$`,
+  },
+  {
     name: 'session-scoped-tenant-context',
     description: 'Set tenant context on the session instead of the transaction',
     edit: {

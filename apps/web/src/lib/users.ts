@@ -104,6 +104,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 export type CreatedUser = { userId: string; email: string; initialPassword: string };
 
+export type GrantOutcome = { email: string; alreadyHadAccess: boolean };
+
 /**
  * Creates an account and grants it access to the tenant being administered.
  *
@@ -164,8 +166,9 @@ export async function createUser(
         // Deliberately does not say which engagement holds it. That the address
         // belongs to another client is not this admin's to learn.
         throw new UserAdminError(
-          'An account already exists for that address. Ask a Zeeraa admin to grant ' +
-            'it access to this engagement instead of creating a second one.',
+          `An account already exists for ${email}. Use "Add an existing account" ` +
+            'to give it access here rather than creating a second one — including ' +
+            'when their access was removed earlier.',
           409,
         );
       }
@@ -192,33 +195,53 @@ export async function createUser(
 export async function grantMembership(
   session: TenantSession,
   input: { email: string; role: Role },
-): Promise<void> {
+): Promise<GrantOutcome> {
   assertMayManage(session);
   assertMayGrant(session, input.role);
   const email = input.email.trim().toLowerCase();
 
-  await queryTenant(session, async (tx) => {
+  return queryTenant(session, async (tx) => {
     const [user] = await tx
       .select({ id: schema.users.id })
       .from(schema.users)
       .where(eq(schema.users.email, email));
 
-    // The `users` SELECT policy only admits people who already share this
-    // tenant, so an account that exists elsewhere reads as absent here. That is
-    // the boundary working: this admin has no business learning that an address
-    // holds an account in somebody else's engagement.
+    /**
+     * Two policies decide what this lookup can see, and between them they cover
+     * everybody an admin here may act on: `users_visible_within_tenant` admits
+     * this tenant's own people, and `users_admin_resolve_unattached` (0019)
+     * admits an account that belongs to no tenant at all.
+     *
+     * What stays invisible is an account that belongs to a *different*
+     * engagement — that is another client's roster, and it is hidden from a
+     * Zeeraa admin for the same reason it is hidden from a client admin. The
+     * message says so rather than claiming the address is unknown, because it
+     * is reachable: `scripts/grant-membership.ts`, on the maintenance
+     * connection.
+     *
+     * Before 0019 this branch also caught accounts attached to nothing, which
+     * made a removed member unreachable: create refused because the address was
+     * taken, and this refused because it could not see them.
+     */
     if (!user) {
       throw new UserAdminError(
-        'No account here for that address. Create one, or ask a Zeeraa admin if ' +
-          'it belongs to another engagement.',
+        `No account for ${email} that this engagement can reach. If they have ` +
+          'never had one, create it above. If the address belongs to another ' +
+          'engagement, a Zeeraa admin has to move it.',
         404,
       );
     }
 
-    await tx
+    const inserted = await tx
       .insert(schema.memberships)
       .values({ userId: user.id, tenantId: session.tenant.id, role: input.role })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: schema.memberships.id });
+
+    // Nothing inserted means the membership was already there. Saying "now has
+    // access" would be true and useless; an admin who typed an address twice
+    // should be told that is what happened.
+    return { email, alreadyHadAccess: inserted.length === 0 };
   });
 }
 

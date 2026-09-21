@@ -134,6 +134,13 @@
       "when": 1789870000000,
       "tag": "0018_drop_authjs_leftovers",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789880000000,
+      "tag": "0019_resolve_unattached_accounts",
+      "breakpoints": true
     }
   ]
 }

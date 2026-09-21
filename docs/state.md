@@ -654,6 +654,43 @@ doing nothing — `navigator.clipboard` is absent outside a secure context, and 
 admin who believes they copied a password and did not will paste the wrong thing
 to somebody waiting on it.
 
+### Removing access stranded the account (21 September 2026)
+
+Reported the same day: removing `lshah@spartancapitalgroup.com`'s membership
+made the account unreachable. "Create an account" said it already existed; "Add
+an existing account" said no account here. Both were telling the truth and
+neither could finish.
+
+The lookup runs under `users_visible_within_tenant`, which admits a row only
+when it is the caller's own or the target shares the current tenant. An account
+with no membership anywhere shares nothing with anybody, so it is invisible to
+every admin while still occupying its address on a global unique index.
+
+`0019` adds a second permissive SELECT policy for exactly that case, with the
+unattached test behind a SECURITY DEFINER helper reading `app.membership_index`
+— as an invoker-rights function it would see only the caller's own memberships,
+so a user attached to another engagement would read as unattached and that
+engagement's roster would appear. Three mutations cover the policy and the
+helper.
+
+An account that belongs to a **different** engagement stays invisible, to Zeeraa
+as much as to a client. `scripts/grant-membership.ts` moves one, on the
+maintenance connection:
+
+```bash
+DATABASE_URL_MAINT=... pnpm --filter @zeeraa/db grant-membership <email> <slug> <role>
+```
+
+**Production was repaired with it before the fix shipped**, since the deadlock
+had no route out through the UI: `lshah@spartancapitalgroup.com` is
+`client_admin` in Spartan again. One orphan remains and is now grantable or
+deletable as you prefer — `lshah@spartancaptialgroup.cm`, a mistyped address
+(`captial`, and `.cm`) with a password set and no membership.
+
+Verified in a browser, as the whole reported cycle: create, remove, create
+refuses and points at the other form, add-existing succeeds, granting twice says
+"already had access", and an address with no account anywhere still refuses.
+
 ### Verified
 
 `pnpm -r typecheck` clean, 524 tests across 36 files, **30 of 30 mutations

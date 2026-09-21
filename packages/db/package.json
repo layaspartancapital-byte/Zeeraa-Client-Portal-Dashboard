@@ -21,7 +21,8 @@
     "test": "vitest run",
     "preflight": "tsx scripts/preflight.ts",
     "mutation-test": "tsx scripts/mutation-test.ts",
-    "set-password": "tsx scripts/set-password.ts"
+    "set-password": "tsx scripts/set-password.ts",
+    "grant-membership": "tsx scripts/grant-membership.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*",

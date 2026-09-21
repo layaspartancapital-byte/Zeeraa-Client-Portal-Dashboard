@@ -221,16 +221,100 @@ describe('creating an account', () => {
     expect(error.code).toBe('42501');
   });
 
-  it('leaves the new account invisible until a membership exists', async () => {
-    // The reason `createUser` generates the id rather than using RETURNING: the
-    // SELECT policy admits only people who share the tenant, and a brand new
-    // account shares nothing yet.
+  it('is visible to the admin who created it, before any membership', async () => {
+    // This used to assert the opposite, and the opposite was the bug: an
+    // account sharing no tenant with anybody was invisible to every admin, so
+    // removing a membership made the person unreachable. 0019 admits exactly
+    // this case. See "an account attached to no engagement" below.
+    //
+    // `createUser` still generates the id rather than relying on RETURNING.
+    // Nothing forces that now, but it also does not depend on a policy staying
+    // permissive to be able to finish an insert it already made.
     const visible = await withTenant(
       ctx(),
       (tx) => tx.select().from(schema.users).where(eq(schema.users.id, outsiderId)),
       app.db,
     );
+    expect(visible).toHaveLength(1);
+  });
+});
+
+describe('an account attached to no engagement', () => {
+  /**
+   * The deadlock reported on 21 September 2026. Remove somebody's membership
+   * and they became unreachable: "create" refused because `users_email_key` is
+   * global, and "add existing" refused because the lookup could not see a user
+   * who shares no tenant with anybody.
+   */
+  it('is visible to an admin, so their access can be granted again', async () => {
+    const visible = await withTenant(
+      ctx(),
+      (tx) =>
+        tx
+          .select({ id: schema.users.id, email: schema.users.email })
+          .from(schema.users)
+          .where(eq(schema.users.id, outsiderId)),
+      app.db,
+    );
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.email).toBe(outsiderEmail);
+  });
+
+  it('can then actually be granted access, which is the point', async () => {
+    const rows = await withTenant(
+      ctx(),
+      (tx) =>
+        tx
+          .insert(schema.memberships)
+          .values({ userId: outsiderId, tenantId: fx.tenantA, role: 'client_viewer' })
+          .returning({ id: schema.memberships.id }),
+      app.db,
+    );
+    expect(rows).toHaveLength(1);
+
+    // And once attached it is no longer "unattached" — the row is now visible
+    // because it shares the tenant, not because of the new policy.
+    await asOwner(owner.db, (tx) =>
+      tx
+        .delete(schema.memberships)
+        .where(
+          and(
+            eq(schema.memberships.userId, outsiderId),
+            eq(schema.memberships.tenantId, fx.tenantA),
+          ),
+        ),
+    );
+  });
+
+  it('is not visible to a client viewer, who administers nobody', async () => {
+    const visible = await withTenant(
+      { tenantId: fx.tenantB, userId: fx.clientViewerB, role: 'client_viewer' },
+      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, outsiderId)),
+      app.db,
+    );
     expect(visible).toHaveLength(0);
+  });
+
+  it('does not drag another engagement\'s roster into view with it', async () => {
+    // The whole risk of this policy. `clientViewerB` holds a membership in
+    // tenant B only, so from tenant A they must stay hidden — the helper reads
+    // `app.membership_index` as definer precisely so a membership the caller
+    // cannot see still counts.
+    const visible = await withTenant(
+      ctx(),
+      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, fx.clientViewerB)),
+      app.db,
+    );
+    expect(visible).toHaveLength(0);
+  });
+
+  it('does not let an admin enumerate every user in the system', async () => {
+    const all = await withTenant(ctx(), (tx) => tx.select().from(schema.users), app.db);
+    const ids = all.map((u) => u.id);
+    // Their own tenant's people, plus the unattached account. Not tenant B's.
+    expect(ids).toContain(fx.clientAdminA);
+    expect(ids).toContain(outsiderId);
+    expect(ids).not.toContain(fx.clientViewerB);
   });
 });
 
