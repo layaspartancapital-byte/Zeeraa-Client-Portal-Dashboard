@@ -8,13 +8,17 @@
  *
  *   pnpm --filter @zeeraa/db preflight
  */
-import { assertRlsEnforced } from '../src/assert-rls';
+import { assertDefinerFunctionsSafelyOwned, assertRlsEnforced } from '../src/assert-rls';
 import { assertTransactionLocalContext } from '../src/assert-context';
 import { closeConnections } from '../src/client';
 
 const checks: [string, () => Promise<void>][] = [
   ['row level security is enforced for the runtime role', () => assertRlsEnforced()],
   ['tenant context is transaction-local on this connection', () => assertTransactionLocalContext()],
+  [
+    'no app.* definer function is owned by a BYPASSRLS role',
+    () => assertDefinerFunctionsSafelyOwned(),
+  ],
 ];
 
 let failed = false;

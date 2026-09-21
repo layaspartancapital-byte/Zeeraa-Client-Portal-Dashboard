@@ -69,3 +69,50 @@ export async function assertDatabaseSafe(): Promise<void> {
   await assertRlsEnforced();
   await assertTransactionLocalContext();
 }
+
+/**
+ * Refuses if any `app.*` SECURITY DEFINER function is owned by a role that can
+ * bypass row level security.
+ *
+ * A definer function runs with its owner's privileges. These are the functions
+ * the policies themselves call, so one owned by a `BYPASSRLS` role is a policy
+ * helper that can read past the policies it is helping to evaluate — invisible
+ * from the outside, because it keeps returning the right answers until the day
+ * somebody edits the body.
+ *
+ * This is not hypothetical here. Migrations on the hosted database run as
+ * `neondb_owner` — a member of `zeeraa_owner`, so the DDL succeeds, and a table
+ * created that way carries the right owner while a function does not. It
+ * happened to `app.enforce_asset_review_authority()` in 0013 and again to
+ * `app.holds_any_membership()` in 0019, both caught by hand after the fact.
+ * A note in `docs/state.md` did not stop the second one; this does, because it
+ * runs in the deploy.
+ *
+ * Deliberately separate from `assertDatabaseSafe`: this is a property of the
+ * schema rather than of the serving connection, it needs to read `pg_proc`, and
+ * the right moment to fail is the deploy rather than the first request.
+ */
+export async function assertDefinerFunctionsSafelyOwned(database?: Database): Promise<void> {
+  const db = database ?? getDb();
+
+  const rows = await db.execute<{ name: string; owner: string }>(sql`
+    select p.proname as name, pg_get_userbyid(p.proowner) as owner
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    join pg_roles r on r.oid = p.proowner
+    where n.nspname = 'app'
+      and p.prosecdef
+      and (r.rolbypassrls or r.rolsuper)
+    order by p.proname
+  `);
+
+  if (rows.length > 0) {
+    const named = rows.map((r) => `app.${r.name} (owned by ${r.owner})`).join(', ');
+    throw new Error(
+      `Refusing to deploy: ${named} ${rows.length === 1 ? 'is a' : 'are'} SECURITY ` +
+        'DEFINER function owned by a role that can bypass row level security. ' +
+        'Re-own with: ALTER FUNCTION app.<name>(<args>) OWNER TO zeeraa_owner; ' +
+        'and run migrations as zeeraa_owner (DATABASE_URL_OWNER) so it does not recur.',
+    );
+  }
+}

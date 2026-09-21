@@ -119,6 +119,7 @@ FORCEd, and 720 opportunities untouched.
 | Memberships | `hello@zeeraa.com` zeeraa_admin · `lshah@spartancapitalgroup.com` client_admin |
 | `assertRlsEnforced` | ok (19 Sep, as the app role) |
 | `assertTransactionLocalContext` | ok (19 Sep, as the app role) |
+| `assertDefinerFunctionsSafelyOwned` | ok (21 Sep) — all 11 `app.*` functions owned by `zeeraa_owner` |
 
 The two preflight rows were **not** re-run on 21 September: both connect as
 `zeeraa_app`, and that connection string lives in Vercel rather than in this
@@ -138,7 +139,15 @@ bypassing row level security silently, and the only `app.*` helper not owned by
 21 September 2026: **all ten `app.*` functions are owned by `zeeraa_owner`**,
 and no `zeeraa*` role carries `BYPASSRLS` or `SUPERUSER`.
 
-**The cause is still here, and the next migration will hit it again.** The
+**It happened again on 0019, and is now caught by the deploy rather than by
+hand.** `app.holds_any_membership()` landed owned by `neondb_owner` for the same
+reason, was re-owned, and `preflight` gained a third check:
+`assertDefinerFunctionsSafelyOwned` refuses when any `app.*` SECURITY DEFINER
+function is owned by a role carrying `BYPASSRLS` or `SUPERUSER`. A note in this
+file did not stop the second occurrence; a failing deploy will. Verified by
+misowning a function and watching preflight refuse.
+
+**The cause is still here.** The
 documented route is `DATABASE_URL_OWNER`, the `zeeraa_owner` connection string
 generated during bring-up, which is not in the working checkout — the only
 production strings there are `NEON_DATABASE_URL` and `NEON_DIRECT_URL`, both
