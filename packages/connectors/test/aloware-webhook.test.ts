@@ -49,29 +49,50 @@ const POST: Record<string, unknown> = {
 const TZ = 'America/New_York';
 
 /**
- * The same call, finished.
+ * A real **completed** call from the same trigger, 22 September 2026.
  *
- * It differs from the real post only in the three fields the gates read, and
- * it keeps `Event` as the SMS name on purpose: if anything ever starts reading
- * `Event` again, every test in the "a finished call" block fails at once.
+ * The positive case, and the one that was missing: until this arrived, every
+ * finished-call value was inferred from a payload that had none. It settles the
+ * two gates that were guesses. `Current Status` is `completed` — an observed
+ * terminal status at last — and `Type` is `1` on a call that genuinely
+ * happened, which is the channel gate confirmed rather than merely uncontradicted.
+ *
+ * And `Event` is **still** `OutboundSMS-DispositionCompleted`, on a call with
+ * 8 seconds of conversation. That is the correction in one field: the event
+ * name is not the channel, it is not the state, and it is not evidence of
+ * anything. It is kept here deliberately, so that anything which starts reading
+ * `Event` again fails this whole block at once.
+ *
+ * `Duration` 33 = `Wait Time` 25 + `Talk Time` 8, which is the other reason
+ * duration cannot stand in for a conversation: most of this call was ringing.
+ *
+ * The identity and timing fields are carried from the post above, because the
+ * completed one was supplied as the fields that decide admission. Everything
+ * the gates read is real.
  */
-const completed = (over: Record<string, unknown> = {}) => ({
+const COMPLETED: Record<string, unknown> = {
   ...POST,
+  Event: 'OutboundSMS-DispositionCompleted',
   'Current Status': 'completed',
   'Disposition Status': 'completed',
-  'Talk Time': 95,
-  Duration: 130,
-  ...over,
-});
+  Type: 1,
+  Direction: 2,
+  Duration: 33,
+  'Talk Time': 8,
+  'Wait Time': 25,
+};
+
+const completed = (over: Record<string, unknown> = {}) => ({ ...COMPLETED, ...over });
 
 describe('Event is not a discriminator, which is what the first gate got wrong', () => {
-  it('ingests a finished call whose event still says SMS', () => {
-    // The whole correction in one assertion. An allow-list of
-    // `…Call-DispositionCompleted` events rejected this, and therefore
+  it('ingests a real completed call whose event still says SMS', () => {
+    // The whole correction in one assertion, against a real post. An allow-list
+    // of `…Call-DispositionCompleted` events rejected this, and therefore
     // everything, because Aloware never sends that name.
-    const r = normalizeWebhookCall(completed(), DEFAULT_ALOWARE_MAPPING, TZ);
+    expect(COMPLETED.Event).toBe('OutboundSMS-DispositionCompleted');
+    const r = normalizeWebhookCall(COMPLETED, DEFAULT_ALOWARE_MAPPING, TZ);
     expect(r.row).not.toBeNull();
-    expect(r.row!.externalId).toBe('985097163');
+    expect(r.row!.direction).toBe('outbound');
   });
 
   it('is indifferent to the event, including a missing one', () => {
@@ -85,6 +106,35 @@ describe('Event is not a discriminator, which is what the first gate got wrong',
       const r = normalizeWebhookCall(completed({ Event: event }), DEFAULT_ALOWARE_MAPPING, TZ);
       expect(r.row, `event ${String(event)}`).not.toBeNull();
     }
+  });
+});
+
+describe('the two real posts differ in exactly the fields the gates read', () => {
+  it('separates them on status and disposition, not on anything else', () => {
+    // Same trigger, same `Event`, same `Type`, same `Direction`. Everything
+    // that distinguishes the call that happened from the one that had not yet
+    // happened is in these two fields, which is the case for gating on them.
+    const differing = Object.keys(COMPLETED).filter(
+      (key) => COMPLETED[key] !== POST[key],
+    );
+    expect(differing.sort()).toEqual([
+      'Current Status',
+      'Disposition Status',
+      'Duration',
+      'Talk Time',
+      'Wait Time',
+    ]);
+    expect(COMPLETED.Event).toBe(POST.Event);
+    expect(COMPLETED.Type).toBe(POST.Type);
+  });
+
+  it('confirms `completed` as an observed terminal status', () => {
+    // The deny-list was written without ever having seen a finished status.
+    // This is that value, and it passes.
+    const profile = DEFAULT_ALOWARE_MAPPING.webhook!;
+    expect(profile.inFlightStatuses).toContain('ringing');
+    expect(profile.inFlightStatuses).not.toContain('completed');
+    expect(normalizeWebhookCall(COMPLETED, DEFAULT_ALOWARE_MAPPING, TZ).row).not.toBeNull();
   });
 });
 
@@ -157,20 +207,26 @@ describe('talk time and duration are recorded, never gates', () => {
   });
 
   it('classifies talk time against the threshold, as the export does', () => {
-    expect(normalizeWebhookCall(completed(), DEFAULT_ALOWARE_MAPPING, TZ).row!.outcome).toBe(
-      'connected',
-    );
-    const brief = normalizeWebhookCall(completed({ 'Talk Time': 4 }), DEFAULT_ALOWARE_MAPPING, TZ);
-    expect(brief.row!.outcome).toBe('attempted');
-    expect(brief.row!.answeredBriefly).toBe(true);
+    // The real completed call is 8 seconds of talk, which is under the 30s
+    // threshold — so a genuine completed call arrives as `attempted`, flagged
+    // `answeredBriefly`. That is the same finding the export produced (13,376
+    // of 26,311 completed calls under ten seconds), reaching the webhook route
+    // unchanged, and it is why `completed` is not a synonym for a conversation.
+    const real = normalizeWebhookCall(COMPLETED, DEFAULT_ALOWARE_MAPPING, TZ);
+    expect(real.row!.outcome).toBe('attempted');
+    expect(real.row!.answeredBriefly).toBe(true);
+
+    const long = normalizeWebhookCall(completed({ 'Talk Time': 95 }), DEFAULT_ALOWARE_MAPPING, TZ);
+    expect(long.row!.outcome).toBe('connected');
+    expect(long.row!.answeredBriefly).toBe(false);
   });
 });
 
 describe('a finished call reads every field the export used to supply', () => {
   it('reads the flat and the nested ones', () => {
-    const r = normalizeWebhookCall(completed(), DEFAULT_ALOWARE_MAPPING, TZ);
-    expect(r.row!.talkTimeSeconds).toBe(95);
-    expect(r.row!.durationSeconds).toBe(130);
+    const r = normalizeWebhookCall(COMPLETED, DEFAULT_ALOWARE_MAPPING, TZ);
+    expect(r.row!.talkTimeSeconds).toBe(8);
+    expect(r.row!.durationSeconds).toBe(33);
     expect(r.row!.contactExternalId).toBe('169745494');
     // Reached through the nested `User` object by dotted path.
     expect(r.row!.agentName).toBe('Oscar Huamani');

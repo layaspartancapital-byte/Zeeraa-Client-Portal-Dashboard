@@ -1090,11 +1090,22 @@ A rejected record is counted by reason *and* value — `not a call (2)`,
 the log says which vocabulary to extend, and extending it is a config edit on
 the `aloware` row rather than a deploy.
 
-**What is still inferred:** only one payload exists and it is a rejection case,
-so no finished call's `Current Status` has been seen. The deny-list and the
-`Type: 1` reading are corroborated by that sample rather than contradicted by
-it, which is more than the event allow-list had, but a real completed post
-should still be checked against them.
+**A real completed post arrived on 22 September and settles both gates.** It is
+the same trigger, `Type: 1`, `Current Status: completed`, `Disposition Status:
+completed`, `Duration: 33`, `Talk Time: 8`, `Wait Time: 25`, `Direction: 2` —
+and `Event: OutboundSMS-DispositionCompleted`, on a call with eight seconds of
+conversation. Nothing about the finished-call shape is inferred any longer:
+`completed` is an observed terminal status the deny-list passes, and `Type: 1`
+is confirmed on a call that genuinely happened rather than merely uncontradicted.
+It is checked in as the positive fixture beside the rejection case, keeping its
+SMS event name, so anything that starts reading `Event` again fails at once.
+
+Two things that post is worth reading for beyond the gates. `Duration` is
+`Wait Time` + `Talk Time`, so most of a 33-second call was ringing and duration
+cannot stand in for a conversation. And eight seconds of talk is under the 30s
+threshold, so a genuine *completed* call arrives as `attempted` and
+`answeredBriefly` — the same finding the export produced, 13,376 of 26,311
+completed calls under ten seconds, reaching the webhook route unchanged.
 
 `Created At` is a bare wall clock and goes through `parseWallClock` in the
 tenant's zone, the same as the export. A test pins 19:47:42 New York to
@@ -1144,6 +1155,20 @@ historical import on 18 September. **There is not one row with
 `source = 'webhook'`**, and the newest call of any kind is 17 September, the
 last day the CSV covers. The desk runs roughly 240-400 calls a day, so this is
 not a quiet week.
+
+Re-checked against production on 22 September, after the reader was fixed and
+again after the gate was: still one source, still 28,863 rows, still nothing
+since 17 September. The only `aloware` sync runs are the two `import` runs of
+18 September. The production `aloware` config row carries `connectedMinTalkSeconds`
+and nothing else, so the default webhook profile — the corrected one — is what
+the endpoint will use the moment a post arrives.
+
+**The database cannot distinguish "never called" from "called and rejected",**
+and that is a gap worth closing. A webhook delivery writes no `sync_runs` row;
+rejections are counted into the response body and then discarded. So the reader
+being wrong twice was invisible from here both times, and would be again. Either
+the route should record a run per delivery, or the rejection counts should go
+somewhere durable.
 
 The `call_tracking` connection reads `healthy` with no error and a null
 `last_synced_at`, because a pushed source has no run to fail — which is exactly
