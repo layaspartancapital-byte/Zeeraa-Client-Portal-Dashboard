@@ -1148,7 +1148,36 @@ The endpoint fails closed, so the likely causes are a missing `CRON_SECRET`
 (503) or the schedule not being honoured by the plan. Neither is checkable from
 here.
 
-### The Aloware webhook has never delivered a single call — needs Aloware
+### The Aloware webhook delivered its first call, 22 September 2026
+
+Communication `985165316`, inbound, 179s duration and 164s talk time, landed as
+`source = 'webhook'` on the spartan tenant — the first row this endpoint has
+ever written, against 28,863 from the CSV import. Every part of the corrected
+reader is confirmed on a real delivery: the id is the upsert key, `Created At`
+`2026-09-22 20:36:51` stored as `00:36:51Z` on the 23rd (the tenant's wall clock,
+not UTC), `Direction: 1` read as inbound, and 164s over the 30s threshold giving
+`connected` with `answered_briefly` false.
+
+Two nulls on the row, neither a fault:
+
+- `agent_name`. Inbound calls often carry none — 592 of 854 inbound rows in the
+  CSV export have one, against 27,718 of 28,010 outbound. The webhook is
+  behaving like the export.
+- `lead_external_id`. `resolveCallLeads` runs from the Salesforce sync and the
+  CSV import, not from the webhook path, so a pushed call is unmatched until the
+  next hourly sync. A lead on that phone key already exists
+  (`00QVr000012jHmDMAU`, created 20 September) and the last sync finished at
+  20:00Z, before the call, so the next one matches it. Worth deciding whether
+  the webhook should run the pass itself: the lag is bounded by the hour, and
+  speed to lead is measured on matched calls.
+
+**`webhook_deliveries` was not there to record it.** Migration 0022 has not been
+applied to Neon, so the counter write raised `42P01`, was caught, logged and
+discarded — and the call ingested anyway. That is the best-effort design doing
+exactly its job on its first real outing, and it is also why the table still
+needs applying before the counters mean anything.
+
+### Before that, the webhook had never delivered — needed Aloware
 
 Every one of the 28,863 calls is `source = 'csv_import'`, written by the
 historical import on 18 September. **There is not one row with
