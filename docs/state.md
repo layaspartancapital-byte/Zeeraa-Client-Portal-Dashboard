@@ -1018,6 +1018,19 @@ Mapped on 22 September 2026, in the seed and on the production connection:
 | Duration usable, September | 9.9% | **81.6%** |
 | Both usable, which is what MQL needs | 26.0% | **66.5%** |
 
+**Revenue was swept the same way and needed no change.** The form's five
+revenue bands land in three fields and all three were already mapped, the
+best-covered first: `Average_Monthly_Revenue_Text2__c` on 1,442 of September's
+1,705 inbound leads. The sweep's value there was the confirmation, plus finding
+what *not* to map — `Desired_Funding_Amount__c` holds `$5,000 - $25,000` on 697
+leads and is how much the merchant wants to borrow. Mapped as revenue it would
+straddle the bar and look plausible; only the field's meaning distinguishes it.
+
+**`probe-answer-fields` is checked in** and is the sweep to run first. It
+excludes tax and social security fields by name before reading any value — a
+nine-digit number is money-shaped to a regular expression, and a probe that has
+read one has already put it where it does not belong.
+
 **The lesson is in the tooling, not the field.** Find a field by what its values
 look like, not by what it is called; a concept-shaped pattern cannot reach a
 field named after a sentence. `docs/salesforce-fields.md` carries the sweep to

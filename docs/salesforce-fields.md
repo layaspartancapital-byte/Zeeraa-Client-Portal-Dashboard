@@ -525,6 +525,44 @@ are almost entirely `6 - 12 months`, which spans the twelve-month bar and
 resolves to neither answer — 447 leads. That band is the residue, and choosing a
 side for it would be inventing the answer.
 
+### Revenue was swept the same way, and the mapping was already complete
+
+The form's "Average Monthly Revenue" question — `Less than $10,000`,
+`$10,000 - $20,000`, `$20,000 - $50,000`, `$50,000 - $100,000`,
+`More than $100,000` — was matched by value against all 288 textual Lead fields
+over September's inbound leads. Three fields carry it, and **all three were
+already mapped**:
+
+| Field | Band values | Populated | Mapping |
+| --- | ---: | ---: | --- |
+| `Average_Monthly_Revenue_Text2__c` | 1,341 | 1,442 (84.6%) | position 1 |
+| `Monthly_Revenue_Text__c` | 835 | 1,015 | position 3 |
+| `csbs__Monthly_Revenue__c` | 835 | 835 | position 5 |
+
+No change was needed. `Annual_Revenue_SEM_Value__c` was enumerated and is not
+mapped: the 38 leads carrying it all carry a better-placed field too, so it
+answers nothing and adding it would be churn.
+
+**A match is not a mapping, and this is where that bites.** A value sweep for
+money finds the funding request, which looks exactly like revenue:
+
+| Field | Holds | What it is |
+| --- | --- | --- |
+| `Desired_Funding_Amount__c` | `$5,000 - $25,000` on 697 leads | how much the merchant wants to **borrow** |
+| `Funding_Amount__c` | `Up to $100,000`, `Between $100,000 and $200,000` | the same |
+| `MIYB_Desired_Funding_Amount__c` | vendor codes | the same |
+| `MICS_Credit_Score__c` | a score | not money at all |
+| `Unqualified_Reason__c` | `Revenue Less than $10k` on 318 leads | a rep's **verdict** on the bar, not a value |
+
+Mapped as monthly revenue, `Desired_Funding_Amount__c` would read 697 leads as
+earning $5,000–$25,000 — straddling the $10,000 bar — and look entirely
+plausible. Nothing in the data distinguishes it; only the field's meaning does.
+
+**The sweep must not read tax or social security numbers.** A nine-digit number
+is money-shaped to a regular expression. `probe-answer-fields` excludes them by
+field name before any value is fetched, rather than filtering output afterwards
+— a probe that has read one has already put it somewhere it does not belong.
+
 ### Candidates, in precedence order
 
 Revenue, all on Lead. Ordered by what actually answers:

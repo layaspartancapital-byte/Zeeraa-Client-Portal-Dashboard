@@ -37,6 +37,16 @@ export type SalesforceFieldMapping = {
      * named for annual revenue holding `Less than $180,000` is $15,000 a month.
      */
     revenueBands?: { field: string; period: 'monthly' | 'annual' }[];
+    /*
+     * Fields that hold money and are **not** revenue, listed here in prose
+     * because the next person to sweep the org by value will find them and they
+     * are indistinguishable from revenue in the data:
+     * `Desired_Funding_Amount__c` (`$5,000 - $25,000` on 697 leads),
+     * `Funding_Amount__c` and `MIYB_Desired_Funding_Amount__c` are how much the
+     * merchant wants to borrow. Mapped as monthly revenue the first would read
+     * 697 leads as earning $5,000-$25,000, straddling the bar, and look
+     * entirely plausible.
+     */
     /**
      * The same, for time in business.
      *
