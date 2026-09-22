@@ -120,37 +120,45 @@ row ($1,031,842 / 1,794 / 347), 32 tables all RLS-enabled and FORCEd, 7 of 7
 `app.*` definer functions owned by `zeeraa_owner`, no `zeeraa*` role carrying
 BYPASSRLS, and opportunities/leads/memberships unchanged at 727 / 7,601 / 2.
 
-**Three tables are owned by `neondb_owner`, not `zeeraa_owner`.** Found on
+**Three tables were owned by `neondb_owner` and are now re-owned.** Found on
 22 September while verifying the above: `calls`, `submissions` and
 `engagement_targets` — migrations 0011, 0012 and 0020, each applied through
 `NEON_DIRECT_URL`. The note below claiming "tables, indexes and constraints
-carry the right owner" is wrong; only functions were ever checked.
+carry the right owner" was wrong; only functions had ever been checked.
 
-It is not a live isolation hole — the application connects as `zeeraa_app`,
-which has no BYPASSRLS, and all three tables are RLS-enabled and FORCEd — but it
-is a latent deploy breaker. `neondb_owner` is a member of `zeeraa_owner`, not
-the reverse, so the moment the documented fix is applied and migrations run as
-`zeeraa_owner`, any migration altering one of those three fails with *must be
-owner of table*. The repair is three statements:
+Never a live isolation hole — the application connects as `zeeraa_app`, which
+has no BYPASSRLS, and all three were RLS-enabled and FORCEd throughout — but a
+latent deploy breaker. `neondb_owner` is a member of `zeeraa_owner`, not the
+reverse, so the first migration to alter one of them *as `zeeraa_owner`* — the
+documented route — would have failed with *must be owner of table*, at the
+moment somebody finally fixed the cause.
 
-```sql
-ALTER TABLE public.calls              OWNER TO zeeraa_owner;
-ALTER TABLE public.submissions        OWNER TO zeeraa_owner;
-ALTER TABLE public.engagement_targets OWNER TO zeeraa_owner;
-```
+`ALTER TABLE … OWNER TO zeeraa_owner` on all three, in one transaction, on
+22 September 2026. Verified: policies intact (3 / 2 / 3), RLS and FORCE
+untouched, rows unchanged at 28,863 calls, 1,447 submissions and 8 targets, and
+no table in `public` owned by a BYPASSRLS role.
 
-Not applied: it is production DDL beyond the change that surfaced it.
-`preflight` should also grow a fourth check over table ownership, since
-`assertDefinerFunctionsSafelyOwned` covers functions only and would never have
-caught this.
+**The cause is fixed in two places, not one.**
 
-**`neondb_owner` carries BYPASSRLS**, which is why a `SET ROLE`-free session
-reads every tenant's rows. It is also a member of `zeeraa_owner` *and* — through
-it — of `zeeraa_maintenance`, which is why `withMaintenance` writes succeed
-through `NEON_DIRECT_URL`. `SET ROLE zeeraa_owner` is available on this
-connection (`pg_has_role(..., 'USAGE') = true`), which is the durable fix for
-the recurring misownership: it would make objects created by a migration land
-owned by `zeeraa_owner` without a separate connection string.
+1. **`scripts/migrate.ts` now issues `SET ROLE zeeraa_owner`** before drizzle
+   runs, and refuses to migrate if it cannot. A created object belongs to
+   whoever created it, so this is the actual root cause — and it needs no
+   `DATABASE_URL_OWNER` for the hosted database, which never materialised.
+   `max: 1` is what makes it work: the migrator runs on the same session. Local
+   is unaffected, since that connection is already `zeeraa_owner`. The `role`
+   *startup parameter* was tried previously and did not take; `SET ROLE` as a
+   statement does.
+2. **`preflight` has a fourth check**, `assertTablesSafelyOwned`, refusing any
+   `public` table owned by a role carrying BYPASSRLS or SUPERUSER.
+   `assertDefinerFunctionsSafelyOwned` was written for exactly this failure and
+   covered only functions, which is why three tables sat misowned from 0011
+   onward without it ever saying so. Verified by misowning a table locally and
+   watching preflight exit non-zero, and run against production afterwards.
+
+**`neondb_owner` carries BYPASSRLS**, which is why a session on it reads every
+tenant's rows without a maintenance flag. It is also a member of `zeeraa_owner`
+and — through it — of `zeeraa_maintenance`, which is why `withMaintenance`
+writes succeed through `NEON_DIRECT_URL`.
 
 `neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
 empty: roles bootstrapped, tenants seeded, preflight green. **All 19 migrations
@@ -176,7 +184,8 @@ The two preflight rows were **not** re-run on 21 September: both connect as
 `zeeraa_app`, and that connection string lives in Vercel rather than in this
 checkout. Their substance was checked directly instead — no `public` table
 without RLS, none without FORCE, no `zeeraa*` role with `BYPASSRLS`. Put
-`preflight` in the Vercel build command and the deploy answers this properly.
+`preflight` is in the Vercel build command as of 22 September 2026, so the
+deploy answers this properly.
 
 Neon's sample table `playing_with_neon` (20 rows) was dropped — `public` has to
 be empty of anything without a policy or `assertRlsEnforced` refuses to serve.
@@ -213,13 +222,44 @@ does locally. `scripts/migrate.ts` has no way to name a role, and setting
 `role` as a postgres.js startup parameter does not work — it was tried and the
 session still reported `neondb_owner`.
 
+**Preflight runs on every deploy as of 22 September 2026.** `vercel.json`
+carries a `buildCommand`:
+
+```
+pnpm --filter @zeeraa/db preflight && pnpm --filter @zeeraa/web build
+```
+
+It had been recommended in this file since 19 September and was never wired up,
+which is why three tables sat misowned for eleven days. Preflight exits 1 on any
+failure and `&&` stops the build, so Vercel fails the deployment rather than
+shipping against a database that cannot enforce isolation — verified locally
+both ways: passing runs the build and exits 0; a deliberately misowned table
+fails, `next build` never starts, and the command exits 1.
+
+The `buildCommand` in `vercel.json` **overrides whatever the dashboard says**,
+so the build is now defined in a file a reviewer can read. `vercel.json` is
+strict JSON and takes no comments, which is why the reasoning lives here.
+
+**It runs on preview deployments too, and that is deliberate** — everything else
+in this product fails closed. It needs `DATABASE_URL_APP` scoped to **Preview as
+well as Production** in the Vercel project. If it is Production-only, every
+preview build will fail with `DATABASE_URL_APP is not set`, which is preflight
+working correctly against a preview environment that has no database to check.
+The fix is the env var, not the check; gate on `$VERCEL_ENV` only if previews
+are meant to run without one.
+
+Migrations are deliberately **not** in the build command. Their order relative to
+the deploy is a decision per migration — 0016 had to run after the deploy that
+stopped reading the workspace, while 0021 had to run before the one that reads
+the widened columns — and a build step cannot make that judgement.
+
 **Endpoints.** The runtime roles use the pooled host
 (`...-pooler...`, PgBouncer transaction mode, which is what
 `assertTransactionLocalContext` requires and what `client.ts`'s
 `prepare: false` is for). The owner and maintenance roles use the direct host,
-because migrations take advisory locks. Put
-`pnpm --filter @zeeraa/db preflight` in the Vercel build command so a wrong
-endpoint breaks the deploy rather than quietly disabling isolation.
+because migrations take advisory locks. A wrong endpoint breaks the deploy
+rather than quietly disabling isolation, because preflight runs in the build
+command — see above.
 
 **The isolation model had to change to deploy at all.** The SECURITY DEFINER
 policy helpers used to carry `SET app.maintenance = 'on'`; only a true
@@ -982,6 +1022,7 @@ Verified with the start month set to 2026-06: both ramp charts track, M3 reads
 $5,087 above the CPF target and $1,469 above the CPA target, and budget pacing
 renders against M4's $82,320. Restored to unset afterwards. 125 db tests (10
 new), 270 core, 18 web, every screen still 200.
+
 ## The executive screen is a briefing (22 September 2026, later)
 
 Replaced the range-adaptive screen built earlier the same day. That version

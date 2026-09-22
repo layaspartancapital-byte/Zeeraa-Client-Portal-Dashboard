@@ -161,6 +161,13 @@ commit history and get it wrong.
   parameter and a managed Postgres has none, so it does not deploy. See
   `docs/brief-amendments.md`, "§5 and §12 — the policy helpers no longer
   elevate".
+- **The deploy runs `preflight`**, from `buildCommand` in `vercel.json`: row
+  level security enforced for the runtime role, tenant context transaction-local,
+  and no `app.*` function or `public` table owned by a role that can bypass row
+  level security. It exits non-zero and `&&` stops the build, so a database that
+  cannot enforce isolation fails the deployment instead of serving. Adding a
+  check there is how an invariant stops being a note in `docs/state.md` — three
+  tables sat misowned for eleven days while the file recommended exactly this.
 - After changing any policy, run `scripts/mutation-test.ts` — against a
   throwaway database, because it drops the schema it points at. If a mutation
   survives, add the test before shipping; if you add a control, add the

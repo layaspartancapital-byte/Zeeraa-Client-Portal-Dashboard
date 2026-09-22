@@ -8,7 +8,11 @@
  *
  *   pnpm --filter @zeeraa/db preflight
  */
-import { assertDefinerFunctionsSafelyOwned, assertRlsEnforced } from '../src/assert-rls';
+import {
+  assertDefinerFunctionsSafelyOwned,
+  assertRlsEnforced,
+  assertTablesSafelyOwned,
+} from '../src/assert-rls';
 import { assertTransactionLocalContext } from '../src/assert-context';
 import { closeConnections } from '../src/client';
 
@@ -19,6 +23,10 @@ const checks: [string, () => Promise<void>][] = [
     'no app.* definer function is owned by a BYPASSRLS role',
     () => assertDefinerFunctionsSafelyOwned(),
   ],
+  // Added 22 September 2026. The function check above was written for exactly
+  // this failure and covers only functions; three tables had been misowned
+  // since migration 0011 without it ever saying so.
+  ['no public table is owned by a BYPASSRLS role', () => assertTablesSafelyOwned()],
 ];
 
 let failed = false;

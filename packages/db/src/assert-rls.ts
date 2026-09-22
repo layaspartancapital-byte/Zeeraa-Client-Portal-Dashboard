@@ -116,3 +116,59 @@ export async function assertDefinerFunctionsSafelyOwned(database?: Database): Pr
     );
   }
 }
+
+/**
+ * Refuses to deploy when a table in `public` is owned by a role that can bypass
+ * row level security.
+ *
+ * The companion to `assertDefinerFunctionsSafelyOwned`, and it exists because
+ * that one was written to catch exactly this class of mistake and covers only
+ * functions. Three of Spartan's tables — `calls`, `submissions` and
+ * `engagement_targets`, from migrations 0011, 0012 and 0020 — were found owned
+ * by `neondb_owner` on 22 September 2026, months after the function check was
+ * added and never once reported.
+ *
+ * The cause is the same in both cases: migrations applied through a managed
+ * provider's administrative connection rather than as `zeeraa_owner`. A created
+ * object belongs to whoever created it.
+ *
+ * **What this is and is not.** It is not a live isolation hole while the
+ * application connects as a role without BYPASSRLS and every table is FORCEd —
+ * `assertRlsEnforced` is the check that guarantees both. It is two other things:
+ *
+ *   * a table owner may `DISABLE ROW LEVEL SECURITY` on its own table, so the
+ *     protection rests on nobody using that connection carelessly rather than
+ *     on the database refusing; and
+ *   * membership runs one way. `neondb_owner` is a member of `zeeraa_owner`,
+ *     not the reverse, so a migration run *correctly* — as `zeeraa_owner`, the
+ *     documented route — fails with "must be owner of table" the first time it
+ *     alters one of them. The misownership is latent until somebody fixes the
+ *     thing that caused it, which is the worst possible moment to discover it.
+ *
+ * Repair is `ALTER TABLE public.<name> OWNER TO zeeraa_owner`, which is
+ * metadata-only and leaves policies, grants and FORCE untouched.
+ */
+export async function assertTablesSafelyOwned(database?: Database): Promise<void> {
+  const db = database ?? getDb();
+
+  const rows = await db.execute<{ name: string; owner: string }>(sql`
+    select c.relname as name, pg_get_userbyid(c.relowner) as owner
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_roles r on r.oid = c.relowner
+    where n.nspname = 'public'
+      and c.relkind = 'r'
+      and (r.rolbypassrls or r.rolsuper)
+    order by c.relname
+  `);
+
+  if (rows.length > 0) {
+    const named = [...rows].map((r) => `${r.name} (owned by ${r.owner})`).join(', ');
+    throw new Error(
+      `Refusing to deploy: ${named} ${rows.length === 1 ? 'is' : 'are'} owned by a role ` +
+        'that can bypass row level security. Re-own with: ALTER TABLE ' +
+        'public.<name> OWNER TO zeeraa_owner; and run migrations as zeeraa_owner ' +
+        'so it does not recur.',
+    );
+  }
+}
