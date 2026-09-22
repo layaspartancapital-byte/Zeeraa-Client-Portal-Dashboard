@@ -119,3 +119,65 @@ describe('rangeMeetsMinimum', () => {
     expect(rangeMeetsMinimum({ low: null, high: 10_000, highExclusive: false }, 10_000)).toBeNull();
   });
 });
+
+/**
+ * The unit a bare number carries, and the guard that stops a code becoming one.
+ *
+ * Every value below was taken from Spartan's org on 22 September 2026 while
+ * enumerating every field across all 760 queryable objects that mentions
+ * revenue or time in business.
+ */
+describe('readDurationBand and the declared unit', () => {
+  it('refuses a bare number in a labelled field', () => {
+    // `MIYB_Years_in_Business__c` and `MIRV_Volume_Code__c` both hold these on
+    // thousands of leads. Read as months, `1000` cleared a twelve-month bar and
+    // qualified the lead — silently, because the arithmetic is fine.
+    for (const code of ['0000', '1000', '1100', '1110', '1111']) {
+      expect(readDurationBand(code, 'labelled')).toEqual({ kind: 'unreadable' });
+      expect(judgeBand(readDurationBand(code, 'labelled'), 12).meets).toBeNull();
+    }
+  });
+
+  it('reads a bare number in a field that declares years', () => {
+    // `Years_In_Business_Text__c` holds bare 3, 4, 5 meaning years beside
+    // `< 12 Months` meaning months. Read as months, a three-year-old business
+    // failed the twelve-month bar.
+    expect(judgeBand(readDurationBand('3', 'years'), 12).meets).toBe(true);
+    expect(readDurationBand('3', 'years')).toEqual({
+      kind: 'range',
+      range: { low: 36, high: 36, highExclusive: false },
+    });
+    // Read as months it is three months, which is the bug.
+    expect(judgeBand(readDurationBand('3', 'months'), 12).meets).toBe(false);
+  });
+
+  it('lets the value overrule the field, because one picklist mixes both', () => {
+    // The same field holds both, so a per-field unit alone cannot read it.
+    expect(judgeBand(readDurationBand('< 12 Months', 'years'), 12).meets).toBe(false);
+    expect(judgeBand(readDurationBand('5+ Years', 'months'), 12).meets).toBe(true);
+    expect(judgeBand(readDurationBand('12 Months +', 'years'), 12).meets).toBe(true);
+  });
+
+  it('defaults to labelled, so an undeclared field cannot invent a duration', () => {
+    expect(readDurationBand('1000')).toEqual({ kind: 'unreadable' });
+    expect(judgeBand(readDurationBand('1 - 3 Years'), 12).meets).toBe(true);
+  });
+
+  it('reads Spanish units rather than guessing months', () => {
+    // `1 - 3 años` used to read as one to three *months* and fail the bar.
+    expect(judgeBand(readDurationBand('1 - 3 años', 'labelled'), 12).meets).toBe(true);
+  });
+
+  it('still straddles where the band contains the bar', () => {
+    expect(judgeBand(readDurationBand('0 - 1 Years', 'labelled'), 12).meets).toBeNull();
+    expect(judgeBand(readDurationBand('0 - 1 Years', 'labelled'), 12).reason).toBe('straddles');
+  });
+
+  it('leaves money alone, because a bare amount there is genuine', () => {
+    // `Monthly_Revenue_Text__c` holds `25000` and `75000` on 627 leads. The
+    // same guard would discard them, which is why a revenue code field has to
+    // be excluded by name instead.
+    expect(judgeBand(readMoneyBand('25000', 'monthly'), 10_000).meets).toBe(true);
+    expect(judgeBand(readMoneyBand('$10,000 - $20,000', 'monthly'), 10_000).meets).toBe(true);
+  });
+});

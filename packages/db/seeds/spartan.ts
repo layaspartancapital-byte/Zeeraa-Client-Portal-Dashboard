@@ -507,22 +507,34 @@ export const spartan: TenantSeed = {
               { field: 'Monthly_Revenue__c', period: 'monthly' },               // 4.7%
               { field: 'Annual_Revenue_Text__c', period: 'annual' },            // 4.6%
             ],
+            /*
+             * Each candidate declares what a bare number in it means. The org
+             * was enumerated on 22 September 2026 — 760 queryable objects, every
+             * field whose name or label mentions revenue or time in business —
+             * and the units below are what the values actually are, not what the
+             * field names suggest. See `docs/salesforce-fields.md`.
+             */
             timeInBusinessBands: [
-              'Years_in_Business__c',        // 23.2%
-              'Time_in_Business__c',         // 12.2%
-              'Years_In_Business_Text__c',   // 8.1%
-              'Time_in_Business_SEM_Value__c', // 4.6%
-              'Time_in_Business_Months__c',  // 0.4%, and the only numeric one
+              { field: 'Years_in_Business__c', unit: 'labelled' },
+              { field: 'Time_in_Business__c', unit: 'labelled' },
+              // Holds bare `3`, `4`, `5` meaning **years** beside `< 12 Months`
+              // meaning months. Read as months — which is what happened until
+              // the unit was declared — a three-year-old business failed the
+              // twelve-month bar.
+              { field: 'Years_In_Business_Text__c', unit: 'years' },
+              { field: 'Time_in_Business_SEM_Value__c', unit: 'labelled' },
+              { field: 'Time_in_Business_Months__c', unit: 'months' },
             ],
             undecodableFields: [
               {
-                field: 'MIYB_Years_in_Business__c',
+                field: 'MIRV_Volume_Code__c',
                 why:
-                  'The best-populated time-in-business field in the org (53% of ' +
-                  'inbound leads) holds 0000, 1000, 1100, 1111 and 1110. Those ' +
-                  'are not durations, and no key for them exists on our side. ' +
-                  'Reading them would be an invention; it is the single biggest ' +
-                  'reason MQL coverage falls short.',
+                  'A vendor code, not an amount: 0000, 1000, 1100 and 1110 on ' +
+                  '3,990 leads. It was never mapped, and adding it would have ' +
+                  'read 1,527 leads as earning $1,000–$1,111 a month and failing ' +
+                  'the revenue bar. Found on 22 September 2026 while enumerating ' +
+                  'the org; it is the revenue twin of the retired MIYB field and ' +
+                  'carries the identical value set.',
               },
             ],
             // Rates below are within the inbound population (n = 7,196), which
@@ -835,15 +847,17 @@ export const spartan: TenantSeed = {
       subjectKey: 'mql_coverage',
       label: 'MQL coverage — time in business',
       reason:
-        'The best-populated time-in-business field, MIYB_Years_in_Business__c, ' +
-        'holds 0000, 1000, 1100, 1111 and 1110 on 53% of inbound leads. Those ' +
-        'are not durations and no key for them exists on our side, so those ' +
-        'leads cannot be evaluated against the 12-month condition — 1,075 of ' +
-        'them, the largest single cause of undeterminable MQL.',
+        'The web forms stopped writing a readable duration. Every decodable ' +
+        'time-in-business field dried up through 2026 as the question moved ' +
+        'into MIYB_Years_in_Business__c, a vendor code — 0000, 1000, 1100, ' +
+        '1110, 1111 — which was chased for months and is now dropped rather ' +
+        'than decoded. Usable coverage falls 94.5% in April to 9.9% in ' +
+        'September; revenue is unaffected at 76%.',
       needed:
-        'Either the key to those five values, or the web forms writing a ' +
-        'duration into a field that holds one. Both are one change on the ' +
-        'client side and either would move MQL coverage materially.',
+        'The web forms writing a duration into a field that holds one — ' +
+        'Time_in_Business_Months__c already exists and is read first where it ' +
+        'is populated. One change on the client side, and the only one that ' +
+        'moves MQL coverage now.',
       evidence:
         'Measured 18 September 2026 over 7,293 inbound leads: 16.5% qualified, ' +
         '39.8% unqualified, 43.6% undeterminable. Of the undeterminable, 1,075 ' +

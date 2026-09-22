@@ -453,3 +453,105 @@ Creating more fields will not help any of these; they are already there.
 - `lead.industry`, `lead.state`, the five `utm*` fields and `lead.landingPage`
   were all unset. Now wired, to `Industry`, `State`, the bare `utm_*__c` fields
   and `pi__url__c` respectively.
+
+
+---
+
+## Appendix — the org enumerated, 22 September 2026
+
+Every queryable object in Spartan's org was described (760 of them) and every
+field whose API name or label mentions revenue or time in business was
+collected. 77 candidates across 24 objects. This is the evidence behind the
+precedence lists in `connections.config.fieldMapping`, and the command that
+reproduces the coverage half of it is
+`pnpm --filter @zeeraa/connectors qualification-coverage`.
+
+### Two fields hold a vendor's codes, not quantities
+
+`MIYB_Years_in_Business__c` and `MIRV_Volume_Code__c` carry the identical value
+set — `0000`, `1000`, `1100`, `1110`, `1111` — one for each half of the bar.
+Neither is a quantity. **MIYB is no longer chased for a decode key and is
+dropped.** MIRV was never mapped; it is now listed as undecodable so that it
+cannot be added by somebody reading its name, which was one edit away: mapped as
+a monthly-revenue candidate it would have read 1,527 leads as earning
+$1,000–$1,111 a month and failing the revenue bar.
+
+The same codes leak into `Years_in_Business__c`, which is otherwise a clean
+picklist — 5 records of `1111` and `1000`. A blocklist could not have caught
+those, which is why the parser refuses them structurally: **a bare number in a
+field whose values normally carry their own unit is unreadable, not a count of
+months.** `readDurationBand` read `1000` as a thousand months and cleared a
+twelve-month bar.
+
+That guard cannot be applied to revenue. `Monthly_Revenue_Text__c` holds genuine
+bare amounts — `25000`, `75000`, `200000` on 627 leads — so for revenue the
+field-level exclusion is the only defence there is.
+
+### A bare number means whatever its field means
+
+`Years_In_Business_Text__c` holds bare `3`, `4`, `5` meaning **years**, beside
+`< 12 Months` and `5+ Years` meaning what they say. Read as months, a
+three-year-old business failed the twelve-month bar. Each candidate now declares
+what a bare number in it means — `labelled`, `months` or `years` — and a unit
+carried by the value overrules the field, because one picklist mixes both.
+
+### Candidates, in precedence order
+
+Revenue, all on Lead. Ordered by what actually answers:
+
+| Field | Period | Answered |
+| --- | --- | ---: |
+| `Average_Monthly_Revenue_Text2__c` | monthly | 3,746 |
+| `Average_Monthly_Revenue__c` | monthly | 1,091 |
+| `Monthly_Revenue_Text__c` | monthly | 677 |
+| `AnnualRevenue` | annual | 252 |
+| `csbs__Estimated_Monthly_Revenue__c` | monthly | 1 |
+| `Annual_Revenue_Text__c` | annual | 1 |
+| `csbs__Monthly_Revenue__c`, `Monthly_Revenue__c` | monthly | 0 |
+
+Time in business, all on Lead:
+
+| Field | Bare number means | Answered |
+| --- | --- | ---: |
+| `Years_in_Business__c` | labelled | 1,674 |
+| `Time_in_Business__c` | labelled | 825 |
+| `Years_In_Business_Text__c` | years | 32 |
+| `Time_in_Business_Months__c` | months | 32 |
+| `Time_in_Business_SEM_Value__c` | labelled | 0 |
+
+### What the other objects hold, and why none of it feeds the bar
+
+| Object | Fields | Why not |
+| --- | --- | --- |
+| Opportunity | `csbs__Estimated_Monthly_Revenue__c` 35%, `csbs__Avg_Bank_Deposits__c` 35% | exists only for converted leads, and is captured at underwriting — judging a lead by it would qualify leads *because* they progressed |
+| `csbs__Monthly_Statement_Summary__c` | `csbs__True_Revenue__c` 98% of 787 | bank-statement revenue, collected during underwriting; the same objection, more strongly |
+| `csbs__Statement__c` | `csbs__Deposit_Amount__c` 100% of 887 | as above |
+| Account | `AnnualRevenue` 27 of 25,372 | effectively empty |
+| `csbs__Program__c`, Account `csbs__Minimum_*` | lender criteria | thresholds a lender requires, not the merchant's figures — reading them as revenue would be a category error |
+| Contact | `csbs__Gross_Annual_Income__c` | a person's income, not the business's |
+| Quote, Campaign, payment and signature packages | — | not the merchant's trading figures |
+
+### Coverage, inbound leads only
+
+| Month | Leads | Revenue populated | Revenue usable | Duration populated | Duration usable | Both usable |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2026-03 | 249 | 100.0% | 100.0% | 97.2% | 97.2% | 97.2% |
+| 2026-04 | 634 | 90.1% | 85.5% | 95.0% | 93.5% | 83.8% |
+| 2026-05 | 1,309 | 95.7% | 54.6% | 68.7% | 68.0% | 28.0% |
+| 2026-06 | 986 | 98.9% | 94.8% | 28.9% | 28.0% | 27.1% |
+| 2026-07 | 976 | 96.6% | 92.2% | 20.3% | 19.2% | 19.2% |
+| 2026-08 | 981 | 88.1% | 83.7% | 22.8% | 20.7% | 20.6% |
+| 2026-09 | 1,702 | 95.2% | 93.8% | 10.6% | 9.9% | 9.9% |
+| **All time** | **7,580** | **85.6%** | **76.1%** | **34.7%** | **33.8%** | **26.0%** |
+
+**Populated and usable are different questions**, and the gap is the finding:
+719 leads carry a revenue answer that resolves to nothing — mostly
+`New Business`, which is a categorical label rather than an amount, and bands
+that straddle the $10,000 bar. Reporting population alone would have called
+`MIYB`'s 53% coverage.
+
+**The duration answer is disappearing.** Usable coverage runs 97.2% in March to
+9.9% in September as the web forms moved the question into the code field.
+Revenue is unaffected. Nothing on our side recovers this: it is one change to
+the forms, writing a duration into `Time_in_Business_Months__c`, which already
+exists and is read where it is populated.

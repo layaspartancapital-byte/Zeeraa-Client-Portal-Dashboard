@@ -4,7 +4,7 @@ import {
   readMoneyBand,
   type QualificationBar,
 } from '@zeeraa/core';
-import type { SalesforceFieldMapping } from './mapping';
+import { timeInBusinessCandidates, type SalesforceFieldMapping } from './mapping';
 import type { SalesforceRecord } from './sync';
 
 /**
@@ -85,14 +85,19 @@ export function judgeQualificationBands(
 
   const duration = firstResolvable(
     record,
-    (mapping.lead.timeInBusinessBands ?? []).map((field) => ({
-      field,
+    timeInBusinessCandidates(mapping).map((c) => ({
+      field: c.field,
       // A business that has not started trading has no trading history, so it
       // fails a minimum duration outright. Stated here rather than inside the
       // parser, because the same label against a revenue minimum means nothing.
-      read: (raw: string) => judgeBand(readDurationBand(raw), bar.minMonthsInBusiness, false).meets,
+      //
+      // `c.unit` says what a bare number in *this field* means. Without it a
+      // `3` in `Years_In_Business_Text__c` read as three months and failed the
+      // bar, and a `1000` in a vendor's code field read as a thousand.
+      read: (raw: string) =>
+        judgeBand(readDurationBand(raw, c.unit), bar.minMonthsInBusiness, false).meets,
       why: (raw: string) => {
-        const { reason } = judgeBand(readDurationBand(raw), bar.minMonthsInBusiness, false);
+        const { reason } = judgeBand(readDurationBand(raw, c.unit), bar.minMonthsInBusiness, false);
         return reason === 'straddles'
           ? `time in business is recorded as "${raw}", which spans ${bar.minMonthsInBusiness} months`
           : `time in business is recorded as "${raw}", which could not be read as a duration`;

@@ -1,3 +1,4 @@
+import type { DurationUnit } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import type { SubmissionMapping } from './submissions';
 
@@ -36,17 +37,35 @@ export type SalesforceFieldMapping = {
      * named for annual revenue holding `Less than $180,000` is $15,000 a month.
      */
     revenueBands?: { field: string; period: 'monthly' | 'annual' }[];
-    /** The same, for time in business. Units come from each label. */
-    timeInBusinessBands?: string[];
+    /**
+     * The same, for time in business.
+     *
+     * Each candidate declares what a **bare number** in it means, because the
+     * value often does not say. `Years_In_Business_Text__c` holds `3`, `4`, `5`
+     * meaning years beside `< 12 Months` meaning months; read as months, a
+     * three-year-old business failed a twelve-month bar. A `labelled` field is
+     * one whose values always carry their own unit, and in which a bare number
+     * is therefore unreadable rather than a count of months — which is what
+     * stopped a vendor's `1000` code reading as a thousand months.
+     *
+     * A plain string is still accepted and means `labelled`, so a connection
+     * configured before this existed keeps working.
+     */
+    timeInBusinessBands?: (string | { field: string; unit?: DurationUnit })[];
     /**
      * Fields excluded from the bar pending a decode key.
      *
-     * `MIYB_Years_in_Business__c` is the best-populated time-in-business field
-     * in the org at 53%, and its five values are `0000 | 1000 | 1100 | 1111 |
-     * 1110`. Those are not durations. Reading them as numbers would be an
-     * invention; ignoring them silently would hide the single biggest reason
-     * MQL coverage is short of its ceiling. So they are named here, counted,
-     * and reported as the blocker they are.
+     * A field holding a vendor's codes rather than a quantity. Spartan has
+     * two, with the identical value set — `0000 | 1000 | 1100 | 1110 | 1111` —
+     * one for each half of the bar: `MIYB_Years_in_Business__c` for duration
+     * and `MIRV_Volume_Code__c` for revenue.
+     *
+     * Named here, counted, and reported as the blocker they are. Listing them
+     * is belt to the parser's braces: `readDurationBand` refuses a bare number
+     * in a `labelled` field, which is what stopped `1000` reading as a thousand
+     * months — but the revenue reader cannot do the same, because
+     * `Monthly_Revenue_Text__c` holds genuine bare amounts like `25000`. For
+     * revenue the field-level exclusion is the only guard there is.
      */
     undecodableFields?: { field: string; why: string }[];
     /**
@@ -99,6 +118,22 @@ export type SalesforceFieldMapping = {
   submissions?: SubmissionMapping;
 };
 
+/**
+ * The time-in-business candidates in one shape, whichever way they were stored.
+ *
+ * The list used to be plain field names and is stored that way on existing
+ * connections. Normalising on read rather than migrating the rows keeps a
+ * connection configured last month working, and means one place decides what an
+ * undeclared unit means.
+ */
+export function timeInBusinessCandidates(
+  mapping: SalesforceFieldMapping,
+): { field: string; unit: DurationUnit }[] {
+  return (mapping.lead.timeInBusinessBands ?? []).map((c) =>
+    typeof c === 'string' ? { field: c, unit: 'labelled' } : { field: c.field, unit: c.unit ?? 'labelled' },
+  );
+}
+
 export type FieldIssue = {
   object: 'Lead' | 'Opportunity';
   field: string;
@@ -134,8 +169,8 @@ function collect(mapping: SalesforceFieldMapping) {
   for (const candidate of mapping.lead.revenueBands ?? []) {
     lead.push([candidate.field, `revenue band (${candidate.period})`]);
   }
-  for (const field of mapping.lead.timeInBusinessBands ?? []) {
-    lead.push([field, 'time-in-business band']);
+  for (const candidate of timeInBusinessCandidates(mapping)) {
+    lead.push([candidate.field, 'time-in-business band']);
   }
   // Selected in order to be *counted*: a lead whose only duration answer is an
   // undecodable flag needs to say so, which means knowing it is there.

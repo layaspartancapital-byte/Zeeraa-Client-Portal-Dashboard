@@ -134,16 +134,51 @@ export function readMoneyBand(raw: string, period: 'monthly' | 'annual'): BandRe
 }
 
 /**
+ * What a field's bare numbers mean, where the value itself does not say.
+ *
+ * `labelled` is a field whose values carry their own unit — `< 12 Months`,
+ * `1 - 3 Years` — and in which a bare number therefore means nothing.
+ * `months` and `years` are fields that declare the unit themselves, either by
+ * their type or by their name.
+ */
+export type DurationUnit = 'labelled' | 'months' | 'years';
+
+const YEAR_WORDS = /year|yr|a[nñ]o/;
+const MONTH_WORDS = /month|mo\b|mes(es)?\b/;
+
+/**
  * A duration band, read into **months**.
  *
- * The unit comes from the label, because one picklist mixes both: `< 12 Months`
- * and `1 - 3 Years` are values of the same field.
+ * Two sources of the unit, and the order between them is the whole point:
+ *
+ *   1. **the value**, where it carries one. One picklist mixes `< 12 Months`
+ *      and `1 - 3 Years`, so a per-field unit alone cannot read it.
+ *   2. **the field**, where the value does not. `Years_In_Business_Text__c`
+ *      holds bare `3`, `4`, `5` meaning years alongside `< 12 Months` meaning
+ *      months; read as months, a three-year-old business failed a twelve-month
+ *      bar. `Time_in_Business_Months__c` is a number in months.
+ *
+ * **A bare number in a `labelled` field is unreadable, not a count of months.**
+ * That is the guard, and it is worth stating plainly because the failure it
+ * prevents is silent and was live: `MIYB_Years_in_Business__c` holds `0000`,
+ * `1000`, `1100`, `1110` and `1111` — a vendor's code, not a duration — and
+ * this function read `1000` as a thousand months and passed the bar. The same
+ * codes appear in `MIRV_Volume_Code__c` and leak into `Years_in_Business__c`.
+ * Guessing months for an unlabelled value in a labelled field is the guess that
+ * turns a code into a qualification.
  */
-export function readDurationBand(raw: string): BandReading {
+export function readDurationBand(raw: string, unit: DurationUnit = 'labelled'): BandReading {
   const text = normalise(raw);
   if (CATEGORICAL.test(text)) return { kind: 'categorical', label: raw.trim() };
-  const inYears = /year|yr/.test(text) && !/month|mo\b/.test(text);
-  return readRange(raw, inYears ? 1 / 12 : 1);
+
+  const saysYears = YEAR_WORDS.test(text) && !MONTH_WORDS.test(text);
+  const saysMonths = MONTH_WORDS.test(text);
+
+  if (!saysYears && !saysMonths) {
+    if (unit === 'labelled') return { kind: 'unreadable' };
+    return readRange(raw, unit === 'years' ? 1 / 12 : 1);
+  }
+  return readRange(raw, saysYears ? 1 / 12 : 1);
 }
 
 /**

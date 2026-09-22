@@ -15,7 +15,8 @@
     "probe-click-ids": "tsx scripts/probe-click-id-fields.ts",
     "probe-click-id-population": "tsx scripts/probe-click-id-population.ts",
     "probe-ga-join": "tsx scripts/probe-ga-join.ts",
-    "google-ads-token": "tsx scripts/google-ads-refresh-token.ts"
+    "google-ads-token": "tsx scripts/google-ads-refresh-token.ts",
+    "qualification-coverage": "tsx scripts/qualification-coverage.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*"

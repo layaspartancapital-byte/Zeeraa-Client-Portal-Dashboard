@@ -967,6 +967,58 @@ back to January keeps the not-ingested treatment with no zeros, a reversed pair
 falls back with its message, `?days=30` still resolves to 30 days, and the
 export href carries the range. No horizontal scroll at 1600px or 375px.
 
+## The qualification inputs, enumerated across the whole org (22 September 2026)
+
+`MIYB_Years_in_Business__c` is dropped rather than decoded. Every queryable
+object in the org — 760 of them — was described and every field mentioning
+revenue or time in business collected: 77 candidates across 24 objects. Full
+evidence in `docs/salesforce-fields.md`, "Appendix — the org enumerated".
+
+**A second code field was found, one edit from being mapped.**
+`MIRV_Volume_Code__c` carries the identical value set to MIYB — `0000`, `1000`,
+`1100`, `1110` — for revenue instead of duration. Mapped by somebody reading its
+name, it would have read 1,527 leads as earning $1,000–$1,111 a month and
+failing the bar. It is now listed as undecodable.
+
+**The parser guesses less.** `readDurationBand` read a bare `1000` as a thousand
+months and cleared a twelve-month bar. Each candidate now declares what a bare
+number in it means — `labelled`, `months` or `years` — a unit carried by the
+value overrules the field, and a bare number in a `labelled` field is
+unreadable. This also fixed a live misreading: `Years_In_Business_Text__c` holds
+bare `3`, `4`, `5` meaning **years**, read until now as months, so a
+three-year-old business failed the bar. The same guard cannot protect revenue —
+`Monthly_Revenue_Text__c` holds genuine bare amounts like `25000` — so for
+revenue the field-level exclusion is the only defence.
+
+**Coverage, inbound leads, `pnpm --filter @zeeraa/connectors qualification-coverage`:**
+
+| | Populated | Usable |
+| --- | ---: | ---: |
+| Revenue | 85.6% | **76.1%** |
+| Time in business | 34.7% | **33.8%** |
+| Both, which is what MQL needs | — | **26.0%** |
+
+Populated and usable are different questions and the gap is the point: 719 leads
+carry a revenue answer that resolves to nothing, mostly `New Business` and bands
+straddling the $10,000 bar.
+
+**The duration answer is disappearing**, and this is the thing to act on. Usable
+coverage runs 97.2% in March to 9.9% in September as the web forms moved the
+question into the code field. Revenue is unaffected. Nothing on our side
+recovers it: the forms need to write a duration into
+`Time_in_Business_Months__c`, which already exists and is read where populated.
+
+**Not done: the cross-object coalesce is Lead-grain only.** The enumeration
+covered every object, and every non-Lead candidate is either a lender's criteria
+rather than the merchant's figures (`csbs__Program__c`, the `csbs__Minimum_*`
+columns), a person's income rather than a business's (Contact), effectively
+empty (Account, 27 of 25,372), or captured at underwriting and therefore only
+present for leads that already converted — Opportunity at 35%,
+`csbs__Monthly_Statement_Summary__c` at 98% of 787. Feeding those into MQL would
+qualify a lead *because* it progressed. They are listed with that reasoning
+rather than wired in; say so if the bias is acceptable for revenue bands, where
+the objection is weaker than for MQL.
+
 ## The funnel row is rebuilt (22 September 2026, last)
 
 One component, both screens — the executive briefing and the funnel view draw
