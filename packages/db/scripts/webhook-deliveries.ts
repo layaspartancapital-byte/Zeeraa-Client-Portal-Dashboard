@@ -25,6 +25,20 @@ if (!url) {
 }
 
 const days = Number(process.argv[2] ?? 30);
+
+/**
+ * `date` arrives from postgres.js as a Date in the process timezone. Printing
+ * it raw implies a timestamp the column does not carry, and `toISOString` on a
+ * midnight-local Date can land on the previous day — so it is formatted from
+ * the local parts, which are the ones the driver built it from.
+ */
+function isoDay(value: unknown): string {
+  if (value instanceof Date) {
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    return `${value.getFullYear()}-${month}-${String(value.getDate()).padStart(2, '0')}`;
+  }
+  return String(value).slice(0, 10);
+}
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 
 async function main(): Promise<void> {
@@ -54,7 +68,7 @@ async function main(): Promise<void> {
       rows.map((r) => ({
         tenant: r.slug,
         source: r.source,
-        day: r.day,
+        day: isoDay(r.day),
         received: r.received,
         accepted: r.accepted,
         rejected: r.rejected,
@@ -66,7 +80,7 @@ async function main(): Promise<void> {
     for (const row of rows) {
       const reasons = Object.entries(row.reasons as Record<string, number>);
       if (reasons.length === 0) continue;
-      console.log(`\n${row.slug}/${row.source} ${row.day}:`);
+      console.log(`\n${row.slug}/${row.source} ${isoDay(row.day)}:`);
       for (const [reason, count] of reasons.sort((a, b) => b[1] - a[1])) {
         console.log(`  ${String(count).padStart(6)}  ${reason}`);
       }

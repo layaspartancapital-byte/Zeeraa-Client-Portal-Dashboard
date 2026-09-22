@@ -1160,14 +1160,49 @@ not UTC), `Direction: 1` read as inbound, and 164s over the 30s threshold giving
 
 Two nulls on the row, neither a fault:
 
-- `agent_name`. Inbound calls often carry none — 592 of 854 inbound rows in the
-  CSV export have one, against 27,718 of 28,010 outbound. The webhook is
-  behaving like the export.
+- `agent_name`. **Corrected 22 September, on more data.** The first reading —
+  that inbound calls often carry no agent (592 of 854 in the export) — was drawn
+  from one inbound call and is not what is happening. Five webhook calls have
+  now landed, four of them outbound, and **all five have a null agent**, against
+  27,718 of 28,010 outbound rows in the export that carry one. That is a mapping
+  gap, not a property of the calls: the `User.Name` path is right for the
+  payload shape supplied on 22 September, so either the Zapier trigger omits the
+  nested `User` object on most posts or the agent lives elsewhere. Needs a real
+  payload from a delivery that has an agent to place it. Nothing else on the row
+  is affected, and no metric reads `agent_name` yet.
 - `lead_external_id`, at the time of that delivery. `resolveCallLeads` ran from
   the Salesforce sync and the CSV import but not from the webhook, so a pushed
   call was unmatched for up to an hour — and speed to lead is measured on
   matched calls, so the figure could not see it. **Fixed below**; the lead on
   that phone key already existed (`00QVr000012jHmDMAU`, created 20 September).
+
+### 0022 verified on Neon, and the first deliveries counted
+
+Applied 22 September. `webhook_deliveries` is owned by `zeeraa_owner` — not
+`neondb_owner`, which is the trap that left three tables misowned for eleven
+days — with row level security enabled *and* forced, all three policies carrying
+the intended clauses, both indexes, and grants that give `zeeraa_app` SELECT
+alone against full write for `zeeraa_jobs` and `zeeraa_maintenance`.
+
+**Read grants from `pg_class.relacl`, not `information_schema`.**
+`role_table_grants` shows only grants the connected role is party to, so as
+`zeeraa_maintenance` it listed one grantee and looked like the app and jobs
+grants had never been made. They had. `aclexplode(relacl)` shows all four.
+
+The preflight passes three of its four checks against Neon from a workstation,
+including both ownership checks — the ones that matter for a fresh migration.
+The fourth needs `DATABASE_URL_APP`, which lives in the Vercel environment and
+not in `.env.neon`, so substituting the owner URL fails it by construction
+rather than by finding anything.
+
+It is recording: 4 received, 4 accepted, 0 rejected on 22 September. The
+endpoint is now legible.
+
+**A call with 51 seconds of talk and a duration of 0** (`985190408`) came
+through in that first handful. It is the argument against gating on duration,
+made by the data within an hour of the decision: had `Duration > 0` been a gate,
+a real 51-second conversation would have been refused. `Duration` is not
+reliably the length of the call.
 
 ### A pushed call is matched on arrival — `resolveLeadsForDelivery`
 
