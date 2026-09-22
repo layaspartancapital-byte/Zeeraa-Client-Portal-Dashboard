@@ -1018,6 +1018,66 @@ Mapped on 22 September 2026, in the seed and on the production connection:
 | Duration usable, September | 9.9% | **81.6%** |
 | Both usable, which is what MQL needs | 26.0% | **66.5%** |
 
+## Two freshness faults, one fixed here and two for the client (22 September 2026)
+
+### "Sync now" on the briefing ran one platform of two — fixed
+
+The button was scoped to `platform=google_ads`, so on a screen reporting two
+channels it refreshed one and reported `succeeded`, truthfully, about the half
+it ran. Meta is in `runIncrementalSync` and always was; it was excluded by the
+caller, not missing from the runner. The button now names no platform, which
+makes the runner take all of them. The connections screen keeps its
+per-platform buttons, which is where scoping belongs.
+
+### The Vercel hourly cron has not run since 19 September — needs Vercel
+
+`sync_runs` is unambiguous: trigger `cron-hourly` has **two rows in total**,
+both 2026-09-19, for `google_ads`, `meta` and `salesforce`. Nothing since.
+
+That is why Meta reads ~88 hours stale. It is not a Meta problem — Meta's last
+successful run is the same 19 September as everything else the cron touches.
+The other platforms only look fresher because something else refreshes them:
+
+| Trigger | Platform | Runs | Last |
+| --- | --- | ---: | --- |
+| `cron-hourly` | google_ads, meta, salesforce | 2 each | 19 Sep |
+| `hourly` | salesforce only | 99 (48 in 48h) | now |
+| `nightly` | google_ads | 4 | 12h ago |
+
+**`hourly` and `nightly` come from `scripts/run-scheduled.ts`, which nothing in
+this repository runs.** CI only typechecks, tests and builds. So an
+undocumented process on some machine is keeping Salesforce and Google Ads
+current, and Meta, GA4 and Search Console have no schedule at all. Both halves
+need settling: why the Vercel cron stopped, and what that other process is.
+
+The endpoint fails closed, so the likely causes are a missing `CRON_SECRET`
+(503) or the schedule not being honoured by the plan. Neither is checkable from
+here.
+
+### The Aloware webhook has never delivered a single call — needs Aloware
+
+Every one of the 28,863 calls is `source = 'csv_import'`, written by the
+historical import on 18 September. **There is not one row with
+`source = 'webhook'`**, and the newest call of any kind is 17 September, the
+last day the CSV covers. The desk runs roughly 240-400 calls a day, so this is
+not a quiet week.
+
+The `call_tracking` connection reads `healthy` with no error and a null
+`last_synced_at`, because a pushed source has no run to fail — which is exactly
+why it went unnoticed. Likely causes are the subscription never being pointed
+at the deployment, or `ALOWARE_WEBHOOK_SECRET` not being set, which makes the
+endpoint refuse with 503. Neither is checkable from here.
+
+**What is fixed here is the silence being invisible.** The freshness strip used
+to treat a pushed source as never stale, on the reasoning that a quiet hour on
+the phones is a quiet hour. That is right for an hour and wrong for four days,
+so silence is now judged against the source's own cadence: a pushed source that
+was delivering at least one record a day and has sent nothing for over a day
+goes amber and carries the reason. It also raises a `Needs attention` finding,
+because it has no failed run to appear as one anywhere else — the briefing now
+reads "Call tracking has stopped delivering, 5d silent, was arriving at about
+237 a day".
+
 ## MQL is measured again (22 September 2026, final)
 
 `New Business` now fails the revenue minimum as it already failed the duration

@@ -16,11 +16,14 @@ import type { SourceFreshness as Source } from '@/lib/dashboard';
  * place in the reading order it has not earned, and putting it in each card's ⓘ
  * would repeat one timestamp eight times where it is invisible until hovered.
  *
- * **Calls are the exception and say so.** They arrive by webhook, so there is
- * no run to be behind and no staleness to report; what the row states is the
- * newest call received, and it is never amber. A quiet hour on the phones is a
- * quiet hour, and colouring it as a fault would make the desk's Sunday look
- * like a broken connector.
+ * **Calls are the exception, but not an unconditional one.** They arrive by
+ * webhook, so there is no run to be behind and a quiet hour on the phones is a
+ * quiet hour — colouring that as a fault would make the desk's Sunday look like
+ * a broken connector. A source that averaged three hundred calls a day and has
+ * sent none for four days is a different claim, and it was the original reason
+ * this strip was built: the webhook had never delivered once, and the row said
+ * "last call 4d 22h ago" in the same grey as everything working. So silence is
+ * measured against the source's own cadence rather than against a clock.
  */
 export function SourceFreshness({
   sources,
@@ -76,6 +79,19 @@ function SourceChip({
   const webhook = source.arrival === 'webhook';
   const age = source.at === null ? null : (now.getTime() - source.at.getTime()) / 1000;
 
+  /**
+   * A pushed source that has stopped, judged against what it used to do.
+   *
+   * A day's silence from something that delivered at least one record a day is
+   * the signal; a source with no history to compare against cannot be called
+   * silent, so it is not.
+   */
+  const silent =
+    webhook &&
+    source.typicalPerDay !== null &&
+    source.typicalPerDay >= 1 &&
+    (age === null || age > 86_400);
+
   /*
    * Amber past two hours, and only for a synced source.
    *
@@ -84,7 +100,7 @@ function SourceChip({
    * however old its newest record — the age of the last call measures the
    * phones, and this strip is not the place to make a claim about them.
    */
-  const stale = !webhook && (source.failing || age === null || age > 2 * 3600);
+  const stale = silent || (!webhook && (source.failing || age === null || age > 2 * 3600));
 
   return (
     <span
@@ -107,6 +123,14 @@ function SourceChip({
             : `${formatDuration(age!)} ago`}
       </span>
       {source.failing && <span>· last run failed</span>}
+      {silent && (
+        <InfoTip label="Why this source is flagged" align="end">
+          Nothing has arrived for over a day from a source that was delivering
+          about {Math.round(source.typicalPerDay!)} a day. This is pushed rather
+          than pulled, so there is no failed run to look at — check that the
+          webhook subscription is still pointed at this deployment.
+        </InfoTip>
+      )}
       <span className="sr-only">
         {webhook
           ? `${source.label} arrives by webhook rather than on a schedule.`

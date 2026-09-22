@@ -1046,6 +1046,16 @@ export type SourceFreshness = {
   at: Date | null;
   /** True where the most recent finished run did not succeed. */
   failing: boolean;
+  /**
+   * For a pushed source, roughly how many records a day it used to deliver,
+   * measured over the fortnight before its newest one. Null for a synced
+   * source, and for a pushed one that has never delivered anything.
+   *
+   * It is what turns "nothing recently" into a judgement. A desk that averaged
+   * three hundred calls a day and has sent none for four days is not having a
+   * quiet week — nothing is arriving.
+   */
+  typicalPerDay: number | null;
 };
 
 /**
@@ -1097,11 +1107,26 @@ export async function sourceFreshness(session: TenantSession): Promise<SourceFre
         .where(and(eq(schema.syncRuns.tenantId, tenantId), isNotNull(schema.syncRuns.finishedAt)))
         .groupBy(schema.syncRuns.platform),
 
-      // The newest call on record, by when it happened rather than by when the
-      // row was written: the webhook's claim is that a call is here as soon as
-      // it ends, and `occurred_at` is what tests that claim.
+      /*
+       * The newest call, and the cadence it arrived at before that.
+       *
+       * `occurred_at` rather than `updated_at`: the webhook's claim is that a
+       * call is here as soon as it ends, and when it happened is what tests
+       * that claim. The daily rate over the fortnight before the newest record
+       * is what says whether silence since is a quiet desk or a dead pipe.
+       */
       tx
-        .select({ at: sql<string | Date | null>`max(${schema.calls.occurredAt})` })
+        .select({
+          at: sql<string | Date | null>`max(${schema.calls.occurredAt})`,
+          perDay: sql<string | null>`(
+            select round(count(*) / 14.0, 1)
+            from ${schema.calls} c
+            where c.tenant_id = ${tenantId}
+              and c.occurred_at > (
+                select max(occurred_at) from ${schema.calls} where tenant_id = ${tenantId}
+              ) - interval '14 days'
+          )`,
+        })
         .from(schema.calls)
         .where(eq(schema.calls.tenantId, tenantId)),
 
@@ -1147,6 +1172,8 @@ export async function sourceFreshness(session: TenantSession): Promise<SourceFre
           label: platformLabel(connection.platform),
           arrival: webhook ? 'webhook' : 'sync',
           at: toDate(webhook ? newestCall?.at : run?.lastSuccess),
+          typicalPerDay:
+            webhook && newestCall?.perDay != null ? Number(newestCall.perDay) : null,
           // A webhook source has no run to fail. Its connection status still
           // carries a fault where one is known, and that is the connections
           // screen's subject rather than this strip's.

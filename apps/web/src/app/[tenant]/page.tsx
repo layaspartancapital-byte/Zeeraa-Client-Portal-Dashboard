@@ -481,6 +481,35 @@ export default async function ExecutiveBriefing({
     });
   }
 
+  /*
+   * A pushed source that has stopped delivering.
+   *
+   * It has no failed run to appear in `degraded` — nothing ran, because
+   * nothing is pulled — so without this it shows up as a slightly old
+   * timestamp and nothing else. Spartan's call webhook had delivered exactly
+   * nothing since the historical import, against a desk doing several hundred
+   * calls a day, and the briefing said "last call 4d 22h ago" in the same grey
+   * as every healthy source.
+   */
+  for (const source of freshness) {
+    if (source.arrival !== 'webhook' || source.typicalPerDay === null) continue;
+    if (source.typicalPerDay < 1) continue;
+    const ageHours = source.at === null ? null : (Date.now() - source.at.getTime()) / 3_600_000;
+    if (ageHours !== null && ageHours <= 24) continue;
+    findings.push({
+      key: `silent-${source.platform}`,
+      level: 'act',
+      headline: `${source.label} has stopped delivering`,
+      figure:
+        ageHours === null ? 'nothing received' : `${Math.round(ageHours / 24)}d silent`,
+      detail:
+        `pushed by webhook, so there is no failed sync to look at · was arriving at about ` +
+        `${formatCount(Math.round(source.typicalPerDay))} a day`,
+      note: 'This source is pushed rather than pulled, so a gap is not a sync failure and will not appear on the connections screen as one. Check that the webhook subscription still points at this deployment and that its secret is set.',
+      action: { label: 'Connections', href: `/${slug}/connections` },
+    });
+  }
+
   for (const connection of degraded) {
     findings.push({
       key: `connection-${connection.platform}`,
@@ -594,9 +623,15 @@ export default async function ExecutiveBriefing({
           Export CSV
         </ButtonLink>
         <PrintButton />
-        {canAdministerTenant(session.tenant.role) && (
-          <SyncNowButton slug={slug} platform="google_ads" />
-        )}
+        {/*
+          Every connected platform, not just Google Ads.
+          This button was scoped to `google_ads`, so on a briefing that reports
+          two channels it refreshed one and reported "succeeded" — truthfully,
+          about the half it ran. `runIncrementalSync` takes every platform when
+          none is named, which is what a button on a whole-engagement screen
+          should do. The connections screen keeps its per-platform buttons.
+        */}
+        {canAdministerTenant(session.tenant.role) && <SyncNowButton slug={slug} />}
       </TopBar>
 
       <PageMeta>
