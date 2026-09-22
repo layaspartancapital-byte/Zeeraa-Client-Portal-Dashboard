@@ -187,8 +187,18 @@ export const engagementTargets = pgTable(
     costPerFundedDeal: numeric('cost_per_funded_deal', { precision: 18, scale: 2 }),
     budget: numeric('budget', { precision: 18, scale: 2 }),
     cpa: numeric('cpa', { precision: 18, scale: 2 }),
-    approvals: integer('approvals'),
-    fundedDeals: integer('funded_deals'),
+    /**
+     * Contracted approvals and funded deals, which are **fractions**.
+     *
+     * The model projects 7.5 funded deals in M1 and 116.9 in M8. Nobody funds
+     * half a deal; the model is saying that at the contracted budget and the
+     * contracted cost per funded deal, M1 buys seven and a half of them. The
+     * halves are load-bearing — CPA is budget over approvals and CPF is budget
+     * over funded deals, and neither reproduces the contract's own stated
+     * figures once they are rounded. See migration 0021.
+     */
+    approvals: numeric('approvals', { precision: 18, scale: 2 }),
+    fundedDeals: numeric('funded_deals', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

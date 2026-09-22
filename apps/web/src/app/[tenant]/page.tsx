@@ -227,12 +227,28 @@ export default async function ExecutiveBriefing({
     cpa: (month) => {
       const bucket = completedBucketFor(month);
       if (!bucket || !bucket.spendIngested) return null;
-      // An acquisition here is an application — the first stage the CRM stamps
-      // for a real opportunity. Named on the card, because CPA means whatever
-      // the contract's "A" is and the reader cannot be left to guess.
+      /*
+       * **The model's "A" is an approval, and this is the denominator that
+       * proves it.**
+       *
+       * The engagement model computes its own CPA column as budget ÷ approvals,
+       * and reproduces it to the dollar in all eight months — $30,000 ÷ 40 =
+       * $750, $316,241 ÷ 603.8 = $524. So the actual has to divide by
+       * underwriting approvals or it is not comparable to the curve it is drawn
+       * against.
+       *
+       * This was cost per *application* until the model file was read, which
+       * would have understated the actual by roughly threefold — 121
+       * applications against 41 approvals in September — and drawn the
+       * engagement as comfortably ahead of a target it is behind. The word CPA
+       * means at least three different things across this engagement's
+       * paperwork; `cpa_definition` in `blocked_dependencies` carries that
+       * disagreement, and the ramp is exempt from it only because the model
+       * defines its own column from its own two columns.
+       */
       return gatedCost(
         bucket.spendByPlatform[rampPlatform] ?? 0,
-        bucket.stagesByPlatform[rampPlatform]?.application ?? 0,
+        bucket.stagesByPlatform[rampPlatform]?.uw_approved ?? 0,
         'cpa',
       );
     },
@@ -288,7 +304,7 @@ export default async function ExecutiveBriefing({
   );
   const rampSecondary = panelFor(
     'cpa',
-    'CPA · cost per application',
+    'CPA · cost per approval',
     'cpa',
     { kind: 'currency', currency },
     AWAITING_MODEL,
@@ -301,8 +317,16 @@ export default async function ExecutiveBriefing({
       { kind: 'currency', currency },
       'Only M1 of the budget curve has been entered, so later months have nothing to pace against.',
     ),
-    panelFor('approvals', 'Approvals', 'stage_count', { kind: 'count' }, AWAITING_MODEL),
-    panelFor('fundedDeals', `${valueLabel} deals`, 'stage_count', { kind: 'count' }, AWAITING_MODEL),
+    panelFor('approvals', 'Approvals', 'stage_count', { kind: 'projection' }, AWAITING_MODEL),
+    // Kept beside CPA deliberately: they share a denominator, and a reader who
+    // wonders what the "A" is can see it one line down.
+    panelFor(
+      'fundedDeals',
+      `${valueLabel} deals`,
+      'stage_count',
+      { kind: 'projection' },
+      AWAITING_MODEL,
+    ),
   ];
 
   /* ----------------------------------------------------------------------- */

@@ -948,8 +948,12 @@ export async function engagementRamp(session: TenantSession): Promise<Engagement
         costPerFundedDeal: row.costPerFundedDeal === null ? null : Number(row.costPerFundedDeal),
         budget: row.budget === null ? null : Number(row.budget),
         cpa: row.cpa === null ? null : Number(row.cpa),
-        approvals: row.approvals,
-        fundedDeals: row.fundedDeals,
+        // `numeric` comes back as text, like every money column beside it.
+        // These two were `integer` until migration 0021 widened them for the
+        // model's fractional projections — 7.5 funded deals in M1 — so they now
+        // need the same coercion the columns above have always had.
+        approvals: row.approvals === null ? null : Number(row.approvals),
+        fundedDeals: row.fundedDeals === null ? null : Number(row.fundedDeals),
       });
       byPlatform.set(row.platform, list);
     }

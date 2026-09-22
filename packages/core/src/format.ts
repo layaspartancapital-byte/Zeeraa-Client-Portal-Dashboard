@@ -64,6 +64,26 @@ export function formatCount(value: number, locale = 'en-US'): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Math.round(value));
 }
 
+/**
+ * A projected count, which is allowed a fraction.
+ *
+ * `formatCount` rounds, because a count of things is a whole number and a cell
+ * reading "7.5 deals" would be a measurement claiming something impossible. A
+ * *contracted projection* is the opposite case: the model says month one buys
+ * 7.5 funded deals at the contracted budget and cost per deal, and rendering
+ * that as 8 restates the contract — $30,000 over 8 is $3,750, against a target
+ * of $4,000.
+ *
+ * So the two have different functions rather than one function with a flag, and
+ * the name says which kind of number is being shown. A whole projection still
+ * renders whole: 40 approvals is "40", not "40.0".
+ */
+export function formatProjection(value: number, locale = 'en-US'): string {
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 export function formatDays(value: number, locale = 'en-US'): string {
   const n = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 1,

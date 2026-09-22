@@ -2569,3 +2569,107 @@ away from coming back.
 so the freshness strip threw on a server render the first time it drew. Fixed
 where the shape is declared rather than trusted at the call site.
 
+---
+
+## §12 — the engagement model is loaded, and its "CPA" is cost per approval
+
+Loaded 22 September 2026 from
+`data/private/SpartanCapital Google Ads Budget Projection for 8 Months(Sheet1).csv`.
+All five contracted series now exist for M1–M8, so the four `Not recorded`
+panels on the briefing fill.
+
+| | M1 | M8 |
+| --- | ---: | ---: |
+| Budget | $30,000 | $316,241 |
+| CPA | $750 | $524 |
+| Approvals | 40 | 603.8 |
+| Cost per funded deal | $4,000 | $2,705 |
+| Funded deals | 7.5 | 116.9 |
+
+Loading it changed two things in the code, and neither was optional.
+
+### The model's CPA is budget ÷ approvals, and the briefing was measuring
+### cost per application
+
+The CPA column is not an assertion, it is a computation the model performs on
+its own two other columns, and it reproduces to the dollar in all eight months:
+$30,000 ÷ 40 = $750, $316,241 ÷ 603.8 = $524. So the **"A" is an underwriting
+approval**.
+
+The briefing measured the actual as cost per *application*. Against September
+that is 121 applications where the contract means 41 approvals — the actual
+would have rendered roughly threefold too low and drawn the engagement as
+comfortably ahead of a target it is a long way behind.
+
+**Two independent checks confirm the reading**, which is why it is stated as
+fact rather than as an inference:
+
+1. The model's own note says *"Current CPA is 2119 and CPF is 8227"*. Measured
+   from the warehouse, August's Google Ads spend over August's Google Ads
+   approvals is **$2,146**. Cost per application for the same month is $384.
+2. The same note's CPF of $8,227 sits beside the trailing-90-day cost per funded
+   deal this product already reports, $8,764.
+
+The word CPA still means at least three different things across this
+engagement's paperwork — the proposal says $2,000 falling to $1,000, the Google
+Ads baseline reports cost per conversion of $108.59, and the model says
+$750 falling to $524 over approvals. The `cpa_definition` reconciliation row
+carries all three now; the third was added with this load and is marked as what
+it is, a definition rather than a claim about a figure. **The `cpa` KPI metric
+stays unreconciled. The ramp's CPA does not need to be**, because the model
+defines its own column from its own columns, and that is the only definition the
+ramp is drawn against.
+
+### Contracted approvals and funded deals are fractions (migration 0021)
+
+0020 typed both `integer`. The model contracts 7.5 funded deals in M1 and 116.9
+in M8. Nobody funds half a deal — these are projections, and **the halves are
+load-bearing**, because the model's internal arithmetic only reproduces with
+them: $30,000 ÷ 7.5 is the contracted $4,000, while $30,000 ÷ 8 is $3,750, a 6%
+error in the north-star target arriving as a rounding decision nobody made.
+Truncating to 7 errs 14% the other way.
+
+Both columns are now `numeric(18, 2)`. The migration writes no rows, so it needs
+no `NO FORCE` bracket — that rule is about DML, and `ALTER COLUMN ... TYPE` is
+DDL that runs as the table owner and is not subject to row level security.
+Verified either side: 8 rows before, 8 after, every existing figure intact.
+
+**`formatProjection` is a separate function from `formatCount`** for the same
+reason. A count of things is a whole number and a cell reading "7.5 deals" would
+be a measurement claiming something impossible; a contracted projection is the
+opposite case, and rounding it on screen restates the contract. The ramp strip
+reads `7.5 → 116.9`, not `8 → 117`.
+
+### The figures are in the seed, not parsed at load time
+
+`data/private/` is gitignored, so a parser would make the seed unrunnable on a
+fresh checkout and in CI. They are transcribed into `spartan.ts`, where a
+reviewer can read them in a diff, which is how the cost-per-funded-deal curve
+already worked.
+
+That leaves hand-transcription as the risk, and a wrong digit in a contracted
+target is close to undetectable by eye — the curve still looks like a curve.
+`packages/db/test/engagement-model.test.ts` closes it by exploiting the model's
+redundancy: budget, approvals and funded deals are the primitives, CPA and CPF
+are derived, so re-deriving both is a checksum over all five columns. It also
+checks the sums against the source's own TOTAL row, that both costs decline and
+all three volumes grow, that the fractions survive, and that only Google Ads
+carries a curve.
+
+**Its tolerance is derived rather than chosen**, which is worth recording
+because the first version got it wrong. The model rounds twice: the ratio to
+whole dollars (±$0.50) and the *count* to one decimal (±0.05 of a deal, divided
+into the budget). The second dominates and is far larger early — 0.05 against
+M1's 7.5 deals is 0.7% of the denominator, against M8's 116.9 it is 0.04% — so
+the allowance is `$0.50 + ratio × 0.05 / count`, which is $27 at M1 and $1.66 at
+M8. A flat $0.50 failed five of the eight months with correct data; a flat $27
+would let a real error through at M8. A test asserts the checksum would catch a
+single mistyped digit.
+
+### What the model states and this schema does not hold
+
+`Funded Amount` (M1 $80,000 rising to M8 $2,338,073) and `Avg. Deal Size`
+($20,000 from M2) are in the source and have no column in `engagement_targets`.
+They are not loaded rather than being loaded somewhere approximate. The
+`funded_targets` reconciliation row already covers the disagreement between the
+proposal's funded-volume figures, and this is a fourth source for it.

@@ -1,4 +1,4 @@
-import { formatCount, formatRate } from '@zeeraa/core';
+import { formatCount, formatProjection, formatRate } from '@zeeraa/core';
 
 /**
  * How a chart axis, label and tooltip format their numbers.
@@ -15,6 +15,8 @@ import { formatCount, formatRate } from '@zeeraa/core';
 export type FormatSpec =
   | { kind: 'currency'; currency: string }
   | { kind: 'count' }
+  /** A contracted projection, which may be a fraction: 7.5 funded deals. */
+  | { kind: 'projection' }
   /** A proportion in 0–1, rendered as a percentage. */
   | { kind: 'rate' }
   /** Already a percentage, e.g. a change of −8.1. */
@@ -34,6 +36,8 @@ export function formatter(spec: FormatSpec): (value: number) => string {
     }
     case 'count':
       return (value) => formatCount(value);
+    case 'projection':
+      return (value) => formatProjection(value);
     case 'rate':
       return (value) => formatRate(value);
     case 'percentPoints':

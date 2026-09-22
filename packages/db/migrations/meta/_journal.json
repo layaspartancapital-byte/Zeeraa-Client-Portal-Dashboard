@@ -148,6 +148,13 @@
       "when": 1789890000000,
       "tag": "0020_engagement_targets",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789900000000,
+      "tag": "0021_engagement_targets_fractional_counts",
+      "breakpoints": true
     }
   ]
 }

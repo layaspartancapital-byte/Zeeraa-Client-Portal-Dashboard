@@ -135,6 +135,15 @@ commit history and get it wrong.
   (Turbopack does not map `.js` specifiers onto `.ts` sources).
 - Migrations are checked in. RLS policies are hand-written so the exact
   `USING`/`WITH CHECK` clauses are reviewable in the diff.
+- **Loading configuration into a hosted database uses a targeted script, not
+  `db:seed`.** The seed rewrites every `tenant_config` row from the seed
+  constant, so running it against production to load one table would reset
+  `engagement_start_month` the day somebody records the real one.
+  `load-engagement-targets.ts` is the shape to copy: it touches one table, takes
+  `--dry-run` to prove the write lands before committing it, and refuses when a
+  prerequisite migration has not been applied. **The dry run is not ceremony** —
+  every tenant-scoped table is FORCE RLS'd, so a write by a role holding no
+  policy matches nothing, raises nothing and exits 0.
 - A new tenant-scoped table must, in its own migration, grant to `zeeraa_app`,
   `enable` and `force` row level security, and create both its
   `tenant_isolation` and `maintenance_access` policies.

@@ -1,6 +1,7 @@
 import {
   formatCount,
   formatCurrency,
+  formatProjection,
   type ImprovementDirection,
   type RampMetricKey,
   type RampSeries,
@@ -201,11 +202,7 @@ function CurveSummary({ panel }: { panel: RampPanel }) {
   const { first, last, points } = panel.series;
   if (first === null) return <>Not recorded</>;
 
-  const render = (value: number) =>
-    panel.format.kind === 'currency'
-      ? formatCurrency(value, panel.format.currency)
-      : formatCount(value);
-
+  const render = renderer(panel);
   const contracted = points.filter((p) => p.target !== null);
   if (contracted.length < points.length) {
     const months = contracted.map((p) => p.label).join(', ');
@@ -234,10 +231,7 @@ function CurveSummary({ panel }: { panel: RampPanel }) {
 function latestGapLine(panel: RampPanel): string {
   const point = [...panel.series.points].reverse().find((p) => p.gap !== null);
   if (!point?.gap) return 'No month yet has both a contracted figure and a measured one.';
-  const render = (value: number) =>
-    panel.format.kind === 'currency'
-      ? formatCurrency(value, panel.format.currency)
-      : formatCount(value);
+  const render = renderer(panel);
   const distance = render(Math.abs(point.gap.absolute));
   if (point.gap.assessment === 'level') return `${point.label} landed on its target.`;
   const side = point.gap.absolute > 0 ? 'above' : 'below';
@@ -261,6 +255,23 @@ function toneFor(
   const latest = [...series.points].reverse().find((p) => p.gap !== null);
   if (!latest?.gap || latest.gap.assessment === 'level') return 'primary';
   return latest.gap.assessment;
+}
+
+/**
+ * How a panel's figures are written, from its own `FormatSpec`.
+ *
+ * Shared by the summary and the gap line so the two cannot disagree — and so a
+ * contracted 7.5 funded deals is never rounded to 8 in one of them. That
+ * rounding is the exact thing migration 0021 exists to prevent, and it would be
+ * undone here by a default.
+ */
+function renderer(panel: RampPanel): (value: number) => string {
+  if (panel.format.kind === 'currency') {
+    const { currency } = panel.format;
+    return (value) => formatCurrency(value, currency);
+  }
+  if (panel.format.kind === 'projection') return (value) => formatProjection(value);
+  return (value) => formatCount(value);
 }
 
 /** `Jun 2026`, from `2026-06`. */

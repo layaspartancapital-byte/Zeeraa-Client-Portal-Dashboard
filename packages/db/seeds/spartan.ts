@@ -226,14 +226,20 @@ export const spartan: TenantSeed = {
     {
       key: 'min_rate_denominator',
       description:
-        'The smallest denominator a rate may be *compared* against. The rate ' +
-        'itself still renders below this — a small population is still a real ' +
-        'measurement — but it gets no delta, because a comparison needs both ' +
-        'sides to mean something. Unblocking UW approved produced an offer rate ' +
-        'of 58.8% (67 of 114) against a previous period of 200% (2 of 1), and ' +
-        'the resulting "−70.6%, a regression" was a statement about one ' +
-        'opportunity.',
-      value: { minimum: 10 },
+        'Two floors on the population behind a rate, because they are two ' +
+        'different judgements. `minimum` is the smallest denominator a rate may ' +
+        'be *compared* against: below it the figure still renders and the delta ' +
+        'does not, because a comparison needs both sides to mean something. ' +
+        'Unblocking UW approved produced an offer rate of 58.8% (67 of 114) ' +
+        'against a previous period of 200% (2 of 1), and the resulting ' +
+        '"−70.6%, a regression" was a statement about one opportunity. ' +
+        '`render` is the smallest denominator the figure itself may be drawn ' +
+        'over, and it is far lower: the executive screen has to work at a ' +
+        'one-day range, where a cost per funded deal over one or two deals ' +
+        'measures the sample and not the channel. Three, so that nine ' +
+        'attributed deals over ninety days — the real figure this product ' +
+        'exists to report — is never withheld by a floor meant for deltas.',
+      value: { minimum: 10, render: 3 },
     },
     {
       key: 'aloware',
@@ -368,28 +374,46 @@ export const spartan: TenantSeed = {
   },
 
   /**
-   * Zeeraa's engagement model: an eight-month decline in cost per funded deal,
-   * Google Ads only. Meta carries no target.
+   * Zeeraa's engagement model, complete: eight months of budget, CPA,
+   * approvals, cost per funded deal and funded deals. Google Ads only — Meta
+   * carries no target and must not inherit one.
    *
-   * The curve is 4000 × 0.92 × 0.95^(n−2) from M2, which is what the stated
-   * figures are the rounding of — written out as the stated figures rather
-   * than as the formula, because the contract states numbers and a formula
-   * would be this codebase's reconstruction of them.
+   * **Transcribed from `SpartanCapital Google Ads Budget Projection for 8
+   * Months(Sheet1).csv`**, which lives in `data/private/` and is gitignored.
+   * The figures are written out here rather than parsed from the file at seed
+   * time for two reasons: a fresh checkout and CI have no `data/private/`, so a
+   * parser would make the seed unrunnable where the file is absent; and these
+   * are contract figures, which belong in a diff a reviewer can read.
    *
-   * Budget, CPA, approvals and funded-deal targets are part of the model and
-   * are **not** here: only M1's budget has been supplied so far. They are
-   * nullable columns awaiting the model file rather than figures anybody
-   * invented. See `docs/state.md`.
+   * The cost-per-funded-deal curve is 4000 × 0.92 × 0.95^(n−2) from M2, and the
+   * model's stated figures are the rounding of it. Written as the stated
+   * figures, because the contract states numbers and a formula would be this
+   * codebase's reconstruction of them.
+   *
+   * **`approvals` and `fundedDeals` are fractions on purpose.** 7.5 funded
+   * deals in M1 is a projection, not a count, and the halves are load-bearing:
+   * the model is internally consistent only with them. See migration 0021, and
+   * `engagement-model.test.ts`, which re-derives both ratios from these rows
+   * and fails on a transcription slip.
+   *
+   * **The model's `cpa` is budget ÷ approvals — cost per *approval*.** Every
+   * month reproduces it: $30,000 ÷ 40 = $750, $316,241 ÷ 603.8 = $524. It is
+   * not cost per application, not cost per SQL, and not the Google Ads
+   * platform's own cost per conversion, all of which are also called CPA
+   * somewhere in this engagement. The `cpa_definition` reconciliation row
+   * carries the disagreement; this column is the ramp's own definition and is
+   * unambiguous because the model computes it from its own two columns.
    */
   engagementTargets: [
-    { platform: 'google_ads', monthIndex: 1, costPerFundedDeal: 4000, budget: 30000 },
-    { platform: 'google_ads', monthIndex: 2, costPerFundedDeal: 3680 },
-    { platform: 'google_ads', monthIndex: 3, costPerFundedDeal: 3496 },
-    { platform: 'google_ads', monthIndex: 4, costPerFundedDeal: 3321 },
-    { platform: 'google_ads', monthIndex: 5, costPerFundedDeal: 3155 },
-    { platform: 'google_ads', monthIndex: 6, costPerFundedDeal: 2997 },
-    { platform: 'google_ads', monthIndex: 7, costPerFundedDeal: 2848 },
-    { platform: 'google_ads', monthIndex: 8, costPerFundedDeal: 2705 },
+    // Month  Budget      CPA   Approvals    CPF   Funded
+    { platform: 'google_ads', monthIndex: 1, budget: 30000, cpa: 750, approvals: 40, costPerFundedDeal: 4000, fundedDeals: 7.5 },
+    { platform: 'google_ads', monthIndex: 2, budget: 42000, cpa: 713, approvals: 58.9, costPerFundedDeal: 3680, fundedDeals: 11.4 },
+    { platform: 'google_ads', monthIndex: 3, budget: 58800, cpa: 677, approvals: 86.9, costPerFundedDeal: 3496, fundedDeals: 16.8 },
+    { platform: 'google_ads', monthIndex: 4, budget: 82320, cpa: 643, approvals: 128, costPerFundedDeal: 3321, fundedDeals: 24.8 },
+    { platform: 'google_ads', monthIndex: 5, budget: 115248, cpa: 611, approvals: 188.7, costPerFundedDeal: 3155, fundedDeals: 36.5 },
+    { platform: 'google_ads', monthIndex: 6, budget: 161347, cpa: 580, approvals: 278, costPerFundedDeal: 2997, fundedDeals: 53.8 },
+    { platform: 'google_ads', monthIndex: 7, budget: 225886, cpa: 551, approvals: 409.7, costPerFundedDeal: 2848, fundedDeals: 79.3 },
+    { platform: 'google_ads', monthIndex: 8, budget: 316241, cpa: 524, approvals: 603.8, costPerFundedDeal: 2705, fundedDeals: 116.9 },
   ],
 
   /**
@@ -880,11 +904,22 @@ export const spartan: TenantSeed = {
       key: 'cpa_definition',
       label: 'What "CPA" refers to',
       question:
-        'Does CPA mean cost per qualified lead, cost per funded deal, or the platform’s ' +
-        'own cost per conversion? Three figures in the paperwork use the same word.',
+        'Does CPA mean cost per approval, cost per qualified lead, or the platform’s own ' +
+        'cost per conversion? Three sources use the same word for three denominators, and ' +
+        'the budget model is the only one that defines it arithmetically.',
       claims: [
         { value: '$2,000 today, $1,000 target', source: 'Proposal, targets section' },
         { value: '$108.59 cost per conversion', source: 'Google Ads baseline, Jun–Aug 2026' },
+        {
+          // Added 22 September 2026, on reading the model file. This claim is
+          // different in kind from the two above: it is not an assertion about
+          // a figure, it is a definition the model computes from its own
+          // columns and reproduces in all eight months. $30,000 ÷ 40 approvals
+          // = $750; $316,241 ÷ 603.8 = $524. So the *ramp's* CPA is settled
+          // even while the KPI's is not, and the two must not be conflated.
+          value: '$750 in M1 falling to $524 in M8 — budget ÷ approvals',
+          source: 'SpartanCapital Google Ads Budget Projection for 8 Months',
+        },
       ],
     },
     {

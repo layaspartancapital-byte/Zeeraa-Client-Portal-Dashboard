@@ -99,7 +99,58 @@ deals) and needs every channel ingested before it means anything. With only
 Google Ads live, a blended figure would be the Google Ads figure wearing a
 broader name.
 
-## Production database — Neon, migrated to 0018 on 21 September 2026
+## Production database — Neon, migrated to 0021 on 22 September 2026
+
+**All 22 migrations (0000–0021) are applied, and the contracted ramp is
+loaded.** 0019 and 0020 were already applied before 22 September — an earlier
+note in this file claimed otherwise and was wrong; it had been written from the
+stale "0000–0018" line above rather than from the ledger. Check the ledger, not
+this file.
+
+0021 was applied on 22 September 2026 via `NEON_DIRECT_URL`, and the eight
+engagement targets were loaded after it. Both are additive and were applied
+**before** the deploy that reads them, which is safe because the deploy running
+at the time (`a806b1e`) selects `approvals` and `funded_deals` into `RampTarget`
+and renders neither — only `cost_per_funded_deal` reaches a screen — so widening
+the columns to `numeric` and filling them is inert to it.
+
+Verified after: 8 rows, every month fully populated, both derived ratios
+reproducing within the model's own rounding, totals matching the source's TOTAL
+row ($1,031,842 / 1,794 / 347), 32 tables all RLS-enabled and FORCEd, 7 of 7
+`app.*` definer functions owned by `zeeraa_owner`, no `zeeraa*` role carrying
+BYPASSRLS, and opportunities/leads/memberships unchanged at 727 / 7,601 / 2.
+
+**Three tables are owned by `neondb_owner`, not `zeeraa_owner`.** Found on
+22 September while verifying the above: `calls`, `submissions` and
+`engagement_targets` — migrations 0011, 0012 and 0020, each applied through
+`NEON_DIRECT_URL`. The note below claiming "tables, indexes and constraints
+carry the right owner" is wrong; only functions were ever checked.
+
+It is not a live isolation hole — the application connects as `zeeraa_app`,
+which has no BYPASSRLS, and all three tables are RLS-enabled and FORCEd — but it
+is a latent deploy breaker. `neondb_owner` is a member of `zeeraa_owner`, not
+the reverse, so the moment the documented fix is applied and migrations run as
+`zeeraa_owner`, any migration altering one of those three fails with *must be
+owner of table*. The repair is three statements:
+
+```sql
+ALTER TABLE public.calls              OWNER TO zeeraa_owner;
+ALTER TABLE public.submissions        OWNER TO zeeraa_owner;
+ALTER TABLE public.engagement_targets OWNER TO zeeraa_owner;
+```
+
+Not applied: it is production DDL beyond the change that surfaced it.
+`preflight` should also grow a fourth check over table ownership, since
+`assertDefinerFunctionsSafelyOwned` covers functions only and would never have
+caught this.
+
+**`neondb_owner` carries BYPASSRLS**, which is why a `SET ROLE`-free session
+reads every tenant's rows. It is also a member of `zeeraa_owner` *and* — through
+it — of `zeeraa_maintenance`, which is why `withMaintenance` writes succeed
+through `NEON_DIRECT_URL`. `SET ROLE zeeraa_owner` is available on this
+connection (`pg_has_role(..., 'USAGE') = true`), which is the durable fix for
+the recurring misownership: it would make objects created by a migration land
+owned by `zeeraa_owner` without a separate connection string.
 
 `neondb` on `ep-royal-cherry-b5xqgpoc` (us-east-2), PostgreSQL 18.6. Built from
 empty: roles bootstrapped, tenants seeded, preflight green. **All 19 migrations
@@ -876,6 +927,61 @@ back to January keeps the not-ingested treatment with no zeros, a reversed pair
 falls back with its message, `?days=30` still resolves to 30 days, and the
 export href carries the range. No horizontal scroll at 1600px or 375px.
 
+## The engagement model is loaded (22 September 2026, later still)
+
+All five contracted series are in `engagement_targets` for M1–M8, from
+`data/private/SpartanCapital Google Ads Budget Projection for 8 Months(Sheet1).csv`.
+The four `Not recorded` panels on the briefing now render curves.
+
+| | M1 | M8 |
+| --- | ---: | ---: |
+| Budget | $30,000 | $316,241 |
+| CPA | $750 | $524 |
+| Approvals | 40 | 603.8 |
+| Cost per funded deal | $4,000 | $2,705 |
+| Funded deals | 7.5 | 116.9 |
+
+Full reasoning in `docs/brief-amendments.md`, "§12 — the engagement model is
+loaded, and its 'CPA' is cost per approval".
+
+**The model's CPA is budget ÷ approvals, and the briefing was measuring cost per
+application.** The CPA column is computed from the model's own two other columns
+and reproduces to the dollar in all eight months. Against September that is 121
+applications where the contract means 41 approvals — the actual would have
+rendered threefold too low and drawn the engagement as ahead of a target it is
+well behind. Two independent checks confirm it: the model's own note says
+"Current CPA is 2119", and August's Google Ads spend over August's approvals is
+**$2,146** (cost per application for the same month is $384); the note's CPF of
+8227 sits beside the $8,764 this product already reports.
+
+The `cpa` KPI metric stays unreconciled — the word still means three things
+across the paperwork — and the third definition was added to the
+`cpa_definition` claims. The *ramp's* CPA needs no reconciliation, because the
+model defines it from its own columns.
+
+**Migration 0021 widens `approvals` and `funded_deals` to `numeric(18,2)`.** The
+model contracts 7.5 funded deals in M1, and the halves are load-bearing:
+$30,000 ÷ 7.5 is the contracted $4,000, while ÷ 8 is $3,750 — a 6% error in the
+north-star target arriving as a rounding decision nobody made. `formatProjection`
+is a separate function from `formatCount` so the screen does not undo it; the
+strip reads `7.5 → 116.9`.
+
+**The figures are transcribed into the seed, not parsed** — `data/private/` is
+gitignored, so a parser would break a fresh checkout and CI.
+`packages/db/test/engagement-model.test.ts` closes the transcription risk by
+re-deriving CPA and CPF from budget, approvals and funded deals, checking the
+sums against the source's TOTAL row, and asserting the fractions survive. Its
+tolerance is derived from the model's two roundings — `$0.50 + ratio × 0.05 /
+count`, $27 at M1 and $1.66 at M8 — because a flat $0.50 failed five of eight
+months on correct data and a flat $27 would miss a real error at M8.
+
+**Not loaded:** `Funded Amount` and `Avg. Deal Size` are in the source and have
+no column here. They are left out rather than approximated.
+
+Verified with the start month set to 2026-06: both ramp charts track, M3 reads
+$5,087 above the CPF target and $1,469 above the CPA target, and budget pacing
+renders against M4's $82,320. Restored to unset afterwards. 125 db tests (10
+new), 270 core, 18 web, every screen still 200.
 ## The executive screen is a briefing (22 September 2026, later)
 
 Replaced the range-adaptive screen built earlier the same day. That version

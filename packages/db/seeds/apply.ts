@@ -6,6 +6,15 @@ import type { TenantSeed } from './types';
 const money = (n: number) => n.toFixed(2);
 
 /**
+ * A contracted count, which the engagement model states as a fraction.
+ *
+ * Same shape as `money` and named separately so a reader of a target row can
+ * see that 7.5 funded deals is deliberate rather than a number that escaped a
+ * rounding step. See migration 0021.
+ */
+const projected = (n: number) => n.toFixed(2);
+
+/**
  * Applies a tenant seed idempotently.
  *
  * Nothing in here knows what a merchant cash advance is. The same function
@@ -176,8 +185,8 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         costPerFundedDeal: t.costPerFundedDeal != null ? money(t.costPerFundedDeal) : null,
         budget: t.budget != null ? money(t.budget) : null,
         cpa: t.cpa != null ? money(t.cpa) : null,
-        approvals: t.approvals ?? null,
-        fundedDeals: t.fundedDeals ?? null,
+        approvals: t.approvals != null ? projected(t.approvals) : null,
+        fundedDeals: t.fundedDeals != null ? projected(t.fundedDeals) : null,
       })
       .onConflictDoUpdate({
         target: [
@@ -192,8 +201,8 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
           costPerFundedDeal: t.costPerFundedDeal != null ? money(t.costPerFundedDeal) : null,
           budget: t.budget != null ? money(t.budget) : null,
           cpa: t.cpa != null ? money(t.cpa) : null,
-          approvals: t.approvals ?? null,
-          fundedDeals: t.fundedDeals ?? null,
+          approvals: t.approvals != null ? projected(t.approvals) : null,
+          fundedDeals: t.fundedDeals != null ? projected(t.fundedDeals) : null,
         },
       });
   }
