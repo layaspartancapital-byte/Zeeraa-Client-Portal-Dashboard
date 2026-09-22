@@ -206,6 +206,32 @@ describe('readDurationBand and the declared unit', () => {
  * it was invisible to an enumeration that matched field *names* for the
  * concept, because it is named after the question a merchant was asked.
  */
+describe('a categorical answer against each half of the bar', () => {
+  // `New Business` on 462 inbound leads. It fails both halves: a business that
+  // has not started trading has no trading history and no monthly revenue.
+  // Confirmed 22 September 2026; revenue used to read it as no answer at all.
+  it('fails the revenue minimum when the caller says what the label means', () => {
+    expect(judgeBand(readMoneyBand('New Business', 'monthly'), 10_000, false)).toEqual({
+      meets: false,
+      reason: 'resolved',
+    });
+  });
+
+  it('fails the duration minimum on the same reading', () => {
+    expect(judgeBand(readDurationBand('New Business', 'labelled'), 12, false)).toEqual({
+      meets: false,
+      reason: 'resolved',
+    });
+  });
+
+  it('is still undeterminable where no caller says what it means', () => {
+    // The default stays `null`: the parser does not decide what a word means to
+    // a client, and the next engagement may use `New Business` differently.
+    expect(judgeBand(readMoneyBand('New Business', 'monthly'), 10_000).meets).toBeNull();
+    expect(judgeBand(readMoneyBand('New Business', 'monthly'), 10_000).reason).toBe('categorical');
+  });
+});
+
 describe('the form band values', () => {
   const bar = 12;
   it('resolves the bands that clear or miss the bar', () => {

@@ -1018,6 +1018,43 @@ Mapped on 22 September 2026, in the seed and on the production connection:
 | Duration usable, September | 9.9% | **81.6%** |
 | Both usable, which is what MQL needs | 26.0% | **66.5%** |
 
+## MQL is measured again (22 September 2026, final)
+
+`New Business` now fails the revenue minimum as it already failed the duration
+one: a business that has not started trading has no trading history and no
+monthly revenue. `categoricalMeans` is passed at the call site rather than
+buried in `readMoneyBand`, because it is a judgement about what the word means
+to this client — the default stays `null` so the next engagement decides for
+itself.
+
+Salesforce was re-pulled in full against production on 22 September 2026
+(`sync-salesforce spartan --since 2024-01-01`, status `succeeded`), so
+`leads.mql_verdict` carries the new reading on the screens:
+
+| `leads.mql_verdict` | Before | After |
+| --- | ---: | ---: |
+| qualified | 1,205 (15.8%) | **2,358 (30.9%)** |
+| unqualified | 2,939 (38.5%) | 3,728 (48.9%) |
+| undeterminable | 3,209 (42.1%) | **1,512 (19.8%)** |
+| not evaluated | 274 | 29 |
+
+**79.8% of inbound leads can now be judged against the bar**, from 54.3%. In
+September, qualified went 168 to 543 and undeterminable 559 to 114. Nothing
+else moved: 727 opportunities, 620 attribution rows, 7,627 leads.
+
+**What is left is mostly an unanswered question, not an unreadable answer.** Of
+the 1,512 still undeterminable, about 1,240 never answered one or both
+questions, 257 answer revenue as `< $15,000`, which genuinely contains the
+$10,000 bar, and 15 carry a duration answer nothing can read. The blocked
+dependency asks for both questions to be required on the forms.
+
+**A note on running a sync from here.** `.env` and `.env.neon` both define
+`DATABASE_URL_JOBS` and `DATABASE_URL_MAINT`. Sourcing `.env` second overrides
+the production URLs with localhost, and the first attempt at this re-pull did
+exactly that — it failed on a connection id the local database does not have,
+which is the good outcome of a bad command. Name the URLs on the command and do
+not source `.env` at all; take `ENCRYPTION_KEY` out of it with a subshell.
+
 **A band whose top is the bar now fails.** The MQL bar is confirmed at 12+
 months and $10,000+ monthly, so `6 - 12 months` is out — it had been read as a
 straddle because the band includes twelve months, but the option above it is

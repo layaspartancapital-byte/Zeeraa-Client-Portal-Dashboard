@@ -73,7 +73,12 @@ for (const row of rows) {
     const raw = text(row[c.field]);
     if (!raw) continue;
     revAny = true;
-    if (revOk === null && judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue).meets !== null) {
+    // `false` for a categorical, matching the bar: `New Business` is not an
+    // amount, and a business that has not started trading has no revenue.
+    if (
+      revOk === null &&
+      judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue, false).meets !== null
+    ) {
       revOk = c.field;
     }
   }

@@ -625,9 +625,9 @@ With `How_long_have_you_been_in_business__c` mapped and that rule applied:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2026-06 | 986 | 98.9% | 94.8% | 94.6% | 94.6% | 90.6% |
 | 2026-07 | 976 | 96.6% | 92.2% | 95.7% | 95.7% | 91.3% |
-| 2026-08 | 981 | 88.1% | 83.7% | 86.7% | 86.6% | 82.1% |
-| 2026-09 | 1,707 | 95.2% | 93.7% | 94.3% | 94.3% | 92.8% |
-| **All time** | **7,585** | **85.6%** | **76.1%** | **83.3%** | **83.1%** | **73.2%** |
+| 2026-08 | 981 | 88.1% | 84.8% | 86.7% | 86.6% | 83.2% |
+| 2026-09 | 1,715 | 95.1% | 94.5% | 94.1% | 94.1% | 93.5% |
+| **All time** | **7,593** | **85.6%** | **82.2%** | **83.3%** | **83.1%** | **79.2%** |
 
 Before the field was mapped, duration usable read 33.8% all-time and 9.9% for
 September, and the fall through the year looked like the forms giving up on the
@@ -639,8 +639,11 @@ nothing else:
 
 | | Leads | |
 | --- | ---: | --- |
-| `New Business` | 462 | a label, not an amount. It already fails the *duration* test, on the reading that a business which has not started trading has no trading history. The same reading would fail it on revenue — that is a decision, not a parse |
+| `New Business` | 462 | **settled 22 September 2026.** A business that has not started trading has no trading history *and* no monthly revenue, so it fails both halves of the bar. It already failed the duration test on that reading; revenue now matches. `categoricalMeans` is passed at the call site, not buried in the parser, because it is a judgement about what the word means to this client |
 | `< $15,000` | 257 | genuinely contains the $10,000 bar; needs the form option split |
+
+With that settled, revenue usable rose from 76.1% to **82.2%** and both-usable
+from 73.2% to **79.2%**.
 
 **Populated and usable are different questions**, and that gap is the whole
 point of measuring both. Reporting population alone would have called `MIYB`'s

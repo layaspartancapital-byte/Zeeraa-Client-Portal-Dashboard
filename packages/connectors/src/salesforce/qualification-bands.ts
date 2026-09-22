@@ -71,14 +71,28 @@ export function judgeQualificationBands(
     record,
     (mapping.lead.revenueBands ?? []).map((c) => ({
       field: c.field,
-      read: (raw: string) => judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue).meets,
+      /*
+       * A categorical answer fails the revenue minimum, as it fails the
+       * duration one.
+       *
+       * The label is `New Business` on 462 inbound leads, and it used to be
+       * read as no answer at all — on the argument that "new business" says
+       * nothing about an amount. Confirmed 22 September 2026 that it does: a
+       * business which has not started trading has no trading history *and* no
+       * monthly revenue, so it fails both halves of the bar rather than being
+       * unknown on one of them.
+       *
+       * `false` rather than a parse, and passed here rather than buried in
+       * `readMoneyBand`, because it is a judgement about what the word means to
+       * this client and not a property of the text.
+       */
+      read: (raw: string) =>
+        judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue, false).meets,
       why: (raw: string) => {
-        const { reason } = judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue);
+        const { reason } = judgeBand(readMoneyBand(raw, c.period), bar.minMonthlyRevenue, false);
         return reason === 'straddles'
           ? `revenue is recorded as "${raw}", which spans the $${bar.minMonthlyRevenue.toLocaleString('en-US')} bar`
-          : reason === 'categorical'
-            ? `revenue is recorded as "${raw}", which is not an amount`
-            : `revenue is recorded as "${raw}", which could not be read as an amount`;
+          : `revenue is recorded as "${raw}", which could not be read as an amount`;
       },
     })),
   );
@@ -88,8 +102,8 @@ export function judgeQualificationBands(
     timeInBusinessCandidates(mapping).map((c) => ({
       field: c.field,
       // A business that has not started trading has no trading history, so it
-      // fails a minimum duration outright. Stated here rather than inside the
-      // parser, because the same label against a revenue minimum means nothing.
+      // fails a minimum duration outright — and, since 22 September 2026, the
+      // revenue minimum above on the same reading.
       //
       // `c.unit` says what a bare number in *this field* means. Without it a
       // `3` in `Years_In_Business_Text__c` read as three months and failed the
