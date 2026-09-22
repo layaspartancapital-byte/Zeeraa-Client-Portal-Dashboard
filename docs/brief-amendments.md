@@ -481,6 +481,84 @@ to be inferred.
 
 ---
 
+## §12 — dark chrome and the Zeeraa mark
+
+**Amended 22 September 2026.** Spec v2 §4 says "no gold, no serif, no black
+band". That is now reversed for the chrome, and unchanged everywhere else.
+
+The reason it was written stands: a gold-on-black treatment applied to a
+workspace makes the numbers hard to read for an hour at a time, and most golds
+fail contrast on light ground and read as cheap. What changed is the scope. The
+platform has an identity — a gold enso and wordmark on black — and it has to
+appear somewhere. Confining it to the chrome keeps the reason the rule existed
+while letting the product be branded.
+
+### The rule that replaces it
+
+**Dark chrome, light content.** The rail and the title band are
+`--color-chrome` (`#14161A`, near-black rather than black). Cards, tables and
+charts stay on the canvas they were designed for. Nothing about the content area
+changed.
+
+**Gold marks the active navigation item and nothing else.** Not body text, not a
+border, not a chart line, not a delta, not a badge. `apps/web/test/chrome-contrast.test.ts`
+reads the sources and fails if `*-gold` appears outside `components/shell`, and
+fails separately if the word appears anywhere under `components/charts`.
+
+The arithmetic behind the rule, rather than a preference for it: the accent is
+2.26:1 on the canvas and 2.03:1 on a card. There is no gold that is both
+recognisably gold and legible as type on white.
+
+### Three things the numbers decided
+
+- **The accent is `#C9A227`, not the logo's `#A77F41`.** The sampled value is
+  4.96:1 on the chrome but **4.42:1 on the active row's raised background**, so
+  the row could not have both a fill and a gold label. The lifted value clears
+  both at 7.49 and 6.67. The asset keeps its own colour; this is the interface's.
+- **The tenant mark gained a hairline ring.** Spartan's `#2F5D8C` is 2.64:1
+  against the rail, under the 3:1 WCAG 1.4.11 asks of a graphical object, so the
+  square read as a hole. The ring clears the bar whatever colour is behind it,
+  which fixes every tenant rather than asking each to re-pick.
+- **`tenants.accent_color` no longer defaults to a gold.** It defaulted to
+  `#8A6B1F`, chosen when the brief still described a black-and-gold identity. A
+  tenant created without an explicit colour would have been handed a mark in
+  nearly the platform accent, three rows above the thing that accent means.
+  Migration `0023`.
+
+### Where the platform and the client meet
+
+Zeeraa is the platform; the client is the tenant; both are in the rail, in that
+order, separated by a hairline. Reading order carries the hierarchy, so neither
+has to be subordinate in colour — which matters because the tenant's identity is
+never allowed behind a menu. Zeeraa staff sit with two competing lenders open in
+adjacent tabs.
+
+The role line lost its ` · Zeeraa` suffix in the process. It existed to say which
+side of the engagement the reader is on, the wordmark two rows above now says
+that, and together they rendered as "Zeeraa admin · Zeeraa".
+
+### What the top bar did not become
+
+The title band is chrome; **the page's controls sit below it on the canvas**.
+Date fields, selects and buttons on near-black would have meant rebuilding every
+form control in the shell for one band, and the light versions are the ones this
+product has already got right. The seam sits above the controls rather than
+below them.
+
+### Two exceptions worth naming
+
+- **The wordmark is a serif**, and spec v2 bans serifs. It is the brand asset
+  rather than interface type; Inter still sets every word the product writes.
+- **The mark is brightened** by `brightness(1.3)` in `ZeeraaMark`. The file's
+  wordmark is a darker bronze than its enso and was drawn for print. Most of the
+  legibility came from size rather than brightness — the wordmark is a thin
+  serif and its strokes go sub-pixel below about 30px. **An SVG would fix this
+  properly** and is worth asking the client for: it would render crisply at any
+  size and let the ring and the word carry their own values, where a raster has
+  one filter for both.
+
+---
+
 ## §12 — replaced in full by design spec v2
 
 **Superseded 18 September 2026.**

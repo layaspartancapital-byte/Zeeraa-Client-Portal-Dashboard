@@ -1,12 +1,19 @@
 @import 'tailwindcss';
 
 /* ===========================================================================
-   Design spec v2 — a modern SaaS analytics workspace.
+   Design spec v2, as amended by the Zeeraa rebrand of 22 September 2026.
 
-   Elevated white cards on a soft grey-blue canvas, one confident blue, green
-   and red reserved for improvement and regression as each metric's
-   `improvement_direction` defines them. Tokens are the whole palette: a colour
-   that is not here does not appear in a component.
+   **Dark chrome, light content.** The rail and the title band are near-black
+   and carry the Zeeraa mark; everything a person reads for an hour — cards,
+   tables, charts — stays on the soft grey-blue canvas it was designed for.
+
+   Elevated white cards, one confident blue, green and red reserved for
+   improvement and regression as each metric's `improvement_direction` defines
+   them. Tokens are the whole palette: a colour that is not here does not appear
+   in a component.
+
+   See `docs/brief-amendments.md`, "§12 — dark chrome and the Zeeraa mark", for
+   why "no gold, no black band" was reversed and what replaced it.
    =========================================================================== */
 
 @theme {
@@ -51,6 +58,45 @@
 
   --color-warn: #f79009;
   --color-warn-soft: #fffaeb;
+
+  /* -------------------------------------------------------------------------
+     Dark chrome. The rail and the title band only — never a card, never a
+     chart, never a table.
+     ------------------------------------------------------------------------- */
+  /* Near-black, not black. Pure #000 against a white card is a harder edge
+     than any screen needs, and it kills the sense that the chrome is a
+     surface. */
+  --color-chrome: #14161a;
+  /* The active nav row and hover. */
+  --color-chrome-raised: #1e2127;
+  /* A hairline inside the chrome: Zeeraa from tenant, nav from account. */
+  --color-chrome-border: #2a2e37;
+
+  /* Type on chrome. Every one of these clears AA on both chrome values. */
+  --color-on-chrome: #e7e9ee;
+  --color-on-chrome-2: #a8aebb;
+  --color-on-chrome-3: #8b93a1;
+
+  /*
+    The accent, and the whole of it.
+
+    **Gold marks the active nav item and nothing else.** Not body text, not a
+    border, not a chart line, not a delta — the numbers are the reason anybody
+    opens this, and a gold that reads as decoration on a figure is a gold that
+    reads as cheap.
+
+    #C9A227 rather than the #A77F41 sampled from the logo, deliberately. The
+    logo's own gold is 4.96:1 on `--color-chrome` but **4.42:1 on
+    `--color-chrome-raised`**, so the active row could not have a background and
+    a gold label at the same time. This clears both at 7.49 and 6.67. The file
+    keeps its own value; this is the interface's.
+
+    It fails AA on the light canvas at 2.26:1, which is the arithmetic behind
+    the rule rather than a taste for it.
+  */
+  --color-gold: #c9a227;
+  /* The active row's wash. A tint, carrying no type of its own. */
+  --color-gold-wash: rgba(201, 162, 39, 0.14);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 

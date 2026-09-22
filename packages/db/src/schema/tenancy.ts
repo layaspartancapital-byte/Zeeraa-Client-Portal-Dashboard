@@ -21,7 +21,7 @@ export const tenants = pgTable(
     timezone: text('timezone').notNull().default('America/New_York'),
     currency: text('currency').notNull().default('USD'),
     /** Drives the persistent 3px stripe that distinguishes adjacent tabs (§12). */
-    accentColor: text('accent_color').notNull().default('#8A6B1F'),
+    accentColor: text('accent_color').notNull().default('#2F5D8C'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('tenants_slug_key').on(t.slug)],

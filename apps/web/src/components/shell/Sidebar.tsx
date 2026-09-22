@@ -22,21 +22,27 @@ import {
   canAdministerTenant,
   canManageUsers,
   canSwitchTenant,
-  isZeeraaRole,
   ROLE_LABELS,
   type Role,
 } from '@zeeraa/core';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { useShell } from '@/components/shell/shell-state';
+import { ZeeraaMark } from '@/components/shell/ZeeraaMark';
 
 /**
- * The fixed left rail (spec v2 §3).
+ * The fixed left rail (spec v2 §3, as amended by the rebrand).
  *
  * 240px, collapsible to 64px icon-only, off-canvas below the `lg` breakpoint so
- * a phone keeps its whole width for the numbers. Tenant identity sits at the
- * top — the accent stripe, the mark and the name — and is never behind a menu:
- * Zeeraa staff sit with two competing lenders open in adjacent tabs, and
+ * a phone keeps its whole width for the numbers.
+ *
+ * **Near-black, and it carries two identities in a fixed order.** Zeeraa is the
+ * platform and sits at the top; the client is the tenant and sits beneath a
+ * hairline. Reading order gives the hierarchy, so neither has to be subordinate
+ * in colour — which matters because the tenant's identity is never behind a
+ * menu: Zeeraa staff sit with two competing lenders open in adjacent tabs, and
  * misreading one for the other is the worst thing this application can do.
+ *
+ * Gold marks the active item and nothing else in here.
  */
 
 /**
@@ -154,35 +160,46 @@ export function Sidebar({
       <aside
         data-sidebar
         aria-label="Sections"
-        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-border bg-surface transition-[width,transform] duration-200 lg:translate-x-0 ${width} ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-chrome transition-[width,transform] duration-200 lg:translate-x-0 ${width} ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* The tenant's colour, along the top of the rail. */}
+        {/* Zeeraa: the platform, and the roof over every tenant below it. */}
         <div
-          aria-hidden="true"
-          className="h-[3px] shrink-0"
-          style={{ background: tenant.accentColor }}
-        />
+          className={`flex h-16 shrink-0 items-center ${collapsed ? 'lg:justify-center lg:px-0' : ''} px-4`}
+        >
+          <Link href={`/${tenant.slug}`} aria-label="Zeeraa home" className="inline-flex">
+            <ZeeraaMark height={34} variant={collapsed ? 'mark' : 'lockup'} />
+          </Link>
+        </div>
 
-        <div className="flex items-start gap-2.5 px-4 py-4">
-          <TenantMark tenant={tenant} />
+        {/*
+          The client, under a hairline. The rule is doing the work the old
+          accent stripe did — saying where the platform ends and this
+          engagement begins — without sitting above the wordmark as a stray
+          line through the logo.
+        */}
+        <div className="flex items-start gap-2.5 border-y border-chrome-border px-4 py-3">
+          <TenantMark tenant={tenant} onChrome />
           {!collapsed && (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-semibold leading-tight text-text">
+              <p className="truncate text-[14px] font-semibold leading-tight text-on-chrome">
                 {tenant.name}
               </p>
-              <p className="truncate text-[12px] text-text-2">
-                {ROLE_LABELS[tenant.role]}
-                {isZeeraaRole(tenant.role) ? ' · Zeeraa' : ''}
-              </p>
+              {/*
+                The role alone. It used to carry a ` · Zeeraa` suffix, which
+                said which side of the engagement the reader is on — and the
+                wordmark two rows above now says that, so the suffix rendered as
+                "Zeeraa admin · Zeeraa".
+              */}
+              <p className="truncate text-[12px] text-on-chrome-2">{ROLE_LABELS[tenant.role]}</p>
             </div>
           )}
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
             aria-label="Close navigation"
-            className="-mr-1 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-text-2 hover:bg-canvas lg:hidden"
+            className="-mr-1 inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-on-chrome-2 hover:bg-chrome-raised hover:text-on-chrome lg:hidden"
           >
             <X aria-hidden="true" className="h-4 w-4" />
           </button>
@@ -192,7 +209,9 @@ export function Sidebar({
           {groups.map((group) => (
             <div key={group.label} className="mb-3">
               {!collapsed && (
-                <p className="px-2 pb-1 text-[12px] font-semibold text-text-3">{group.label}</p>
+                <p className="px-2 pb-1 text-[12px] font-semibold text-on-chrome-3">
+                  {group.label}
+                </p>
               )}
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
@@ -213,14 +232,14 @@ export function Sidebar({
                         title={collapsed ? item.label : undefined}
                         className={`relative flex items-center gap-2.5 rounded-[8px] px-2 py-2 text-[13px] font-medium transition-colors ${
                           active
-                            ? 'bg-primary-100 text-primary-600'
-                            : 'text-text-2 hover:bg-canvas hover:text-text'
+                            ? 'bg-gold-wash text-gold'
+                            : 'text-on-chrome-2 hover:bg-chrome-raised hover:text-on-chrome'
                         } ${collapsed ? 'lg:justify-center' : ''}`}
                       >
                         {active && (
                           <span
                             aria-hidden="true"
-                            className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary"
+                            className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gold"
                           />
                         )}
                         <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
@@ -234,13 +253,13 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div className="border-t border-border p-2">
+        <div className="border-t border-chrome-border p-2">
           <UserMenu viewer={viewer} tenant={tenant} collapsed={collapsed} />
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-            className={`mt-1 hidden w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-[13px] font-medium text-text-2 transition-colors hover:bg-canvas hover:text-text lg:flex ${
+            className={`mt-1 hidden w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-[13px] font-medium text-on-chrome-2 transition-colors hover:bg-chrome-raised hover:text-on-chrome lg:flex ${
               collapsed ? 'justify-center' : ''
             }`}
           >
@@ -257,13 +276,24 @@ export function Sidebar({
   );
 }
 
-/** The tenant's mark: its initials on its own accent colour. */
+/**
+ * The tenant's mark: its initials on its own accent colour.
+ *
+ * `onChrome` adds a hairline ring, and it is not decoration. A tenant's accent
+ * is arbitrary and some of them are dark: Spartan's `#2F5D8C` is 2.64:1 against
+ * the near-black rail, under the 3:1 a graphical object needs, so the square
+ * would read as a hole rather than a mark. The ring gives it a boundary that
+ * clears 3:1 whatever colour is behind it, which fixes every tenant at once
+ * rather than asking each of them to re-pick.
+ */
 export function TenantMark({
   tenant,
   size = 32,
+  onChrome = false,
 }: {
   tenant: TenantSummary;
   size?: number;
+  onChrome?: boolean;
 }) {
   const initials = tenant.name
     .split(/\s+/)
@@ -274,7 +304,9 @@ export function TenantMark({
   return (
     <span
       aria-hidden="true"
-      className="flex shrink-0 items-center justify-center rounded-[8px] font-semibold text-white"
+      className={`flex shrink-0 items-center justify-center rounded-[8px] font-semibold text-white ${
+        onChrome ? 'ring-1 ring-inset ring-on-chrome-3/60' : ''
+      }`}
       style={{
         background: tenant.accentColor,
         width: size,
@@ -294,6 +326,10 @@ export function TenantMark({
  * absent entirely for client roles. There is no hover-to-switch and no keyboard
  * shortcut: nothing that can move you to another client's numbers without you
  * having decided to.
+ *
+ * The trigger sits on chrome in both places it is used; the panel stays light.
+ * A list of client names is content, and it is read at the moment somebody is
+ * deciding which client they are about to look at.
  */
 export function UserMenu({
   viewer,
@@ -336,7 +372,7 @@ export function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-canvas ${
+        className={`flex w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-chrome-raised ${
           collapsed ? 'lg:justify-center' : ''
         }`}
       >
@@ -348,10 +384,10 @@ export function UserMenu({
         </span>
         {!collapsed && (
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium text-text">
+            <span className="block truncate text-[13px] font-medium text-on-chrome">
               {viewer.name ?? viewer.email}
             </span>
-            <span className="block truncate text-[12px] text-text-3">{viewer.email}</span>
+            <span className="block truncate text-[12px] text-on-chrome-3">{viewer.email}</span>
           </span>
         )}
       </button>

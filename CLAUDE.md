@@ -186,9 +186,20 @@ The short version:
 
 - A modern SaaS analytics dashboard. Fixed left sidebar, elevated white cards on
   a soft grey-blue canvas, one confident blue, Inter throughout.
+- **Dark chrome, light content.** The rail and the title band are
+  `--color-chrome`; everything a person reads for an hour is unchanged. **Gold
+  marks the active nav item and nothing else** — never body text, a border, a
+  chart line, a delta or a badge, because the accent is 2.26:1 on the canvas and
+  there is no gold that is both gold and legible on white.
+  `apps/web/test/chrome-contrast.test.ts` reads the sources and fails if
+  `*-gold` appears outside `components/shell`. This reverses spec v2's "no gold,
+  no serif, no black band" for the chrome only — see `docs/brief-amendments.md`,
+  "§12 — dark chrome and the Zeeraa mark", for what the numbers decided.
+- **Zeeraa is the platform and the client is the tenant**, both in the rail, in
+  that order, separated by a hairline. The tenant's identity is never behind a
+  menu: Zeeraa staff sit with two competing lenders open in adjacent tabs.
 - Every card has surface, radius (12px) and the two-layer shadow. A
-  hairline-only panel is not a card in this system. No gold, no serif, no black
-  band.
+  hairline-only panel is not a card in this system.
 - `font-variant-numeric: tabular-nums` on every numeric value, via the
   `.numeric` / `.tabular` utilities.
 - **No explanatory paragraph on a dashboard screen.** Every methodology note,

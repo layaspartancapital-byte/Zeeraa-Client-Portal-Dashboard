@@ -1,0 +1,29 @@
+-- ===========================================================================
+-- A new tenant may not be issued the platform's own accent.
+--
+-- `tenants.accent_color` defaulted to `#8A6B1F`, which is a gold — chosen when
+-- the brief still described a black-and-gold identity, and harmless while
+-- nothing else on screen was gold.
+--
+-- The rebrand of 22 September 2026 makes gold mean one thing: the active
+-- navigation item, and nothing else. A tenant created without an explicit
+-- colour would have been handed a mark in very nearly that gold, sitting three
+-- rows above it in the same rail — a client's identity impersonating the
+-- platform's accent. That is a collision to remove at the source rather than to
+-- notice later in a screenshot.
+--
+-- The replacement is the slate blue the one live engagement already carries
+-- explicitly. It is unmistakably not the accent, and white initials clear AA on
+-- it at 6.85:1.
+--
+-- **No row is rewritten.** This changes the default for tenants created from
+-- here on; the single existing tenant set its colour explicitly and keeps it.
+-- An UPDATE here would have needed the `NO FORCE` / `FORCE ROW LEVEL SECURITY`
+-- bracket that `0016` demonstrates, because the owner role holds no policy on a
+-- forced table and a bare UPDATE would have matched nothing and reported
+-- success. Nothing needs rewriting, so nothing is.
+--
+-- Additive, so it runs before the deploy.
+-- ===========================================================================
+
+ALTER TABLE public.tenants ALTER COLUMN "accent_color" SET DEFAULT '#2F5D8C';
