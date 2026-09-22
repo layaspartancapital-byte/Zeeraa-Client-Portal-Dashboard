@@ -6,7 +6,7 @@ import {
   type CallRow,
 } from '@zeeraa/connectors';
 import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { upsertCalls } from './writer';
+import { resolveLeadsForDelivery, upsertCalls } from './writer';
 
 /**
  * Ingests call events posted by Aloware.
@@ -25,6 +25,13 @@ export type CallEventResult = {
   accepted: number;
   /** Records that were not usable calls, with why and how many. */
   rejected: { reason: string; count: number }[];
+  /**
+   * Calls joined to a lead on arrival, and the numbers that could not be.
+   *
+   * Null when the match could not run at all, which is not the same as nothing
+   * matching: the call is in either case, and the hourly sweep is the backstop.
+   */
+  matched: { matched: number; unmatched: number; ambiguous: number } | null;
 };
 
 export async function ingestCallEvents(
@@ -99,5 +106,35 @@ export async function ingestCallEvents(
       ? 0
       : await withJobTenant(tenant.id, (tx) => upsertCalls(tx, tenant.id, rows, 'webhook', null));
 
-  return { accepted, rejected };
+  /*
+   * Match on arrival, because currency is the point of the webhook.
+   *
+   * Speed to lead is measured on matched calls, so a call that waits for the
+   * next hourly Salesforce sweep is a call the figure cannot see for up to an
+   * hour — which defeats pushing it in the first place.
+   *
+   * **A separate transaction, and best-effort.** The call is the irreplaceable
+   * half and the match is not: `resolveCallLeads` runs from every Salesforce
+   * sync and will pick up anything missed here within the hour. Sharing the
+   * upsert's transaction would trade that safety net for atomicity nobody
+   * needs — a deterministic fault in the matching pass would roll back the
+   * insert too, Aloware would retry it forever, and a call that could simply
+   * have been matched late would never land at all.
+   */
+  const contactKeys = rows
+    .map((row) => row.contactKey)
+    .filter((key): key is string => key !== null);
+
+  let matched: CallEventResult['matched'] = null;
+  if (accepted > 0 && contactKeys.length > 0) {
+    try {
+      matched = await withJobTenant(tenant.id, (tx) =>
+        resolveLeadsForDelivery(tx, tenant.id, contactKeys),
+      );
+    } catch (error) {
+      console.error(`[aloware] ${slug}: could not match delivered calls to leads:`, error);
+    }
+  }
+
+  return { accepted, rejected, matched };
 }

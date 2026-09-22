@@ -1163,13 +1163,39 @@ Two nulls on the row, neither a fault:
 - `agent_name`. Inbound calls often carry none — 592 of 854 inbound rows in the
   CSV export have one, against 27,718 of 28,010 outbound. The webhook is
   behaving like the export.
-- `lead_external_id`. `resolveCallLeads` runs from the Salesforce sync and the
-  CSV import, not from the webhook path, so a pushed call is unmatched until the
-  next hourly sync. A lead on that phone key already exists
-  (`00QVr000012jHmDMAU`, created 20 September) and the last sync finished at
-  20:00Z, before the call, so the next one matches it. Worth deciding whether
-  the webhook should run the pass itself: the lag is bounded by the hour, and
-  speed to lead is measured on matched calls.
+- `lead_external_id`, at the time of that delivery. `resolveCallLeads` ran from
+  the Salesforce sync and the CSV import but not from the webhook, so a pushed
+  call was unmatched for up to an hour — and speed to lead is measured on
+  matched calls, so the figure could not see it. **Fixed below**; the lead on
+  that phone key already existed (`00QVr000012jHmDMAU`, created 20 September).
+
+### A pushed call is matched on arrival — `resolveLeadsForDelivery`
+
+Currency is the point of the webhook, and a call the speed-to-lead figure cannot
+see for an hour defeats pushing it.
+
+**Not by calling `resolveCallLeads`.** That is a sweep: every lead phone key in
+the tenant grouped (4,415 of them), every call considered (28,863). Running it
+per delivery would rescan the whole history three to four hundred times a day to
+place one row. `resolveLeadsForDelivery` narrows both halves to the keys the
+delivery brought, over the existing `(tenant, contact_key)` index.
+
+**The two share `leadsByPhoneKey` and `applyMatches`**, which is the part worth
+keeping honest: a fast path that resolved an ambiguous number would put a figure
+on screen that the hourly sweep then took away. A number two leads hold still
+matches neither, and a test asserts the sweep agrees with the delivery.
+
+It matches *every* call on the delivered numbers, not only the ones just
+written. Same bounded lookup, and an earlier call from a merchant since synced
+as a lead is exactly the row that should heal.
+
+**A separate transaction from the upsert, and best-effort.** The call is the
+irreplaceable half; the match is not, because the hourly sweep is a real
+backstop. Sharing the transaction would trade that safety net for atomicity
+nobody needs — a deterministic fault in matching would roll back the insert,
+Aloware would retry it forever, and a call that could have been matched late
+would never land at all. The response now carries `matched`, and `null` there
+means the pass could not run rather than that nothing matched.
 
 **`webhook_deliveries` was not there to record it.** Migration 0022 has not been
 applied to Neon, so the counter write raised `42P01`, was caught, logged and

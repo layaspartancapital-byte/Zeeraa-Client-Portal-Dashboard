@@ -100,7 +100,82 @@ export type LeadMatchResult = {
 };
 
 /**
- * Joins calls to leads by phone number.
+ * Which lead owns each phone key, and which keys nobody can own.
+ *
+ * Shared by the full pass and the per-delivery one so the two cannot disagree
+ * about what a match is. `only` narrows it to the keys a delivery actually
+ * brought; omitted, it reads the tenant's whole book.
+ */
+async function leadsByPhoneKey(
+  tx: Database,
+  tenantId: string,
+  only?: readonly string[],
+): Promise<{ unique: Map<string, string>; ambiguous: Set<string> }> {
+  const unique = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  // `inArray` with nothing in it is invalid SQL, and an empty delivery has
+  // nothing to match anyway.
+  if (only && only.length === 0) return { unique, ambiguous };
+
+  // One row per phone key: how many leads hold it, and which lead — the second
+  // is only meaningful when the first is 1.
+  const keyed = await tx
+    .select({
+      phoneKey: schema.leads.phoneKey,
+      leads: sql<number>`count(*)::int`,
+      leadExternalId: sql<string>`min(${schema.leads.externalId})`,
+    })
+    .from(schema.leads)
+    .where(
+      and(
+        eq(schema.leads.tenantId, tenantId),
+        isNotNull(schema.leads.phoneKey),
+        ...(only ? [inArray(schema.leads.phoneKey, [...only])] : []),
+      ),
+    )
+    .groupBy(schema.leads.phoneKey);
+
+  for (const row of keyed) {
+    if (!row.phoneKey) continue;
+    if (Number(row.leads) === 1) unique.set(row.phoneKey, row.leadExternalId);
+    else ambiguous.add(row.phoneKey);
+  }
+  return { unique, ambiguous };
+}
+
+/** Writes the matches. Returns how many calls actually changed. */
+async function applyMatches(
+  tx: Database,
+  tenantId: string,
+  unique: Map<string, string>,
+): Promise<number> {
+  if (unique.size === 0) return 0;
+  let matched = 0;
+  // Batched by key rather than by call: 4,415 distinct numbers against
+  // 28,863 calls.
+  const entries = [...unique];
+  const size = 500;
+  for (let i = 0; i < entries.length; i += size) {
+    const batch = entries.slice(i, i + size);
+    const values = sql.join(
+      batch.map(([key, lead]) => sql`(${key}, ${lead})`),
+      sql`, `,
+    );
+    const result = await tx.execute(sql`
+      update ${schema.calls} as c
+         set lead_external_id = m.lead_external_id
+        from (values ${values}) as m(contact_key, lead_external_id)
+       where c.tenant_id = ${tenantId}
+         and c.contact_key = m.contact_key
+         and c.lead_external_id is distinct from m.lead_external_id
+    `);
+    matched += Number((result as unknown as { count?: number }).count ?? 0);
+  }
+  return matched;
+}
+
+/**
+ * Joins calls to leads by phone number, across the tenant's whole history.
  *
  * Its own idempotent pass rather than part of the insert, because the two sides
  * arrive independently: a call can land before its lead is synced, and a lead's
@@ -112,54 +187,16 @@ export type LeadMatchResult = {
  * which of them a call belongs to. Picking the newest would produce a
  * speed-to-lead figure that looks measured and is arbitrary, so those calls
  * stay unmatched, are counted, and the count goes on screen.
+ *
+ * This is the sweep, and it costs a sweep: every lead key grouped, every call
+ * considered. A webhook delivery uses `resolveLeadsForDelivery` instead.
  */
 export async function resolveCallLeads(
   tx: Database,
   tenantId: string,
 ): Promise<LeadMatchResult> {
-  // One row per phone key: how many leads hold it, and which lead — the second
-  // is only meaningful when the first is 1.
-  const keyed = await tx
-    .select({
-      phoneKey: schema.leads.phoneKey,
-      leads: sql<number>`count(*)::int`,
-      leadExternalId: sql<string>`min(${schema.leads.externalId})`,
-    })
-    .from(schema.leads)
-    .where(and(eq(schema.leads.tenantId, tenantId), isNotNull(schema.leads.phoneKey)))
-    .groupBy(schema.leads.phoneKey);
-
-  const unique = new Map<string, string>();
-  const ambiguous = new Set<string>();
-  for (const row of keyed) {
-    if (!row.phoneKey) continue;
-    if (Number(row.leads) === 1) unique.set(row.phoneKey, row.leadExternalId);
-    else ambiguous.add(row.phoneKey);
-  }
-
-  let matched = 0;
-  if (unique.size > 0) {
-    // Batched by key rather than by call: 4,415 distinct numbers against
-    // 28,863 calls.
-    const entries = [...unique];
-    const size = 500;
-    for (let i = 0; i < entries.length; i += size) {
-      const batch = entries.slice(i, i + size);
-      const values = sql.join(
-        batch.map(([key, lead]) => sql`(${key}, ${lead})`),
-        sql`, `,
-      );
-      const result = await tx.execute(sql`
-        update ${schema.calls} as c
-           set lead_external_id = m.lead_external_id
-          from (values ${values}) as m(contact_key, lead_external_id)
-         where c.tenant_id = ${tenantId}
-           and c.contact_key = m.contact_key
-           and c.lead_external_id is distinct from m.lead_external_id
-      `);
-      matched += Number((result as unknown as { count?: number }).count ?? 0);
-    }
-  }
+  const { unique, ambiguous } = await leadsByPhoneKey(tx, tenantId);
+  const matched = await applyMatches(tx, tenantId, unique);
 
   const [counts] = await tx
     .select({
@@ -196,5 +233,53 @@ export async function resolveCallLeads(
     unkeyed: Number(counts?.unkeyed ?? 0),
     ambiguousKeys: ambiguous.size,
     ambiguousCalls,
+  };
+}
+
+/**
+ * The same join, for the handful of numbers one webhook delivery brought.
+ *
+ * Currency is the point of the webhook: a call that waits for the next hourly
+ * Salesforce sync to be matched is a call that speed to lead cannot see for up
+ * to an hour, and speed to lead is measured on matched calls. But
+ * `resolveCallLeads` is a sweep — every lead key grouped, every call in the
+ * tenant considered — and running a sweep on each of three to four hundred
+ * daily deliveries would rescan the whole history hundreds of times to place
+ * one row.
+ *
+ * So this narrows both halves to the keys that arrived, and shares
+ * `leadsByPhoneKey` and `applyMatches` with the sweep so the two paths cannot
+ * come to different answers about what a match is. The ambiguity rule is the
+ * sweep's, unchanged: a number two leads hold matches neither.
+ *
+ * It deliberately matches **every** call on those numbers rather than only the
+ * ones just written. It is the same bounded index lookup — `calls` is indexed
+ * on (tenant, contact_key) — and an earlier call from a merchant who has since
+ * been synced as a lead is exactly the row that should heal here.
+ */
+export type DeliveryMatchResult = {
+  /** Calls whose lead changed, which may include earlier ones on the number. */
+  matched: number;
+  /** Keys in this delivery that no lead holds — usually a lead not yet synced. */
+  unmatched: number;
+  /** Keys in this delivery held by more than one lead, so matched to none. */
+  ambiguous: number;
+};
+
+export async function resolveLeadsForDelivery(
+  tx: Database,
+  tenantId: string,
+  contactKeys: readonly string[],
+): Promise<DeliveryMatchResult> {
+  const keys = [...new Set(contactKeys)];
+  if (keys.length === 0) return { matched: 0, unmatched: 0, ambiguous: 0 };
+
+  const { unique, ambiguous } = await leadsByPhoneKey(tx, tenantId, keys);
+  const matched = await applyMatches(tx, tenantId, unique);
+
+  return {
+    matched,
+    unmatched: keys.filter((key) => !unique.has(key) && !ambiguous.has(key)).length,
+    ambiguous: keys.filter((key) => ambiguous.has(key)).length,
   };
 }
