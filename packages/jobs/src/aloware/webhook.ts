@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_ALOWARE_MAPPING,
-  normalizeCall,
+  normalizeWebhookCall,
   type AlowareMapping,
   type CallRow,
 } from '@zeeraa/connectors';
@@ -73,11 +73,21 @@ export async function ingestCallEvents(
   };
 
   for (const record of records) {
-    // The same normaliser and the same tenant timezone as the import: a call
-    // must not land at a different instant depending on which route carried it.
-    const result = normalizeCall(record, tenant.mapping, tenant.timezone);
+    /*
+     * The webhook's own reader, and the same tenant timezone as the import.
+     *
+     * It shares `normalizeCall` underneath, so a call delivered by both routes
+     * still produces byte-identical rows — but it applies the webhook's field
+     * names first, and two allow-list gates before them. The export's reader
+     * was being used here and rejected every post as "not a call (blank)",
+     * because the trigger sends no `Type` column.
+     */
+    const result = normalizeWebhookCall(record, tenant.mapping, tenant.timezone);
     if (!result.row) {
-      count(result.type !== undefined ? `not a call (${result.type})` : result.reason);
+      // The reason and the value that caused it, because the rejected value is
+      // the actionable half: "not a call event (OutboundSMS-DispositionCompleted)"
+      // says exactly what to add to the allow-list, where "not a call" does not.
+      count(result.type !== undefined ? `${result.reason} (${result.type})` : result.reason);
       continue;
     }
     rows.push(result.row);

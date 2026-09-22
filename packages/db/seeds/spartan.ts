@@ -253,6 +253,16 @@ export const spartan: TenantSeed = {
         'rate on outbound dialling. At 30s, 3,503 calls are connected; at ' +
         '10s, 9,979; at 1s, 23,355. The sensitivity is why the number is a ' +
         'row and is shown beside the figure it decides.',
+      /*
+       * `webhook` is deliberately absent here.
+       *
+       * The Zapier trigger's field names, its allow-listed events and its
+       * completed statuses are facts about Aloware's product rather than about
+       * this client, so they live in `DEFAULT_ALOWARE_MAPPING` and are merged
+       * in. A tenant whose subscription is configured differently can override
+       * the whole `webhook` block from this row — the merge is shallow, so an
+       * override replaces it rather than patching it.
+       */
       value: { connectedMinTalkSeconds: 30 },
     },
     {

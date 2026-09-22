@@ -121,6 +121,56 @@ export type AlowareMapping = {
    * but nothing that supports a claim about reaching the merchant.
    */
   connectedMinTalkSeconds: number;
+  /**
+   * The webhook's own shape, which is not the export's.
+   *
+   * Aloware's Zapier "Call Disposed" trigger posts different field names,
+   * different types and a different discriminator from the CSV: `ID` rather
+   * than `Communication ID`, `Created At` rather than `Started At`, `Type` as
+   * `1` rather than `"call"`, `Direction` as `2` rather than `"outbound"`, and
+   * the agent's name nested under `User`. Read with the export's mapping,
+   * every post was rejected as "not a call (blank)" — which is why the webhook
+   * had delivered nothing even before anybody checked the subscription.
+   *
+   * Absent means the tenant has no webhook configured and the endpoint refuses
+   * everything, which is the correct state for a client whose subscription has
+   * not been set up.
+   */
+  webhook?: AlowareWebhookProfile;
+};
+
+export type AlowareWebhookProfile = {
+  /** Field names, dotted for a nested one: `User.Name`. */
+  columns: AlowareMapping['columns'];
+  /**
+   * The `Event` values that are a finished call, and the only ones ingested.
+   *
+   * **An allow-list, because the trigger fires on far more than calls.** The
+   * sample that prompted this is `OutboundSMS-DispositionCompleted`: a text
+   * message, posted while the call leg was still ringing, with zero duration.
+   * A deny-list of the SMS events would have let the next new event type
+   * through silently and counted a text as a call.
+   *
+   * Anything not listed is rejected and counted by its own name, so the
+   * endpoint's log says exactly what to add.
+   */
+  allowedEvents: string[];
+  /**
+   * `Current Status` values that mean the call is over.
+   *
+   * The second gate, and independent of the first: an event may be named for a
+   * completed disposition while the call itself is still `ringing`, which is
+   * exactly what the sample does. Talk time and duration are both zero there,
+   * so ingesting it would add a call that never happened and timestamp the
+   * desk's response at the moment it started dialling.
+   */
+  completedStatuses: string[];
+  /** Numeric direction codes, because the webhook sends `2` not `outbound`. */
+  directions: Record<string, CallRow['direction']>;
+  /** Where the call's own status lives. */
+  statusColumn: string;
+  /** Where the event name lives. */
+  eventColumn: string;
 };
 
 export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
@@ -139,6 +189,52 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
   callTypes: ['call'],
   connectedDispositions: ['completed', 'connected', 'answered', 'complete'],
   abandonedDispositions: ['abandoned', 'abandon'],
+  /**
+   * The Zapier "Call Disposed" trigger's shape, from a real post of
+   * 22 September 2026.
+   *
+   * Every name here was taken from that payload rather than guessed. The two
+   * allow-lists are the exception and are marked as such: the sample is an SMS
+   * event on a ringing leg, so it shows what must be *rejected* and not what a
+   * finished call looks like. Both default to the completed-call form of the
+   * observed convention, and both fail closed — an unlisted value is rejected
+   * and logged by name, so confirming them is one config edit rather than a
+   * code change.
+   */
+  webhook: {
+    columns: {
+      // `ID` is the communication id and the upsert key, the same identity the
+      // export calls `Communication ID`.
+      externalId: 'ID',
+      // A bare wall clock with no offset — `2026-09-22 19:47:42` — exactly as
+      // the export writes it, so it goes through `parseWallClock` in the
+      // tenant's zone. Reading it as UTC would put every call four hours early
+      // and make speed to lead read as neglect.
+      startedAt: 'Created At',
+      // Present as `1`, and not the discriminator. `allowedEvents` is.
+      type: 'Type',
+      direction: 'Direction',
+      disposition: 'Disposition Status',
+      talkTime: 'Talk Time',
+      duration: 'Duration',
+      // The merchant's number. `Incoming Number` is Aloware's own line and
+      // `Destination Number` is `client:agent123260`, neither of which joins
+      // to a lead.
+      contactNumber: 'Lead Number',
+      contactId: 'Contact Id',
+      userName: 'User.Name',
+    },
+    // INFERRED from `OutboundSMS-DispositionCompleted`, the one event observed.
+    // Confirm against a real call before trusting the count.
+    allowedEvents: ['InboundCall-DispositionCompleted', 'OutboundCall-DispositionCompleted'],
+    // INFERRED. The observed value is `ringing`, which is what must not pass.
+    completedStatuses: ['completed'],
+    // `2` with an `Outbound…` event name is the evidence for outbound; `1` is
+    // its complement and is the one part of this not seen directly.
+    directions: { '1': 'inbound', '2': 'outbound' },
+    statusColumn: 'Current Status',
+    eventColumn: 'Event',
+  },
   // Every non-completed disposition this export actually contains, plus the
   // obvious neighbours. An unlisted value is reported rather than absorbed.
   attemptedDispositions: [
@@ -161,6 +257,23 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
 };
 
 const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+/**
+ * One field, by name or by dotted path.
+ *
+ * The export is flat; the webhook nests the agent under `User`, the merchant
+ * under `Contact` and the line under `Campaign`. A dotted path keeps both
+ * shapes describable by configuration rather than forcing a second reader.
+ */
+function readField(record: Record<string, unknown>, path: string): unknown {
+  if (!path.includes('.')) return record[path];
+  let cursor: unknown = record;
+  for (const part of path.split('.')) {
+    if (cursor == null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
 
 /**
  * Seconds from whatever the export wrote.
@@ -298,6 +411,57 @@ export function normalizeCall(
       answeredBriefly,
     },
   };
+}
+
+/**
+ * One webhook post into a row, or a reason it is not a completed call.
+ *
+ * Two gates before the shared normaliser runs, both allow-lists and both
+ * fail-closed. An unconfigured tenant, an unknown event and a call still in
+ * flight are each rejected by name, so the endpoint's log says which.
+ */
+export function normalizeWebhookCall(
+  record: Record<string, unknown>,
+  mapping: AlowareMapping,
+  timeZone: string,
+): { row: CallRow } | { row: null; reason: string; type?: string } {
+  const profile = mapping.webhook;
+  if (!profile) {
+    return { row: null, reason: 'no webhook mapping configured for this tenant' };
+  }
+
+  const event = String(readField(record, profile.eventColumn) ?? '').trim();
+  if (!profile.allowedEvents.some((allowed) => norm(allowed) === norm(event))) {
+    // Named rather than bucketed: the point of an allow-list is that the
+    // rejected value tells you what to add.
+    return { row: null, reason: 'not a call event', type: event === '' ? '(blank)' : event };
+  }
+
+  const status = String(readField(record, profile.statusColumn) ?? '').trim();
+  if (!profile.completedStatuses.some((done) => norm(done) === norm(status))) {
+    return { row: null, reason: 'call not finished', type: status === '' ? '(blank)' : status };
+  }
+
+  /*
+   * The webhook's own columns, and `callTypes: []` to switch off the export's
+   * type check — `Type` is `1` here and the discriminator is `Event`, which the
+   * two gates above have already applied.
+   */
+  const asExport: AlowareMapping = { ...mapping, columns: profile.columns, callTypes: [] };
+
+  const flattened: Record<string, unknown> = { ...record };
+  for (const path of Object.values(profile.columns)) {
+    if (path.includes('.')) flattened[path] = readField(record, path);
+  }
+
+  const result = normalizeCall(flattened, asExport, timeZone);
+  if (!result.row) return result;
+
+  // Direction arrives as a code. `readDirection` reads words, so `2` came out
+  // `unknown` and every webhook call would have lost the direction that speed
+  // to lead is measured on.
+  const code = String(readField(record, profile.columns.direction) ?? '').trim();
+  return { row: { ...result.row, direction: profile.directions[code] ?? result.row.direction } };
 }
 
 /** Many records, with everything the import record needs to be honest. */

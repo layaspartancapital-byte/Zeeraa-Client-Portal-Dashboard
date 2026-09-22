@@ -1018,6 +1018,62 @@ Mapped on 22 September 2026, in the seed and on the production connection:
 | Duration usable, September | 9.9% | **81.6%** |
 | Both usable, which is what MQL needs | 26.0% | **66.5%** |
 
+## The Aloware webhook could never have parsed a call (22 September 2026)
+
+A real payload from the Zapier "Call Disposed" trigger settled the second
+question from the freshness work: even with the subscription pointed correctly
+and the secret set, **nothing would have landed**. The endpoint was reading the
+posts with the CSV export's field mapping, and the two shapes barely overlap.
+
+| Concept | Export | Webhook |
+| --- | --- | --- |
+| upsert key | `Communication ID` | `ID` |
+| timestamp | `Started At` | `Created At` |
+| discriminator | `Type` = `"call"` | `Event` = `OutboundSMS-DispositionCompleted`; `Type` is `1` |
+| direction | `"outbound"` | `2` |
+| contact id | `Contact ID` | `Contact Id` |
+| merchant's number | `Contact Number` | `Lead Number` |
+| agent | `User Name` | `User.Name`, nested |
+
+`Type` is absent from the post, so every record was rejected as
+"not a call (blank)" — a 200 and a log line, forever. That is a second and
+independent cause of the zero webhook rows, on top of whatever is wrong with
+the subscription itself.
+
+**`normalizeWebhookCall` is the webhook's reader**, sharing `normalizeCall`
+underneath so a call delivered by both routes still produces identical rows. It
+applies the webhook's own columns, supports a dotted path for the nested agent,
+and maps the numeric direction code — `2` was reading as `unknown`, and
+direction is what speed to lead is measured on.
+
+**Two allow-list gates, both fail-closed**, because the trigger fires on far
+more than finished calls. The sample is the case in point: an SMS, posted while
+the call leg was still *ringing*, with zero duration and
+`Disposition Status: in-progress`.
+
+1. `Event` must be an allow-listed call event. A deny-list of the SMS forms
+   would let the next new event type through and count a text as a call.
+2. `Current Status` must be a completed status. Independent of the first,
+   because an event named `…-DispositionCompleted` can still describe a ringing
+   leg — which is exactly what the sample does.
+
+A rejected record is counted by reason *and value* —
+`not a call event (OutboundSMS-DispositionCompleted)`, `call not finished
+(ringing)` — so the log says what to add rather than that something was wrong.
+
+**Two values are inferred and marked as such in the code.** The sample shows
+what must be rejected, not what a finished call looks like, so
+`allowedEvents` (`InboundCall-/OutboundCall-DispositionCompleted`) and
+`completedStatuses` (`completed`) follow the observed naming convention and
+need confirming against a real call. They fail closed, so a wrong guess rejects
+and logs rather than ingesting rubbish — and correcting it is a config edit on
+the `aloware` row, not a deploy.
+
+`Created At` is a bare wall clock and goes through `parseWallClock` in the
+tenant's zone, the same as the export. A test pins 19:47:42 New York to
+23:47:42Z, because reading it as UTC is the error that put the CSV four hours
+early and made speed to lead read as neglect.
+
 ## Two freshness faults, one fixed here and two for the client (22 September 2026)
 
 ### "Sync now" on the briefing ran one platform of two — fixed
