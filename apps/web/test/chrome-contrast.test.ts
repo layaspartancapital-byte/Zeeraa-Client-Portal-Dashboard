@@ -103,9 +103,16 @@ describe('gold appears in the chrome and nowhere else', () => {
   });
 
   it('never touches a chart, whatever the file', () => {
+    /*
+     * Usage, not the word. The first version of this matched /gold/ anywhere in
+     * the file and failed the moment `charts/palette.ts` documented *why* gold
+     * is excluded from the series — which is the comment most worth having.
+     * A rule enforced by grepping for a noun punishes explaining itself.
+     */
+    const used = /(?:bg|text|border|fill|stroke|ring)-gold\b|--color-gold|#c9a227/i;
     const inCharts = Object.entries(sources)
       .filter(([path]) => path.includes('/charts/'))
-      .filter(([, source]) => /gold/.test(source))
+      .filter(([, source]) => used.test(source))
       .map(([path]) => path);
     expect(inCharts).toEqual([]);
   });

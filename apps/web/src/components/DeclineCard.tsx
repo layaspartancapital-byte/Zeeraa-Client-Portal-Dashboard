@@ -209,7 +209,7 @@ function ReasonsMeasured({ report }: { report: SubmissionReport }) {
               className="h-1.5 w-[84px] shrink-0 overflow-hidden rounded-[2px] bg-canvas"
             >
               <span
-                className="block h-full rounded-[2px] bg-primary"
+                className="block h-full rounded-[2px] bg-plot"
                 style={{ width: `${Math.max(6, (row.citations / most) * 100)}%` }}
               />
             </span>

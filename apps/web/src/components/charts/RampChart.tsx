@@ -15,7 +15,7 @@ import {
   ChartTable,
   DOWN,
   Legend,
-  PRIMARY,
+  PLOT,
   TEXT_3,
   TooltipCard,
   UP,
@@ -72,7 +72,7 @@ export function RampChart({
 }) {
   const animate = useFirstLoad(id);
   const format = formatter(spec);
-  const stroke = tone === 'ahead' ? UP : tone === 'shortfall' ? DOWN : PRIMARY;
+  const stroke = tone === 'ahead' ? UP : tone === 'shortfall' ? DOWN : PLOT;
   const anyActual = points.some((p) => p.actual !== null);
 
   return (

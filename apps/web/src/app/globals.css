@@ -36,6 +36,24 @@
      series. Never type. */
   --color-mark: #98a2b3;
 
+  /*
+    The plot's own colour, which is not the interface's.
+
+    `--color-primary` dresses buttons, links and focus rings; those are controls
+    and they stay blue. A chart is data, and it leads with ink — the chrome's
+    own value, at plot weight. Keeping them apart means restyling a control can
+    never silently repaint a series, and it is why the rebrand could change
+    every chart without touching a single button.
+
+    13.21:1 and 4.98:1 on the canvas. The soft value is dE 22 from
+    `--color-mark`, so a provisional bar and an empty baseline cannot be
+    confused for one another.
+  */
+  --color-plot: #242b3a;
+  --color-plot-soft: #5f6b85;
+  /* The unfilled part of an inline bar. Neutral, so the fill carries the read. */
+  --color-plot-track: #e3e6ec;
+
   --color-primary: #3b5bdb;
   --color-primary-600: #2f4ac7;
   --color-primary-100: #e7ecfb;

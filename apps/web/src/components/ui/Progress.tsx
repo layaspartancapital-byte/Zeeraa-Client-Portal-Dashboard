@@ -1,9 +1,14 @@
 /**
  * The 6px inline bar used for rate columns and coverage (spec v2 §6).
  *
- * `over` draws a second segment past 100% in `--primary-soft`, which is how a
- * figure past its target renders without letting the bar lie about the
+ * `over` draws a second segment past 100% in `--color-plot-soft`, which is how
+ * a figure past its target renders without letting the bar lie about the
  * fraction: the first 100% stays proportional and the excess is visibly extra.
+ *
+ * Drawn in the plot palette rather than the control palette. **A bar in a table
+ * is data, and data is ink** — `--color-primary` dresses the things a person
+ * clicks. The two were the same colour until the rebrand, which is exactly how
+ * a distinction like this goes unnoticed.
  */
 export function Progress({
   value,
@@ -25,14 +30,14 @@ export function Progress({
     <span
       role="img"
       aria-label={label}
-      className={`flex h-1.5 w-full min-w-[48px] overflow-hidden rounded-full bg-primary-100 ${className}`}
+      className={`flex h-1.5 w-full min-w-[48px] overflow-hidden rounded-full bg-plot-track ${className}`}
     >
       <span
-        className={`h-full rounded-full ${tone === 'warn' ? 'bg-warn' : 'bg-primary'}`}
+        className={`h-full rounded-full ${tone === 'warn' ? 'bg-warn' : 'bg-plot'}`}
         style={{ width: `${clamped * 100}%` }}
       />
       {over > 0 && (
-        <span className="h-full bg-primary-soft" style={{ width: `${over * 100}%` }} />
+        <span className="h-full bg-plot-soft" style={{ width: `${over * 100}%` }} />
       )}
     </span>
   );

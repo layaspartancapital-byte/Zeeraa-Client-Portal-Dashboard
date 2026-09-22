@@ -14,7 +14,7 @@ import {
   AXIS,
   BORDER,
   ChartTable,
-  PRIMARY,
+  PLOT,
   TooltipCard,
   useFirstLoad,
 } from '@/components/charts/chart-kit';
@@ -91,8 +91,8 @@ export function AreaSeries({
           <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={PRIMARY} stopOpacity={0.18} />
-                <stop offset="100%" stopColor={PRIMARY} stopOpacity={0} />
+                <stop offset="0%" stopColor={PLOT} stopOpacity={0.18} />
+                <stop offset="100%" stopColor={PLOT} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid stroke={BORDER} vertical={false} />
@@ -111,7 +111,7 @@ export function AreaSeries({
                       {
                         label: point.dataKey === 'provisional' ? 'Provisional' : 'Value',
                         value: format(Number(point.value)),
-                        color: PRIMARY,
+                        color: PLOT,
                       },
                     ]}
                   />
@@ -121,13 +121,13 @@ export function AreaSeries({
             {target && (
               <ReferenceLine
                 y={target.value}
-                stroke={PRIMARY}
+                stroke={PLOT}
                 strokeDasharray="5 4"
                 strokeWidth={1.5}
                 label={{
                   value: target.label,
                   position: 'insideTopRight',
-                  fill: PRIMARY,
+                  fill: PLOT,
                   fontSize: 12,
                   fontWeight: 600,
                 }}
@@ -136,25 +136,25 @@ export function AreaSeries({
             <Area
               type="monotone"
               dataKey="settled"
-              stroke={PRIMARY}
+              stroke={PLOT}
               strokeWidth={2}
               fill={`url(#${id}-fill)`}
               connectNulls={false}
               dot={false}
-              activeDot={{ r: 4, fill: PRIMARY, stroke: '#fff', strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: PLOT, stroke: '#fff', strokeWidth: 2 }}
               isAnimationActive={animate}
               animationDuration={400}
             />
             <Area
               type="monotone"
               dataKey="provisional"
-              stroke={PRIMARY}
+              stroke={PLOT}
               strokeWidth={2}
               strokeDasharray="5 4"
               fill={`url(#${id}-fill)`}
               connectNulls={false}
               dot={false}
-              activeDot={{ r: 4, fill: PRIMARY, stroke: '#fff', strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: PLOT, stroke: '#fff', strokeWidth: 2 }}
               isAnimationActive={animate}
               animationDuration={400}
             />

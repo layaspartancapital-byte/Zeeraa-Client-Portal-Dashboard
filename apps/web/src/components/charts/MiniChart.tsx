@@ -35,7 +35,7 @@ export type MiniPoint = {
 export type SeriesTone = 'primary' | 'ahead' | 'shortfall';
 
 const STROKE: Record<SeriesTone, string> = {
-  primary: 'var(--color-primary)',
+  primary: 'var(--color-plot)',
   ahead: 'var(--color-up)',
   shortfall: 'var(--color-down)',
 };
@@ -276,7 +276,7 @@ function Bars({
             width={bw}
             height={h}
             rx={1.5}
-            fill={p.provisional ? 'var(--color-primary-soft)' : 'var(--color-primary)'}
+            fill={p.provisional ? 'var(--color-plot-soft)' : 'var(--color-plot)'}
           />
         );
       })}

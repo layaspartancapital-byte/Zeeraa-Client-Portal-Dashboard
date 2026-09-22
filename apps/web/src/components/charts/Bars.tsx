@@ -19,8 +19,8 @@ import {
   DOWN,
   DOWN_EDGE,
   Legend,
-  PRIMARY,
-  PRIMARY_SOFT,
+  PLOT,
+  PLOT_SOFT,
   TEXT,
   TEXT_2,
   TooltipCard,
@@ -242,8 +242,8 @@ export function RangeBars({
     <div className="crossfade">
       <Legend
         items={[
-          { label: 'Confirmed', color: PRIMARY },
-          { label: 'Range if every unattributed deal were this channel', color: PRIMARY_SOFT },
+          { label: 'Confirmed', color: PLOT },
+          { label: 'Range if every unattributed deal were this channel', color: PLOT_SOFT },
         ]}
       />
       <div className="mt-3" style={{ height }}>
@@ -266,12 +266,12 @@ export function RangeBars({
                   <TooltipCard
                     title={d.label}
                     rows={[
-                      { label: 'Confirmed', value: format(d.confirmed), color: PRIMARY },
+                      { label: 'Confirmed', value: format(d.confirmed), color: PLOT },
                       { label: 'Over', value: `${d.attributedDeals} attributed deals` },
                       {
                         label: 'Range',
                         value: `${format(d.low)} – ${format(d.confirmed)}`,
-                        color: PRIMARY_SOFT,
+                        color: PLOT_SOFT,
                       },
                       { label: 'Unattributed', value: `${d.unattributedDeals} deals` },
                     ]}
@@ -282,13 +282,13 @@ export function RangeBars({
             {target && (
               <ReferenceLine
                 x={target.value}
-                stroke={PRIMARY}
+                stroke={PLOT}
                 strokeDasharray="5 4"
                 strokeWidth={1.5}
                 label={{
                   value: target.label,
                   position: 'top',
-                  fill: PRIMARY,
+                  fill: PLOT,
                   fontSize: 12,
                   fontWeight: 600,
                 }}
@@ -300,7 +300,7 @@ export function RangeBars({
             <Bar
               dataKey="span"
               stackId="r"
-              fill={PRIMARY_SOFT}
+              fill={PLOT_SOFT}
               radius={[4, 0, 0, 4]}
               isAnimationActive={animate}
               animationDuration={400}
@@ -309,7 +309,7 @@ export function RangeBars({
             <Bar
               dataKey="marker"
               stackId="r"
-              fill={PRIMARY}
+              fill={PLOT}
               radius={[2, 2, 2, 2]}
               isAnimationActive={animate}
               animationDuration={400}
@@ -417,14 +417,14 @@ export function DivergingBars({
                 <Cell
                   key={r.label}
                   fill={
-                    r.assessment === 'ahead' ? UP : r.assessment === 'shortfall' ? DOWN : PRIMARY
+                    r.assessment === 'ahead' ? UP : r.assessment === 'shortfall' ? DOWN : PLOT
                   }
                   stroke={
                     r.assessment === 'ahead'
                       ? UP_EDGE
                       : r.assessment === 'shortfall'
                         ? DOWN_EDGE
-                        : PRIMARY
+                        : PLOT
                   }
                   strokeWidth={1}
                 />

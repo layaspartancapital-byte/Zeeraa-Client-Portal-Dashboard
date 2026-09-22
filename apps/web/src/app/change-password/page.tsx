@@ -3,6 +3,7 @@ import { PASSWORD_MIN_LENGTH } from '@zeeraa/core';
 import { getViewer } from '@/lib/tenant';
 import { changeOwnPassword, UserAdminError } from '@/lib/users';
 import { createSession } from '@/lib/session';
+import { AuthShell } from '@/components/shell/AuthShell';
 
 export const metadata = { title: 'Change password · Zeeraa' };
 
@@ -58,8 +59,8 @@ export default async function ChangePassword({
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-16 sm:px-6">
-      <div className="card p-6 sm:p-8">
+    <AuthShell footnote={forced ? 'Signed in as ' + viewer.email : undefined}>
+      <div>
         <h1 className="text-[22px] font-semibold leading-tight text-text">
           {forced ? 'Choose your own password' : 'Change password'}
         </h1>
@@ -150,6 +151,6 @@ export default async function ChangePassword({
           </a>
         )}
       </div>
-    </div>
+    </AuthShell>
   );
 }

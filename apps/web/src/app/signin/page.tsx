@@ -4,6 +4,7 @@ import { getAuthDb, schema } from '@zeeraa/db';
 import { getViewer } from '@/lib/tenant';
 import { verifyPassword } from '@/lib/password';
 import { createSession, pruneExpiredSessions } from '@/lib/session';
+import { AuthShell } from '@/components/shell/AuthShell';
 
 export const metadata = { title: 'Sign in · Zeeraa' };
 
@@ -58,20 +59,14 @@ export default async function SignIn({
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-16 sm:px-6">
-      <div className="card p-6 sm:p-8">
-        <p className="text-[13px] font-medium text-text-2">Zeeraa</p>
-        <h1 className="mt-1 text-[22px] font-semibold leading-tight text-text">
-          Performance platform
-        </h1>
-        <p className="mt-2 text-[13px] leading-relaxed text-text-2">
-          Accounts are created by your account director. If you do not have one, ask them.
-        </p>
+    <AuthShell footnote="Accounts are created by your account director. If you do not have one, ask them.">
+      {/* The wordmark above the card says Zeeraa, so the card does not. */}
+      <h1 className="text-[22px] font-semibold leading-tight text-text">Performance platform</h1>
 
-        {error && (
-          <p
-            role="alert"
-            className="mt-5 rounded-[8px] border border-[#FECDCA] bg-down-soft px-3 py-2 text-[13px] leading-relaxed text-[#B42318]"
+      {error && (
+        <p
+          role="alert"
+          className="mt-5 rounded-[8px] border border-[#FECDCA] bg-down-soft px-3 py-2 text-[13px] leading-relaxed text-[#B42318]"
           >
             That email and password do not match an account.
           </p>
@@ -114,7 +109,6 @@ export default async function SignIn({
             Sign in
           </button>
         </form>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

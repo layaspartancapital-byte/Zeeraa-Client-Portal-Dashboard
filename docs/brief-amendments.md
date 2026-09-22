@@ -481,6 +481,81 @@ to be inferred.
 
 ---
 
+## §12 — the chart palette, and the line between data and controls
+
+**Amended 22 September 2026**, alongside the chrome. Spec v2 §4's categorical
+palette is replaced. The aesthetic was the smaller half of the reason.
+
+### What was wrong with it, in numbers
+
+- `#06B6D4`, `#F59E0B` and `#10B981` were **2.26, 2.00 and 2.37** against the
+  canvas — under the 3:1 WCAG 1.4.11 asks of a graphical object. Three of six
+  series were failing before anybody mentioned the brand.
+- `#F59E0B` was dE 8.8 from `--color-warn`, so a channel could be drawn in
+  almost exactly the colour that means *Not measured*; `#10B981` was dE 11.6
+  from `--color-up`, so a channel could be drawn in the colour that means
+  *improving*.
+- `#3B5BDB` and `#7C3AED` were **dE 6.6 apart under deuteranopia** — the same
+  colour, in the two slots that hold Google Ads and Meta Ads, which every
+  comparison on the page puts side by side.
+
+### The constraint that shaped the replacement
+
+Red, green and gold now carry meaning — direction, and the nav accent — and they
+are excluded **by hue rather than by distance**. A dark sage is far from
+`--color-up` in dE and still reads as good news on a bar.
+
+That leaves the teal-blue-violet-plum arc, and it is too narrow for six hues to
+survive colour blindness. So the palette **separates by lightness as much as by
+hue**, which is why hand-tuned sets kept failing where a constrained search
+succeeded: when the hues collapse, the lightness ladder still reads.
+
+```
+1  #242B3A  ink          L17   13.21:1
+2  #661F75  purple       L30    9.70:1
+3  #3985FF  blue         L56    3.28:1
+4  #3641AB  indigo       L35    7.83:1
+5  #8079C0  periwinkle   L54    3.62:1
+6  #9C6B89  rose         L51    4.01:1
+```
+
+Worst-case separation **23.8 dE across normal vision, protanopia, deuteranopia
+and tritanopia**, against 6.6 before. Nearest any series comes to `--color-up`
+or `--color-down` is dE 67.7. `apps/web/test/chart-palette.test.ts` re-derives
+every one of these numbers rather than restating them, including the
+colour-blind simulation.
+
+**Direction is untouched.** Rising cost is red and falling is green, as each
+metric's `improvement_direction` defines it. The rebrand does not get a vote on
+that, and a test asserts the two hex values directly.
+
+### The line this drew: controls are blue, data is ink
+
+`--color-primary` dresses buttons, links, segmented controls, focus rings and
+badges. `--color-plot` dresses series, inline bars and markers. They were the
+same colour until now, which is exactly how a distinction like that goes
+unnoticed — and it meant the rebrand could repaint every chart without touching
+a single button.
+
+Three inline marks moved with the charts, because a bar in a table is data:
+`Progress`, the citation bar in `DeclineCard`, and the optimisation-target dot
+in `PerformanceTable`.
+
+### Sign-in and the forced password change
+
+They sit outside the shell, so they had no rail and no title band and carried no
+identity at all — while being the first thing anyone sees. `AuthShell` gives
+them the same division as everywhere else: **near-black page carrying the mark,
+light card carrying the form**. The fields stay on `--color-surface` because a
+password field on near-black is a worse password field, and these are the two
+screens where a mistyped character costs the most.
+
+Their submit buttons stay `--color-primary`, along with every other button in
+the product. The blue is the control palette, and it is not what the rebrand
+replaced.
+
+---
+
 ## §12 — dark chrome and the Zeeraa mark
 
 **Amended 22 September 2026.** Spec v2 §4 says "no gold, no serif, no black

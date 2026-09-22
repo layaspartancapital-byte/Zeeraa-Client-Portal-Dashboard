@@ -3,55 +3,18 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Shared chart furniture: the palette, axis defaults, the tooltip card and the
- * first-load animation rule.
+ * Shared chart furniture: axis defaults, the tooltip card and the first-load
+ * animation rule.
  *
  * Kept apart from the charts themselves so the tokens are declared once. A
- * colour that is not in `SERIES` does not appear in a plot area.
+ * colour that is not in `SERIES` does not appear in a plot area. The palette
+ * itself lives in `./palette`, which holds no JSX so it can be tested directly.
  */
-
-/** The ordered categorical palette from spec v2 §4. Assigned by identity. */
-export const SERIES = [
-  '#3B5BDB',
-  '#7C3AED',
-  '#06B6D4',
-  '#F59E0B',
-  '#EC4899',
-  '#10B981',
-] as const;
-
-export const PRIMARY = '#3B5BDB';
-export const PRIMARY_SOFT = '#A9B8F2';
-export const PRIMARY_100 = '#E7ECFB';
-export const BORDER = '#E6EAF2';
-export const TEXT = '#101828';
-export const TEXT_2 = '#475467';
-/** Axis and tick labels are text, so this is the AA-safe grey, not #98A2B3. */
-export const TEXT_3 = '#667085';
-export const UP = '#12B76A';
-export const DOWN = '#F04438';
-/** Outlines on the fills above, so a bar's boundary clears 3:1 on the surface. */
-export const UP_EDGE = '#027A48';
-export const DOWN_EDGE = '#B42318';
-export const WARN = '#F79009';
-
-/**
- * Deals no channel can claim are not given a categorical hue.
- *
- * Handing them a slot beside the channels would undo in the chart exactly what
- * the table's separate row group establishes: they are a population, not a
- * channel, and they have no spend behind them.
- */
-export const UNATTRIBUTED = '#98A2B3';
-
-/**
- * A channel keeps its colour by identity, never by rank, so filtering one out
- * never repaints the others.
- */
-export function channelColor(platform: string, order: readonly string[]): string {
-  const i = order.indexOf(platform);
-  return SERIES[(i < 0 ? 0 : i) % SERIES.length]!;
-}
+export * from './palette';
+import {
+  SERIES,
+  TEXT_3,
+} from './palette';
 
 export const AXIS = {
   stroke: TEXT_3,

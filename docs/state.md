@@ -1176,6 +1176,31 @@ Two nulls on the row, neither a fault:
   matched calls, so the figure could not see it. **Fixed below**; the lead on
   that phone key already existed (`00QVr000012jHmDMAU`, created 20 September).
 
+### Chart palette reworked, and the auth screens branded (22 September 2026)
+
+The categorical palette is ink-led and separates by lightness as well as hue:
+`#242B3A #661F75 #3985FF #3641AB #8079C0 #9C6B89`. Worst-case separation 23.8 dE
+across normal vision and all three colour-blindness types, against **6.6**
+before — the old slots 1 and 2, Google Ads and Meta Ads, were the same colour
+under deuteranopia. Three of the six old series were also under 3:1, and two sat
+on top of `--color-warn` and `--color-up`. `apps/web/test/chart-palette.test.ts`
+re-derives all of it, simulation included.
+
+Direction is untouched: rising cost red, falling green, asserted by hex.
+
+**The useful line this drew is `--color-primary` for controls, `--color-plot`
+for data.** They were the same blue, which is how the distinction stayed
+invisible. Buttons, links, segmented controls and focus rings stay blue; series,
+inline bars and markers are ink. `Progress`, `DeclineCard`'s citation bar and
+`PerformanceTable`'s optimisation-target dot moved with the charts.
+
+The palette now lives in `components/charts/palette.ts` rather than
+`chart-kit.tsx`, because a module with JSX in it cannot be imported by a test.
+
+`AuthShell` brands sign-in and the forced password change — near-black page
+carrying the mark, light card carrying the form. Their buttons stay blue, like
+every other button.
+
 ### Rebranded to Zeeraa — dark chrome, light content (22 September 2026)
 
 The rail and the title band are `--color-chrome` (`#14161A`) and carry the gold
