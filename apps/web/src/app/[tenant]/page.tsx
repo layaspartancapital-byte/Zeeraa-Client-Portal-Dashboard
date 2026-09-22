@@ -1,46 +1,47 @@
 import {
+  briefingPeriods,
+  budgetPacing,
+  canAdministerTenant,
   channelCostPerDeal,
-  gapToTarget,
-  monthKeyOf,
-  rampMonthIndex,
-  seriesTrend,
-  targetForMonth,
   formatCount,
   formatCurrency,
+  formatDuration,
+  formatRangeLabel,
   formatRate,
-  previousRange,
+  improvementDirectionFor,
+  monthKeyOf,
+  rampMonthKey,
+  rampSeries,
   tenantDay,
-  granularityFor,
   trailingMonths,
   type AttributionModel,
+  type RampMetricKey,
 } from '@zeeraa/core';
-import { canAdministerTenant } from '@zeeraa/core';
-import { Grid } from '@/components/ui/Card';
+import { Card, CardHeader, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
-import { Segmented, segments } from '@/components/ui/Segmented';
-import { DateRangePicker } from '@/components/ui/DateRangePicker';
-import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
-import { Delta, NoDelta } from '@/components/ui/Delta';
+import { InfoTip } from '@/components/ui/InfoTip';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
-import { KpiCard } from '@/components/KpiCard';
-import { LenderOfferRateCard } from '@/components/LenderOfferRateCard';
-import { HeroCard, type HeroChannel } from '@/components/HeroCard';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
+import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
-import { ChannelSnapshot } from '@/components/ChannelSnapshot';
-import { coverageExplanation } from '@/components/CostPerDeal';
-import { monthlyPerformance, submissionReport } from '@/lib/reporting';
+import { EfficiencyTable, type EfficiencyRow } from '@/components/EfficiencyTable';
+import { NeedsAttention, type Finding } from '@/components/NeedsAttention';
+import { RampCard, type RampPanel } from '@/components/RampCard';
+import { SourceFreshness } from '@/components/SourceFreshness';
+import { SpendPacingCard } from '@/components/SpendPacingCard';
+import { callReport, monthlyPerformance } from '@/lib/reporting';
 import {
-  covers,
+  alowareConnectedThreshold,
+  connectionHealth,
   dataQuality,
-  firstSentence,
   engagementRamp,
-  ingestionStart,
   loadMetrics,
-  minRateDenominator,
+  maxRateLeakage,
+  pausedCampaigns,
+  sourceFreshness,
   windowBuckets,
-  type WindowBucket,
 } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 import { Download } from 'lucide-react';
@@ -48,273 +49,510 @@ import { Download } from 'lucide-react';
 export async function generateMetadata({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant: slug } = await params;
   const { tenant } = await requireTenant(slug);
-  return { title: { absolute: `${tenant.name} · Executive` } };
+  return { title: { absolute: `${tenant.name} · Executive briefing` } };
 }
 
 /**
- * The executive view.
+ * How long a render may be reused, and how often the page refetches itself.
  *
- * The hero renders one *channel's* cost per funded deal, named as one
- * channel's, with its coverage and its range. A blended figure across every
- * channel has a different denominator — total marketing spend over total
- * marketing-sourced deals — and is not computable until every channel is
- * ingested. Showing the one live channel's number under a blended label would
- * be the most expensive kind of quiet error: right arithmetic, wrong noun, on
- * the screen the client repeats internally.
- *
- * Where that used to be a paragraph on a black band, it is now the card's
- * subtitle, its ⓘ and a row in the data-quality card (spec v2 §2).
+ * One hour, because that is the sync cadence: `vercel.json` runs
+ * `/api/cron/sync` hourly, so between runs there is nothing new to draw and a
+ * shorter interval would only cost queries. `AutoRefresh` runs the client half
+ * on the same number, so a tab left open all afternoon does not sit on a
+ * morning render behind a freshness strip that was also rendered that morning.
  */
-/**
- * A series assessment to the chart's stroke.
- *
- * `level` is `primary` rather than a third colour: no movement, or a metric
- * that declares no direction, is not a judgement and must not look like one.
- */
-const TONE = {
-  ahead: 'ahead',
-  shortfall: 'shortfall',
-  level: 'primary',
-} as const;
+export const revalidate = 3600;
 
-export default async function ExecutiveView({
+/**
+ * The executive briefing.
+ *
+ * **A standing report, not a windowed metrics page**, and the difference is
+ * structural rather than cosmetic.
+ *
+ * There is no date control. A briefing that can be rescoped is a screen two
+ * readers quote different numbers from, and the question leadership brings to
+ * it — is the engagement on track — is not a question about an arbitrary
+ * window. So each block states its own period in words and none of them can
+ * disagree:
+ *
+ *   * **the ramp** covers the engagement, on an M1–M8 axis;
+ *   * **every measured figure** covers this month to date, with the last whole
+ *     month beside it;
+ *   * **the findings** are current state, and not a period at all.
+ *
+ * Month to date against a whole month is deliberately two different lengths.
+ * That is how a business talks about its own month, and the mismatch is handled
+ * by never subtracting a *count* in one from a count in the other — those sit
+ * as two figures. Rates and costs do compare, because neither scales with the
+ * number of days.
+ *
+ * It serves two readers at once, which is what decides the contents. Spartan's
+ * leadership get the commitment, the funnel and what needs doing. Zeeraa's team
+ * get the coverage under every figure, the data-quality card, and the findings
+ * that are theirs to close — a paused campaign, a degraded connector, a stage
+ * nobody stamps.
+ */
+export default async function ExecutiveBriefing({
   params,
-  searchParams,
 }: {
   params: Promise<{ tenant: string }>;
-  searchParams: Promise<{
-    from?: string;
-    to?: string;
-    preset?: string;
-    /** Read only so a link made before the date picker existed still works. */
-    days?: string;
-    model?: string;
-  }>;
 }) {
   const { tenant: slug } = await params;
-  const query = await searchParams;
   const session = await requireTenant(slug);
-
-  const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
-  const { range, preset, problem, today, earliest, ingestion } = await resolvePageRange(
-    session,
-    query,
-  );
-  const prior = previousRange(range);
   const currency = session.tenant.currency;
 
+  /**
+   * Last touch, and not a choice the reader makes.
+   *
+   * The model toggle went with the date picker. No deal in this engagement has
+   * more than one touch yet, so the two models cannot diverge; when one does,
+   * the monthly performance screen is where that comparison belongs. A briefing
+   * that can be re-run under a different attribution model is a briefing two
+   * people quote different numbers from.
+   */
+  const model: AttributionModel = 'last_touch';
+
+  const today = tenantDay(new Date(), session.tenant.timezone);
+  const periods = briefingPeriods(today);
+  const { monthToDate, lastFullMonth } = periods;
+
+  const connectedThreshold = await alowareConnectedThreshold(session);
+
   const [
-    data,
+    current,
     previous,
     buckets,
-    heroBuckets,
     metrics,
     quality,
     ramp,
-    rateFloor,
-    submissions,
+    calls,
+    connections,
+    paused,
+    freshness,
+    leakage,
   ] = await Promise.all([
-    monthlyPerformance(session, range, model),
-    monthlyPerformance(session, prior, model),
-    // Twelve monthly buckets for the mini charts, whatever the page range: a
-    // sparkline of three weeks says nothing, and the figure above it already
-    // carries the range.
+    monthlyPerformance(session, monthToDate, model),
+    monthlyPerformance(session, lastFullMonth, model),
+    // Twelve monthly buckets, which serve both the mini charts and the ramp's
+    // actuals: the ramp needs one figure per calendar month, and this is
+    // already one figure per calendar month, per channel.
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
-    /**
-     * The hero series follows the page range now that the chart has no control
-     * of its own. A short range therefore draws a short series — a week-long
-     * range is a couple of points — which is the honest consequence of one date
-     * control rather than two, and `MiniChart` already renders a single point
-     * as a point rather than as a line.
-     */
-    windowBuckets(session, range, granularityFor(range), model),
     loadMetrics(session),
     dataQuality(session),
     engagementRamp(session),
-    minRateDenominator(session),
-    submissionReport(session, range),
+    callReport(session, monthToDate, connectedThreshold),
+    connectionHealth(session),
+    pausedCampaigns(session, lastFullMonth.start),
+    sourceFreshness(session),
+    maxRateLeakage(session),
   ]);
 
-  /**
-   * Whether the comparison period can be compared against at all.
-   *
-   * Paid media was first pulled on 2026-06-20 and the CRM sync reaches back to
-   * 2024, so the 90 days before this window are a valid baseline for funded
-   * deals and a meaningless one for spend: the account was spending and nobody
-   * ingested it. A delta against that baseline reads as performance; it is an
-   * ingestion boundary. So the two have separate baselines, and a baseline of
-   * `null` renders as a stated absence.
-   */
-  const spendComparable = covers(ingestion.spendFrom, prior);
-  const crmComparable = covers(ingestion.crmFrom, prior);
-  const notIngested = (from: string | null) =>
-    from ? `not ingested before ${from}` : 'nothing ingested yet';
-
-  const valueStage = data.stages.find((s) => s.countsValue);
+  const valueStage = current.stages.find((s) => s.countsValue);
   const valueKey = valueStage?.key ?? null;
   const valueLabel = valueStage?.label ?? 'Funded';
 
-  // Every connected channel, ordered by spend. There is no lead channel: the
-  // hero renders one panel per channel and nothing across them. Ordering by
-  // spend is presentation — the largest budget reads first — and carries no
-  // arithmetic, because no figure here combines two channels.
-  const channels = [...data.channels].sort((a, b) => b.spend - a.spend);
-
   const dealsIn = (stages: Record<string, number>) => (valueKey ? (stages[valueKey] ?? 0) : 0);
-  const attributedDeals = (source: typeof data) =>
+  const attributedDeals = (source: typeof current) =>
     source.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0);
 
-  /** One channel's cost per deal for a bucket, both halves from that bucket. */
-  const bucketCost = (bucket: WindowBucket, platform: string) =>
-    channelCostPerDeal({
-      channelSpend: bucket.spendByPlatform[platform] ?? 0,
-      attributedDeals: valueKey ? (bucket.stagesByPlatform[platform]?.[valueKey] ?? 0) : 0,
-      unattributedDeals: valueKey ? (bucket.unattributedStages[valueKey] ?? 0) : 0,
-    });
+  const mtdLabel = `${formatRangeLabel(monthToDate)} · month to date`;
+  const lastMonthLabel = formatRangeLabel(lastFullMonth);
+
+  /* ----------------------------------------------------------------------- */
+  /* The ramp                                                                */
+  /* ----------------------------------------------------------------------- */
 
   /**
-   * One channel's series, computed from that channel's own buckets.
+   * The channel the engagement contracts against.
    *
-   * Never a share of a combined series: a bucket where this channel had spend
-   * and no attributed deal has no cost per deal, and that is a different fact
-   * from a bucket where it spent nothing.
+   * One platform has a ramp — Google Ads — and a second one inheriting its
+   * curve would put a number on screen that no contract states. Where several
+   * are contracted this takes the first, and the card names which.
    */
-  const costDirection = metrics.direction('cost_per_funded_deal');
+  const rampPlatform = [...ramp.byPlatform.keys()][0] ?? 'google_ads';
+  const rampTargets = ramp.byPlatform.get(rampPlatform) ?? [];
 
-  const heroChannels: HeroChannel[] = channels.map((channel) => {
-    const points = heroBuckets.map((bucket) => ({
-      label: bucket.label,
-      value: !bucket.spendIngested ? null : bucketCost(bucket, channel.platform).value,
-      provisional: bucket.provisional,
-    }));
+  /**
+   * A month's bucket, but only once the month is over.
+   *
+   * **The ramp contracts a monthly figure, so only a finished month has an
+   * actual.** September is three weeks old and holds one deal attributed to
+   * Google Ads; dividing the month's spend so far by it gives $18,792 against a
+   * $3,321 target, and the card would report the engagement as catastrophically
+   * behind plan on the strength of a month that has not happened yet. By the
+   * 30th the same month may land near target.
+   *
+   * The current month is not missing from the briefing — it is the three KPI
+   * cards directly below this one, labelled as month to date. What it is not is
+   * a point on a curve of monthly results.
+   */
+  const completedBucketFor = (month: string) =>
+    month >= periods.currentMonth
+      ? null
+      : (buckets.find((b) => monthKeyOf(b.start) === month) ?? null);
 
-    /**
-     * The contracted curve for this channel, month by month.
-     *
-     * `byPlatform` has an entry only for a channel somebody contracted a target
-     * for — Google Ads here — so Meta gets null and draws no curve. Inheriting
-     * one would put a number on screen that no engagement states.
-     */
-    const contracted = ramp.byPlatform.get(channel.platform) ?? null;
-    const curve = contracted
-      ? heroBuckets.map(
-          (bucket) =>
-            targetForMonth(contracted, ramp.startMonth, monthKeyOf(bucket.start))
-              ?.costPerFundedDeal ?? null,
-        )
-      : [];
+  /**
+   * A month's cost, or nothing where the month's denominator is too small to
+   * carry one.
+   *
+   * The same gate the efficiency table uses, applied a second time because a
+   * point on a chart is a stronger claim than a cell in a table: a reader takes
+   * a line as a trajectory. A month in which one deal was attributed produces a
+   * cost per deal that is a fact about that deal, and joining it to the month
+   * either side of it draws a shape that is not in the data.
+   */
+  const gatedCost = (spend: number, attributed: number, formulaKey: string) => {
+    if (!metrics.population(formulaKey, attributed).sufficient) return null;
+    return channelCostPerDeal({ channelSpend: spend, attributedDeals: attributed }).value;
+  };
 
-    /**
-     * The gap, taken from the **last completed month**, not from the figure
-     * above it.
-     *
-     * The hero's figure covers the selected window — ninety days by default —
-     * and the ramp contracts a monthly number. Subtracting one from the other
-     * would be a category error dressed as a variance, so the gap is computed
-     * month against month and the line states which month it is.
-     */
-    const comparable = contracted
-      ? heroBuckets
-          .map((bucket, i) => ({ bucket, target: curve[i] ?? null }))
-          .filter((row) => {
-            const value = points[heroBuckets.indexOf(row.bucket)]?.value;
-            return row.target !== null && value !== null && value !== undefined && !row.bucket.provisional;
-          })
-          .at(-1)
-      : undefined;
+  /**
+   * What actually happened in a calendar month, per contracted metric.
+   *
+   * Every one of these takes both halves from the contracted channel. A ramp
+   * signed for Google Ads is kept or missed by Google Ads' own spend over
+   * Google Ads' own deals; measuring it against the account total would let the
+   * engagement look on track because a different channel had a good month.
+   */
+  const actualFor: Record<RampMetricKey, (month: string) => number | null> = {
+    costPerFundedDeal: (month) => {
+      const bucket = completedBucketFor(month);
+      if (!bucket || !bucket.spendIngested || !valueKey) return null;
+      return gatedCost(
+        bucket.spendByPlatform[rampPlatform] ?? 0,
+        bucket.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0,
+        'cost_per_funded_deal',
+      );
+    },
+    cpa: (month) => {
+      const bucket = completedBucketFor(month);
+      if (!bucket || !bucket.spendIngested) return null;
+      // An acquisition here is an application — the first stage the CRM stamps
+      // for a real opportunity. Named on the card, because CPA means whatever
+      // the contract's "A" is and the reader cannot be left to guess.
+      return gatedCost(
+        bucket.spendByPlatform[rampPlatform] ?? 0,
+        bucket.stagesByPlatform[rampPlatform]?.application ?? 0,
+        'cpa',
+      );
+    },
+    budget: (month) => {
+      const bucket = completedBucketFor(month);
+      return bucket?.spendIngested ? (bucket.spendByPlatform[rampPlatform] ?? 0) : null;
+    },
+    approvals: (month) => {
+      const bucket = completedBucketFor(month);
+      return bucket?.crmIngested ? (bucket.stagesByPlatform[rampPlatform]?.uw_approved ?? 0) : null;
+    },
+    fundedDeals: (month) => {
+      const bucket = completedBucketFor(month);
+      if (!bucket || !bucket.crmIngested || !valueKey) return null;
+      return bucket.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0;
+    },
+  };
 
-    const actual = comparable
-      ? (points[heroBuckets.indexOf(comparable.bucket)]?.value ?? null)
-      : null;
-
-    const monthIndex =
-      comparable && ramp.startMonth
-        ? rampMonthIndex(ramp.startMonth, monthKeyOf(comparable.bucket.start))
-        : null;
-
+  const panelFor = (
+    metric: RampMetricKey,
+    label: string,
+    formulaKey: string,
+    format: RampPanel['format'],
+    missing: string,
+  ): RampPanel => {
+    // The direction comes from the formula, exactly as every delta's does. A
+    // ramp panel never states which way is better.
+    const direction = improvementDirectionFor(formulaKey);
     return {
+      metric,
+      label,
+      format,
+      direction,
+      missing,
+      series: rampSeries(rampTargets, metric, {
+        startMonth: ramp.startMonth,
+        actualFor: actualFor[metric],
+        direction,
+      }),
+    };
+  };
+
+  const AWAITING_MODEL =
+    'The engagement model contracts this month by month. The figures have not been entered ' +
+    'in the engagement targets yet, so there is no curve to track against.';
+
+  const rampPrimary = panelFor(
+    'costPerFundedDeal',
+    `Cost per ${valueLabel.toLowerCase()} deal`,
+    'cost_per_funded_deal',
+    { kind: 'currency', currency },
+    AWAITING_MODEL,
+  );
+  const rampSecondary = panelFor(
+    'cpa',
+    'CPA · cost per application',
+    'cpa',
+    { kind: 'currency', currency },
+    AWAITING_MODEL,
+  );
+  const rampCompact: RampPanel[] = [
+    panelFor(
+      'budget',
+      'Budget',
+      'paid_media_spend',
+      { kind: 'currency', currency },
+      'Only M1 of the budget curve has been entered, so later months have nothing to pace against.',
+    ),
+    panelFor('approvals', 'Approvals', 'stage_count', { kind: 'count' }, AWAITING_MODEL),
+    panelFor('fundedDeals', `${valueLabel} deals`, 'stage_count', { kind: 'count' }, AWAITING_MODEL),
+  ];
+
+  /* ----------------------------------------------------------------------- */
+  /* Pacing                                                                  */
+  /* ----------------------------------------------------------------------- */
+
+  /**
+   * This month's contracted budget, which needs both halves of the ramp.
+   *
+   * The budget sits on a ramp month, and knowing which calendar month that is
+   * needs the start month. They are two pieces of the same missing
+   * configuration, so the card names the one that is absent rather than
+   * reporting "no budget" for two different reasons.
+   */
+  const currentRampMonth =
+    ramp.startMonth === null
+      ? null
+      : (rampTargets.find(
+          (t) => rampMonthKey(ramp.startMonth!, t.monthIndex) === periods.currentMonth,
+        ) ?? null);
+
+  const pacing =
+    currentRampMonth?.budget == null
+      ? null
+      : budgetPacing({
+          spent: current.total.spend,
+          budget: currentRampMonth.budget,
+          elapsed: periods.elapsed,
+        });
+
+  const budgetMissing =
+    ramp.startMonth === null
+      ? 'No contracted budget applies: the engagement start month is not recorded, so no ramp month lands on this one.'
+      : currentRampMonth === null
+        ? `This month falls outside the contracted ramp, which runs M1 to M${formatCount(rampTargets.length)}.`
+        : 'No budget is recorded for this month of the ramp.';
+
+  /* ----------------------------------------------------------------------- */
+  /* Efficiency                                                              */
+  /* ----------------------------------------------------------------------- */
+
+  /**
+   * The stages a cost is worth reporting per, from the configured funnel rather
+   * than named here — a tenant whose funnel has different steps gets its own
+   * columns.
+   *
+   * A blocked stage is dropped rather than shown empty: a cost per a stage
+   * nobody stamps would divide by a number the funnel itself declines to
+   * render, two rows above.
+   */
+  const efficiencyColumns = current.stages
+    .filter(
+      (stage) =>
+        ['lead', 'application', 'uw_approved'].includes(stage.key) || stage.key === valueKey,
+    )
+    .filter((stage) => !current.stageStatus[stage.key]?.blocked)
+    .map((stage) => ({ stage: stage.key, label: stage.label }));
+
+  const efficiencyRows: EfficiencyRow[] = [...current.channels]
+    .sort((a, b) => b.spend - a.spend)
+    .map((channel) => ({
       platform: channel.platform,
       label: channel.label,
-      cost: channel.costPerDeal,
-      previousCost: spendComparable
-        ? (previous.channels.find((c) => c.platform === channel.platform)?.costPerDeal ?? null)
-        : null,
-      points,
-      provisional: heroBuckets.at(-1)?.provisional ?? false,
-      // Coloured by where the series went, assessed by this metric's own
-      // direction — falling cost is green because lower is better, and the rule
-      // is the metric's rather than the chart's.
-      tone: TONE[seriesTrend(points.map((p) => p.value), costDirection)],
-      ramp: contracted
-        ? {
-            curve,
-            awaitingStart: ramp.startMonth === null,
-            gap:
-              actual !== null && comparable?.target != null && costDirection
-                ? gapToTarget(actual, comparable.target, costDirection)
-                : null,
-            monthLabel: monthIndex === null ? null : `M${monthIndex}`,
-            periodLabel: comparable?.bucket.label ?? null,
-          }
-        : null,
-    };
-  });
-
-  /**
-   * A mini series. `source` decides which ingestion boundary blanks a bucket:
-   * a spend series has nothing to say about March 2026, and plotting zero there
-   * would say the account spent nothing.
-   */
-  const mini = (
-    pick: (bucket: WindowBucket) => number | null,
-    source: 'spend' | 'crm' = 'crm',
-  ) =>
-    buckets.map((bucket) => ({
-      label: bucket.label,
-      value: (source === 'spend' ? bucket.spendIngested : bucket.crmIngested)
-        ? pick(bucket)
-        : null,
-      provisional: bucket.provisional,
+      spend: channel.spend,
+      cells: efficiencyColumns.map((column) => {
+        const cost = channelCostPerDeal({
+          channelSpend: channel.spend,
+          attributedDeals: channel.stages[column.stage] ?? 0,
+          unattributedDeals: current.unattributed.stages[column.stage] ?? 0,
+        });
+        return {
+          stage: column.stage,
+          cost,
+          // Gated on the population this cell divided by, not the row's. Google
+          // Ads can claim 185 leads and one funded deal in the same month, and
+          // those two figures are supported to completely different degrees.
+          gate: metrics.population(
+            column.stage === valueKey ? 'cost_per_funded_deal' : 'cost_per_stage',
+            cost.attributedDeals,
+          ),
+        };
+      }),
     }));
 
-  /**
-   * The lender offer rate's configuration row.
-   *
-   * `offer_rate` itself is gone from this screen: it is retired by a `metric`
-   * block, which the data quality card renders, and the figure that answers the
-   * same question lives at lender grain. The helpers that computed the old
-   * deal-level rate were removed with it rather than left behind dark, because
-   * a dead rate is one import away from coming back.
-   */
-  const lenderOfferMetric = metrics.byKey.get('lender_offer_rate');
+  /* ----------------------------------------------------------------------- */
+  /* Findings                                                                */
+  /* ----------------------------------------------------------------------- */
 
-  const attributedShare = (source: typeof data) => {
-    const total = dealsIn(source.total.stages);
-    return total === 0 ? null : attributedDeals(source) / total;
-  };
+  const speedGate = metrics.population('speed_to_lead', calls.speed.called);
+  const unattributedDeals = dealsIn(current.unattributed.stages);
+  const totalDeals = dealsIn(current.total.stages);
+  const degraded = connections.filter(
+    (c) => c.status === 'degraded' || c.status === 'failing' || c.status === 'waiting_on_client',
+  );
+  const pausedRecent = paused.filter((p) => p.pausedWithRecentSpend > 0);
+  const pausedTotal = paused.reduce((sum, p) => sum + p.paused, 0);
+
+  const findings: Finding[] = [];
+
+  if (speedGate.sufficient && calls.speed.medianSeconds !== null) {
+    findings.push({
+      key: 'speed-to-lead',
+      // The five-minute bar is the industry's own, not one this product sets,
+      // and the desk being a long way off it is an operational finding rather
+      // than a metric reading.
+      level: (calls.speed.withinFiveMinutesShare ?? 0) < 0.5 ? 'act' : 'watch',
+      headline: 'Leads wait for a first call',
+      figure: formatDuration(calls.speed.medianSeconds),
+      detail:
+        `median over ${formatCount(calls.speed.called)} of ${formatCount(
+          calls.speed.called + calls.speed.notCalled,
+        )} leads called · ` +
+        `${
+          calls.speed.withinFiveMinutesShare === null
+            ? 'none'
+            : formatRate(calls.speed.withinFiveMinutesShare)
+        } reached within five minutes`,
+      note: 'Measured only over leads that were called — a lead nobody rang has no response time and is not counted as a slow one. Five minutes is the industry bar, not one this product sets.',
+      action: { label: 'Funnel', href: `/${slug}/funnel` },
+    });
+  }
+
+  if (!calls.empty) {
+    findings.push({
+      key: 'call-volume',
+      level: 'watch',
+      headline: 'Calls this month',
+      figure: formatCount(calls.volume.handled),
+      detail:
+        `${
+          calls.volume.connectRate === null ? 'none' : formatRate(calls.volume.connectRate)
+        } connected past ${formatCount(calls.connectedMinTalkSeconds)}s · ` +
+        `${formatCount(calls.volume.abandoned)} abandoned, in neither count`,
+      note: `A call that talked for less than ${formatCount(calls.connectedMinTalkSeconds)} seconds is an attempt rather than a conversation. Abandoned calls — the caller hung up before anybody answered — are outside both counts and outside the connect rate's denominator.`,
+      action: { label: 'Funnel', href: `/${slug}/funnel` },
+    });
+  }
+
+  if (pausedRecent.length > 0) {
+    const count = pausedRecent.reduce((sum, p) => sum + p.pausedWithRecentSpend, 0);
+    const spend = pausedRecent.reduce((sum, p) => sum + p.recentSpend, 0);
+    findings.push({
+      key: 'paused-campaigns',
+      level: 'act',
+      headline: 'Campaigns that were spending are paused',
+      figure: formatCount(count),
+      detail:
+        `${formatCurrency(spend, currency)} spent before they stopped · ` +
+        `${formatCount(pausedTotal)} paused campaigns configured in total`,
+      note: 'Counted from the platform’s own status. Removed campaigns are excluded — a deleted campaign is one somebody cleaned up, not a configuration left behind.',
+      action: { label: 'Platforms', href: `/${slug}/platforms/${pausedRecent[0]!.platform}` },
+    });
+  }
+
+  for (const connection of degraded) {
+    findings.push({
+      key: `connection-${connection.platform}`,
+      // A dependency on the client is not a fault. It still belongs here —
+      // somebody has to chase it — but it is not something Zeeraa broke.
+      level: connection.status === 'waiting_on_client' ? 'watch' : 'act',
+      headline: `${connection.label} is ${connection.status.replace(/_/g, ' ')}`,
+      figure: connection.lastSyncAt
+        ? connection.lastSyncAt.toLocaleDateString('en-US', {
+            timeZone: session.tenant.timezone,
+            month: 'short',
+            day: 'numeric',
+          })
+        : 'never synced',
+      detail: connection.detail ?? 'The connector reported a problem on its last run.',
+      action: { label: 'Connections', href: `/${slug}/connections` },
+    });
+  }
+
+  if (unattributedDeals > 0) {
+    findings.push({
+      key: 'unattributed',
+      level: 'watch',
+      headline: `${valueLabel} deals no channel can claim`,
+      figure: `${formatCount(unattributedDeals)} of ${formatCount(totalDeals)}`,
+      detail:
+        'They carry no click from any connected channel, so no spend stands behind them and ' +
+        'they are in no channel’s denominator',
+      note: current.unattributed.reason,
+      action: { label: 'Reconciliation', href: `/${slug}/reconciliation` },
+    });
+  }
+
+  /* ----------------------------------------------------------------------- */
+  /* Notes                                                                   */
+  /* ----------------------------------------------------------------------- */
 
   const notes: MethodNote[] = [
     {
-      heading: `Cost per ${valueLabel.toLowerCase()} deal`,
+      heading: 'What period this briefing covers',
       body:
-        metrics.northStar?.definition ??
-        'A channel’s spend in the period over the deals attributed to that channel.',
-      detail: BLENDED_NOTE(valueLabel),
+        'The ramp covers the engagement on an M1–M8 axis. Every measured figure covers this ' +
+        'month to date, with the last whole month beside it. The findings are current state.',
+      detail:
+        `Month to date is ${formatRangeLabel(monthToDate)}; the last whole month is ` +
+        `${lastMonthLabel}. A count from one is never subtracted from a count in the other — ` +
+        'they are different lengths — so those sit as two figures. Rates and costs do compare, ' +
+        'because neither scales with the number of days.',
+    },
+    {
+      heading: 'The engagement ramp',
+      body:
+        'The contract commits a figure for each month of the engagement, so the ramp is drawn ' +
+        'on an M1–M8 axis rather than a calendar one.',
+      detail:
+        ramp.startMonth === null
+          ? 'The start month is not recorded, so no ramp month maps to a calendar month and no actual is plotted against the curve. The commitment itself is fully specified and is drawn.'
+          : `M1 is ${ramp.startMonth}.`,
+    },
+    {
+      heading: 'Cost per stage',
+      body:
+        'Each figure is one channel’s spend over the records attributed to that channel at that ' +
+        'stage. Nothing here is blended across channels.',
+      detail: `Withheld below ${formatCount(
+        metrics.floors.render,
+      )} in its own denominator, because a cost over one or two records measures the sample rather than the channel.`,
+    },
+    {
+      heading: 'How current these figures are',
+      body:
+        'Paid media and the CRM are pulled hourly, so a figure covering today reaches only as ' +
+        'far as the last run. Calls are pushed by webhook as each one ends, and this page ' +
+        'refetches itself on the same hourly cadence.',
+      detail: freshness
+        .map(
+          (source) =>
+            `${source.label}: ${
+              source.at === null
+                ? 'nothing received'
+                : source.at.toLocaleString('en-US', {
+                    timeZone: session.tenant.timezone,
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })
+            }`,
+        )
+        .join(' · '),
     },
     {
       heading: 'Deals no channel can claim',
-      body: data.unattributed.reason,
-      detail: `${formatCount(dealsIn(data.unattributed.stages))} of ${formatCount(
-        dealsIn(data.total.stages),
-      )} ${valueLabel.toLowerCase()} deals in this window.`,
+      body: current.unattributed.reason,
+      detail: `${formatCount(unattributedDeals)} of ${formatCount(
+        totalDeals,
+      )} ${valueLabel.toLowerCase()} deals this month.`,
     },
-    // One note per channel. A single "coverage and range" note across two
-    // channels would have to average two different coverages to say anything,
-    // and the difference between them is the point.
-    ...channels.map((channel) => ({
-      heading: `Coverage and range · ${channel.label}`,
-      body: coverageExplanation(channel.costPerDeal, currency, channel.label),
-    })),
     ...quality.map((item) => ({
       heading: item.name,
       body: item.detail || item.summary,
@@ -322,27 +560,12 @@ export default async function ExecutiveView({
     })),
   ];
 
-  const base = `/${slug}`;
-  // Every other filter on this page, carried through the date form and the
-  // preset links so that changing the range does not silently reset them.
-  const { preserve, presetHref } = rangeLinks(base, { model });
-  const activeParams = { ...rangeParams(range), model };
+  const exportParams = new URLSearchParams({ from: monthToDate.start, to: monthToDate.end, model });
 
   return (
     <>
-      <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive">
-        <DateRangePicker
-          range={range}
-          preset={preset}
-          presetHref={presetHref}
-          preserve={preserve}
-          problem={problem}
-          earliest={earliest}
-          today={today}
-        />
-        <ButtonLink
-          href={`/api/export/${slug}/performance?${new URLSearchParams(activeParams).toString()}`}
-        >
+      <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive briefing">
+        <ButtonLink href={`/api/export/${slug}/performance?${exportParams.toString()}`}>
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>
@@ -353,156 +576,100 @@ export default async function ExecutiveView({
       </TopBar>
 
       <PageMeta>
-        <MethodDrawer notes={notes} title={`Executive · ${range.start} to ${range.end}`} />
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <SourceFreshness
+            sources={freshness}
+            now={new Date()}
+            timezone={session.tenant.timezone}
+            includesToday
+          />
+          <AutoRefresh intervalSeconds={revalidate} />
+        </span>
+        <MethodDrawer
+          notes={notes}
+          title={`Executive briefing · ${formatRangeLabel(monthToDate)}`}
+        />
       </PageMeta>
 
       <Grid>
-        {heroChannels.length > 0 ? (
-          <HeroCard
-            metricLabel={metrics.northStar?.label ?? `Cost per ${valueLabel.toLowerCase()} deal`}
-            channels={heroChannels}
-            comparisonUnavailable={notIngested(ingestion.spendFrom)}
-            currency={currency}
-            direction={costDirection}
-            definition={metrics.northStar?.definition ?? null}
-            blendedNote={BLENDED_NOTE(valueLabel)}
-          />
-        ) : (
-          <DataQualityCard
-            items={quality}
-            span={8}
-            title="No channel has reported in this window"
-          />
-        )}
-
-        <div className="col-span-12 flex flex-col gap-6 lg:col-span-4">
-          <KpiCard
-            span={6}
-            label={`${valueLabel} volume`}
-            value={formatCurrency(data.total.valueVolume, currency)}
-            delta={
-              <Delta
-                current={data.total.valueVolume}
-                baseline={crmComparable ? previous.total.valueVolume : null}
-                direction={metrics.direction('funded_volume')}
-                unavailable={notIngested(ingestion.crmFrom)}
-              />
-            }
-            context="Every source, attributed or not"
-            points={mini((b) => b.valueVolume)}
-            info="The funded amount on every deal reaching the value stage in the period, from any source. Not a channel figure: no spend is divided into it."
-          />
-          <KpiCard
-            span={6}
-            label={`${valueLabel} deals`}
-            value={formatCount(dealsIn(data.total.stages))}
-            delta={
-              <Delta
-                current={dealsIn(data.total.stages)}
-                baseline={crmComparable ? dealsIn(previous.total.stages) : null}
-                direction={metrics.direction('funded_deals')}
-                unavailable={notIngested(ingestion.crmFrom)}
-              />
-            }
-            context={`${formatCount(attributedDeals(data))} attributed · ${formatCount(
-              dealsIn(data.unattributed.stages),
-            )} to no channel`}
-            points={mini((b) => (valueKey ? (b.stages[valueKey] ?? 0) : null))}
-            variant="bars"
-            info="Deals reaching the value stage in the period. The attributed count is the only one that enters a channel's denominator."
-          />
-        </div>
-
-        <KpiCard
-          label="Paid media spend"
-          value={formatCurrency(data.total.spend, currency)}
-          delta={
-            <Delta
-              current={data.total.spend}
-              baseline={spendComparable ? previous.total.spend : null}
-              direction={metrics.direction('paid_media_spend')}
-              unavailable={notIngested(ingestion.spendFrom)}
-            />
+        {/* 1. The commitment — the only thing here that is not a measurement. */}
+        <RampCard
+          platformLabel={
+            current.channels.find((c) => c.platform === rampPlatform)?.label ?? rampPlatform
           }
-          context={`${data.channels.length} connected ${
-            data.channels.length === 1 ? 'channel' : 'channels'
-          }`}
-          points={mini((b) => b.spend, 'spend')}
-          info="Spend across every connected channel in the period. No metric declares a direction for it: spending less is not an achievement and spending more is not a failure — what it bought decides that."
+          primary={rampPrimary}
+          secondary={rampSecondary}
+          compact={rampCompact}
+          startMonth={ramp.startMonth}
         />
 
-        <KpiCard
-          label="Attributed share"
-          value={
-            attributedShare(data) === null ? null : formatRate(attributedShare(data)!)
-          }
-          notMeasured={`No ${valueLabel.toLowerCase()} deal in this window`}
-          delta={
-            attributedShare(data) !== null ? (
-              <Delta
-                current={attributedShare(data)!}
-                // Attribution needs ingested clicks, so the boundary is the
-                // spend one: before it, every deal looks unattributed and the
-                // share would read as a collapse that never happened.
-                baseline={
-                  spendComparable && attributedShare(previous) !== null
-                    ? attributedShare(previous)
-                    : null
-                }
-                direction={metrics.direction('attributed_share')}
-                unavailable={notIngested(ingestion.spendFrom)}
-              />
-            ) : (
-              <NoDelta />
-            )
-          }
-          context={`${formatCount(attributedDeals(data))} of ${formatCount(
-            dealsIn(data.total.stages),
-          )} deals reach a channel`}
-          points={mini((b) => {
-            if (!valueKey) return null;
-            const total = b.stages[valueKey] ?? 0;
-            if (total === 0) return null;
-            const attributed = Object.values(b.stagesByPlatform).reduce(
-              (sum, stages) => sum + (stages[valueKey] ?? 0),
-              0,
-            );
-            return attributed / total;
-          }, 'spend')}
-          info="Deals the platform can attribute to a connected channel, over every deal reaching the value stage. A measure of coverage, not of performance."
+        {/* 2. The outcome, and the spend that bought it. */}
+        <TwoPeriodKpi
+          label={`${valueLabel} deals`}
+          value={formatCount(totalDeals)}
+          priorValue={formatCount(dealsIn(previous.total.stages))}
+          valueLabel={mtdLabel}
+          priorLabel={lastMonthLabel}
+          context={`${formatCount(attributedDeals(current))} attributed · ${formatCount(
+            unattributedDeals,
+          )} to no channel`}
+          info="Deals reaching the value stage. Shown for both periods and never subtracted: a partial month against a whole one is mostly a difference in calendar days."
+        />
+        <TwoPeriodKpi
+          label={`${valueLabel} volume`}
+          value={formatCurrency(current.total.valueVolume, currency)}
+          priorValue={formatCurrency(previous.total.valueVolume, currency)}
+          valueLabel={mtdLabel}
+          priorLabel={lastMonthLabel}
+          context="Every source, attributed or not"
+          info="The funded amount on every deal reaching the value stage, from any source. Not a channel figure: no spend is divided into it."
+        />
+        <SpendPacingCard
+          spent={current.total.spend}
+          pacing={pacing}
+          currency={currency}
+          periodLabel={mtdLabel}
+          budgetMissing={budgetMissing}
+          elapsedDays={periods.elapsedDays}
+          monthDays={periods.monthDays}
+          points={buckets.map((bucket) => ({
+            label: bucket.label,
+            value: bucket.spendIngested ? bucket.spend : null,
+            provisional: bucket.provisional,
+          }))}
+          span={6}
         />
 
-        {/*
-          Offer rate, replaced rather than merely blocked.
-          The deal-level metric is retired — a `metric` row in
-          `blocked_dependencies` records why, and it still renders in the data
-          quality card. What stands in its place is the same question asked at
-          the grain the answer exists: one lender's offers over that lender's
-          decisions. Leaving the slot empty would have been the safe move and
-          the wrong one; the client's question was never "what percentage of
-          Offer_Received_Date_Time__c is filled in".
-        */}
-        <LenderOfferRateCard report={submissions} metric={lenderOfferMetric} />
+        {/* 3. The funnel, every stage and the rate between each pair. */}
+        <Card span={12}>
+          <CardHeader
+            title="Funnel"
+            subtitle={`Every stage and the conversion between them · ${mtdLabel}`}
+          />
+          <FunnelStages
+            data={current}
+            counts={current.total.stages}
+            populationLabel="every source"
+            maxLeakage={leakage}
+          />
+        </Card>
 
-        <KpiCard
-          label="Applications"
-          value={formatCount(data.total.stages.application ?? 0)}
-          delta={
-            <Delta
-              current={data.total.stages.application ?? 0}
-              baseline={crmComparable ? (previous.total.stages.application ?? 0) : null}
-              direction={metrics.direction('applications')}
-              unavailable={notIngested(ingestion.crmFrom)}
-            />
-          }
-          context="Opportunities created in the period"
-          points={mini((b) => b.stages.application ?? 0)}
-          variant="bars"
-          info="Opportunities reaching the Application stage. This is what the CRM actually stamps; the inbound lead population above it is a different grain."
+        {/* 4. What each stage costs, per channel. */}
+        <EfficiencyTable
+          rows={efficiencyRows}
+          columns={efficiencyColumns}
+          unattributed={{
+            label: current.unattributed.label,
+            reason: current.unattributed.reason,
+            counts: current.unattributed.stages,
+          }}
+          currency={currency}
+          periodLabel={mtdLabel}
         />
 
+        {/* 5. What to do about it, and what the platform cannot say. */}
+        <NeedsAttention findings={findings} span={8} />
         <DataQualityCard items={quality} span={4} />
-        <ChannelSnapshot data={data} currency={currency} valueLabel={valueLabel} span={8} />
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
@@ -510,12 +677,57 @@ export default async function ExecutiveView({
   );
 }
 
-/** Why no blended figure appears. One place, so both the ⓘ and the drawer agree. */
-function BLENDED_NOTE(valueLabel: string): string {
+/**
+ * A figure for this month beside the same figure for the last whole month.
+ *
+ * Two figures, not a delta, and the reason is arithmetic rather than taste: one
+ * covers twenty-two days and the other thirty-one, so most of the difference
+ * between them is the calendar. A percentage would be read as performance.
+ * Rates and costs elsewhere on this screen do carry deltas, because neither
+ * scales with the number of days in the period.
+ *
+ * No mini chart. Every other KPI in this product has one, and the exception is
+ * deliberate: the second figure *is* the comparison here, and a twelve-month
+ * sparkline under two periods invites a reader to compare three things at
+ * different grains at once.
+ */
+function TwoPeriodKpi({
+  label,
+  value,
+  priorValue,
+  valueLabel,
+  priorLabel,
+  context,
+  info,
+  span = 3,
+}: {
+  label: string;
+  value: string;
+  priorValue: string;
+  valueLabel: string;
+  priorLabel: string;
+  context?: string;
+  info?: string;
+  span?: 3 | 4 | 6;
+}) {
   return (
-    `This is one channel’s figure, not a blended one. Blended cost per ` +
-    `${valueLabel.toLowerCase()} deal divides total marketing spend by total ` +
-    `marketing-sourced deals, and needs every channel in the engagement ingested ` +
-    `before it means anything.`
+    <Card span={span} className="justify-between">
+      <div className="px-5 pb-5 pt-4">
+        <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
+          {label}
+          {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
+        </p>
+
+        <p className="mt-1.5 text-[28px] font-semibold leading-[1.15] tabular text-text">{value}</p>
+        <p className="mt-0.5 text-[12px] text-text-3">{valueLabel}</p>
+
+        <div className="mt-3 border-t border-border/60 pt-2">
+          <p className="text-[15px] font-semibold leading-tight tabular text-text-2">{priorValue}</p>
+          <p className="mt-0.5 text-[12px] text-text-3">{priorLabel}</p>
+        </div>
+
+        {context && <p className="mt-3 text-[13px] leading-snug tabular text-text-2">{context}</p>}
+      </div>
+    </Card>
   );
 }

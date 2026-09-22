@@ -193,9 +193,26 @@ describe('formatRangeLabel', () => {
 });
 
 describe('granularityFor', () => {
-  it('draws a short range in weeks and a long one in months', () => {
-    expect(granularityFor({ start: '2026-09-15', end: '2026-09-21' })).toBe('week');
+  it('draws a long range in months, a medium one in weeks and a short one in days', () => {
     expect(granularityFor({ start: '2026-06-24', end: '2026-09-21' })).toBe('month');
+    expect(granularityFor({ start: '2026-08-23', end: '2026-09-21' })).toBe('week');
+    expect(granularityFor({ start: '2026-09-15', end: '2026-09-21' })).toBe('day');
+  });
+
+  it('resolves a single day to one day bucket rather than to a week of one', () => {
+    // The executive screen leads with activity on a range this short, and a
+    // day's figures drawn as a single week-wide column is a column labelled
+    // with the wrong period.
+    expect(granularityFor({ start: '2026-09-21', end: '2026-09-21' })).toBe('day');
+  });
+
+  it('turns at three weeks and at ten', () => {
+    // Exactly at each boundary, because an off-by-one here is invisible: a
+    // 21-day range drawn in days is three legible columns either way.
+    expect(granularityFor({ start: '2026-09-01', end: '2026-09-21' })).toBe('week');
+    expect(granularityFor({ start: '2026-09-02', end: '2026-09-21' })).toBe('day');
+    expect(granularityFor({ start: '2026-07-14', end: '2026-09-21' })).toBe('month');
+    expect(granularityFor({ start: '2026-07-15', end: '2026-09-21' })).toBe('week');
   });
 });
 

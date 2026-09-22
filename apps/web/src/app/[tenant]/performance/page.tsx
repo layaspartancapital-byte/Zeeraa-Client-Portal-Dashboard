@@ -40,7 +40,6 @@ import {
   firstSentence,
   ingestionStart,
   loadMetrics,
-  minRateDenominator,
   windowBuckets,
   type WindowBucket,
 } from '@/lib/dashboard';
@@ -120,7 +119,6 @@ export default async function Performance({
     buckets,
     metrics,
     quality,
-    rateFloor,
     submissions,
   ] = await Promise.all([
     monthlyPerformance(session, range, model),
@@ -128,7 +126,6 @@ export default async function Performance({
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
     loadMetrics(session),
     dataQuality(session),
-    minRateDenominator(session),
     submissionReport(session, range),
   ]);
 

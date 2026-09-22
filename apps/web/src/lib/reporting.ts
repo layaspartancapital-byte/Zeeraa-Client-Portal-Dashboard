@@ -1363,3 +1363,129 @@ export async function callReport(
     };
   });
 }
+
+/* ------------------------------------------------------------------------- */
+/* Call activity, bucketed                                                   */
+/* ------------------------------------------------------------------------- */
+
+export type CallBucket = {
+  key: string;
+  label: string;
+  /** Calls the desk placed or answered. Abandoned is excluded, as everywhere. */
+  handled: number;
+  connected: number;
+  /** Connected over handled, or null where nothing was handled in the bucket. */
+  connectRate: number | null;
+  /**
+   * Median speed to lead for the leads *created* in this bucket, or null where
+   * too few were called to have a middle.
+   *
+   * Bucketed by the lead's creation day rather than by the call's: a lead
+   * created on Monday and rung on Tuesday is Monday's response time, and
+   * counting it on Tuesday would make a slow Monday look like a slow Tuesday.
+   */
+  medianSpeedSeconds: number | null;
+};
+
+/**
+ * Calls and speed to lead per bucket, for the activity mini charts.
+ *
+ * Separate from `callReport`, which answers the window as a whole. The two
+ * agree by construction — both count handled calls the same way, both exclude
+ * abandoned from speed to lead, and both take their median from `speedToLead`
+ * in core rather than from SQL — because the alternative is a card whose figure
+ * and whose sparkline were computed by two different rules.
+ *
+ * A bucket with no calls is a zero, which is a measurement: the desk made no
+ * calls that day. A bucket with too few *called leads* to have a median is
+ * null, which is not — `MiniChart` leaves it blank rather than plotting the
+ * floor.
+ */
+export async function callSeries(
+  session: TenantSession,
+  spans: readonly { key: string; start: string; end: string }[],
+  labels: readonly string[],
+  minimumForMedian = 1,
+): Promise<CallBucket[]> {
+  if (spans.length === 0) return [];
+  const range = { start: spans[0]!.start, end: spans.at(-1)!.end };
+
+  return queryTenant(session, async (tx) => {
+    const from = new Date(`${range.start}T00:00:00.000Z`);
+    const to = new Date(`${range.end}T23:59:59.999Z`);
+
+    const [callRows, speedRows] = await Promise.all([
+      tx
+        .select({
+          day: sql<string>`to_char(${schema.calls.occurredAt}, 'YYYY-MM-DD')`,
+          outcome: schema.calls.outcome,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.calls)
+        .where(
+          and(
+            eq(schema.calls.tenantId, session.tenant.id),
+            gte(schema.calls.occurredAt, from),
+            lte(schema.calls.occurredAt, to),
+          ),
+        )
+        .groupBy(sql`1`, schema.calls.outcome),
+
+      // One row per lead created in the window that was called: the day it was
+      // created, and the seconds to the first outbound call. The call itself may
+      // fall outside the window — a lead created on the last day and rung the
+      // next morning was still answered in fourteen hours.
+      tx
+        .select({
+          day: sql<string>`to_char(${schema.leads.createdAt}, 'YYYY-MM-DD')`,
+          seconds: sql<number>`extract(epoch from (min(${schema.calls.occurredAt}) - ${schema.leads.createdAt}))::int`,
+        })
+        .from(schema.leads)
+        .innerJoin(
+          schema.calls,
+          and(
+            eq(schema.calls.tenantId, schema.leads.tenantId),
+            eq(schema.calls.leadExternalId, schema.leads.externalId),
+            eq(schema.calls.direction, 'outbound'),
+            sql`${schema.calls.occurredAt} > ${schema.leads.createdAt}`,
+            sql`${schema.calls.outcome} <> 'abandoned'`,
+          ),
+        )
+        .where(
+          and(
+            eq(schema.leads.tenantId, session.tenant.id),
+            gte(schema.leads.createdAt, from),
+            lte(schema.leads.createdAt, to),
+          ),
+        )
+        .groupBy(sql`1`, schema.leads.externalId, schema.leads.createdAt),
+    ]);
+
+    return spans.map((span, i) => {
+      const tally = { connected: 0, attempted: 0, abandoned: 0 };
+      for (const row of callRows) {
+        if (row.day < span.start || row.day > span.end) continue;
+        tally[row.outcome] += Number(row.count);
+      }
+      const volume = callVolume(tally);
+
+      const seconds = speedRows
+        .filter((r) => r.day >= span.start && r.day <= span.end)
+        .map((r) => ({ seconds: Number(r.seconds) }));
+      // `notCalled` is zero here on purpose: the bucket's median is over the
+      // leads that were called, and the coverage that qualifies it is stated on
+      // the card, over the window, where a reader can see it.
+      const speed = speedToLead(seconds, 0);
+
+      return {
+        key: span.key,
+        label: labels[i] ?? span.key,
+        handled: volume.handled,
+        connected: volume.connected,
+        connectRate: volume.connectRate,
+        medianSpeedSeconds:
+          speed.called >= minimumForMedian ? speed.medianSeconds : null,
+      };
+    });
+  });
+}

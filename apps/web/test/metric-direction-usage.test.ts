@@ -57,7 +57,7 @@ describe('how screens obtain an improvement direction', () => {
 
         // A bare identifier is allowed only where the file says where it came
         // from: a prop typed `ImprovementDirection | null` and threaded down
-        // (`HeroCard` does this), or a local bound to `metrics.direction(...)`
+        // (`RampCard` does this), or a local bound to `metrics.direction(...)`
         // because the page needs it more than once. Anything else — a literal,
         // a ternary, a call to something else — is the card deciding.
         const identifier = /^[a-zA-Z_$][\w$]*$/.test(expression) ? expression : null;

@@ -1,4 +1,10 @@
-import { formatCount, formatCurrency, type ChannelCostPerDeal } from '@zeeraa/core';
+import {
+  formatCount,
+  formatCurrency,
+  type ChannelCostPerDeal,
+  type PopulationVerdict,
+} from '@zeeraa/core';
+import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 
 /**
@@ -90,16 +96,44 @@ export function CostPerDealFigure({
   cost,
   currency,
   channelLabel,
+  gate,
   size = 'kpi',
   className = '',
 }: {
   cost: ChannelCostPerDeal;
   currency: string;
   channelLabel: string;
+  /**
+   * Whether the denominator is large enough for the figure to mean anything.
+   *
+   * Optional, and absent means ungated — but where it is supplied and fails,
+   * the figure does not render at all. A cost per deal over two deals moves by
+   * half when one more lands, and it is the number a client repeats in a
+   * meeting; it is not improved by being rendered smaller or with a caveat
+   * beside it.
+   */
+  gate?: PopulationVerdict;
   size?: 'kpi' | 'hero';
   className?: string;
 }) {
   const figure = size === 'hero' ? 'text-[40px] sm:text-[44px]' : 'text-[28px]';
+
+  if (cost.value !== null && gate && !gate.sufficient) {
+    return (
+      <div className={className}>
+        <NotMeasuredBadge />
+        <p className="mt-2 text-[13px] leading-snug text-text-3">
+          {gate.reason} Over a short range this figure measures the sample rather than{' '}
+          {channelLabel}.
+        </p>
+        <p className="mt-1 text-[13px] tabular text-text-2">
+          {formatCurrency(cost.channelSpend, currency)} spent ·{' '}
+          {formatCount(cost.attributedDeals)} attributed{' '}
+          {cost.attributedDeals === 1 ? 'deal' : 'deals'}
+        </p>
+      </div>
+    );
+  }
 
   if (cost.value === null) {
     return (

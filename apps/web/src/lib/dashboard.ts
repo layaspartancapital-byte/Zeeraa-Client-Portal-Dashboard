@@ -3,6 +3,7 @@ import { schema } from '@zeeraa/db';
 import {
   addDays,
   bucketLabel,
+  assessPopulation,
   improvementDirectionFor,
   isMonthKey,
   evenBucketsIn,
@@ -11,6 +12,7 @@ import {
   type DateRange,
   type DayBucket,
   type ImprovementDirection,
+  type PopulationVerdict,
   type RampTarget,
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
@@ -84,16 +86,60 @@ export type Metrics = {
   target: (key: string) => number | null;
   /** The metric-level block on this metric, or null where there is none. */
   blocked: (key: string) => MetricBlock | null;
+  /**
+   * Whether a figure over this population may render at all.
+   *
+   * The companion to `direction`, and it resolves the same way: whether a
+   * formula needs a population is declared in `@zeeraa/core` beside the
+   * function that computes it, and how large the population must be is this
+   * tenant's `min_rate_denominator`. A screen passes the denominator it
+   * actually divided by and renders what comes back — it never names a formula
+   * and never picks a floor, for the same reason it never states a direction.
+   */
+  population: (key: string, population: number) => PopulationVerdict;
+  /**
+   * Whether a *baseline* population is large enough to compare against.
+   *
+   * The same resolution, against the higher of the two floors. A figure over a
+   * small population is still a measurement; a change between two of them is
+   * not, so the two questions get two answers.
+   */
+  comparable: (key: string, population: number) => PopulationVerdict;
+  /** The floors themselves, for a card or a note that wants to state one. */
+  floors: RateFloors;
+};
+
+export type RateFloors = {
+  /**
+   * The smallest denominator a rate may be **compared** against. Below it the
+   * figure renders and the delta does not: a comparison needs both sides to
+   * mean something, and an offer rate of 58.8% against a previous period of
+   * 200% (2 of 1) produced "−70.6%, a regression" about one opportunity.
+   */
+  compare: number;
+  /**
+   * The smallest denominator the figure itself may be **drawn** over.
+   *
+   * Much lower, and the distinction is not fussiness — it is the difference
+   * between a screen that works at a one-day range and one that withholds its
+   * own headline. Google Ads has nine funded deals attributed to it over
+   * ninety days; that is the number this product exists to report, and a floor
+   * meant for deltas would have suppressed it. What the render floor stops is
+   * the case the executive screen actually hits on a short range: a cost per
+   * deal over one or two deals, which moves by half when a third lands.
+   */
+  render: number;
 };
 
 /**
- * The smallest denominator a rate may be compared against, from configuration.
+ * Both floors on the population behind a rate, from configuration.
  *
- * Ten by default, and a config row rather than a constant because it is a
- * judgement about this client's volumes. The rate itself is never suppressed —
- * only the delta, which is the part that needs two meaningful populations.
+ * A config row rather than a constant because both are judgements about this
+ * client's volumes — a lender funding four hundred deals a month would set them
+ * differently — while *which* metrics they apply to is a property of the
+ * formula and lives in `packages/core/src/population.ts`.
  */
-export async function minRateDenominator(session: TenantSession): Promise<number> {
+export async function rateFloors(session: TenantSession): Promise<RateFloors> {
   const [row] = await queryTenant(session, (tx) =>
     tx
       .select({ value: schema.tenantConfig.value })
@@ -106,8 +152,10 @@ export async function minRateDenominator(session: TenantSession): Promise<number
       )
       .limit(1),
   );
-  const minimum = (row?.value as { minimum?: number } | undefined)?.minimum;
-  return typeof minimum === 'number' && minimum > 0 ? minimum : 10;
+  const value = row?.value as { minimum?: number; render?: number } | undefined;
+  const positive = (n: unknown, fallback: number) =>
+    typeof n === 'number' && n > 0 ? n : fallback;
+  return { compare: positive(value?.minimum, 10), render: positive(value?.render, 3) };
 }
 
 /**
@@ -174,21 +222,24 @@ export async function alowareConnectedThreshold(session: TenantSession): Promise
 }
 
 export async function loadMetrics(session: TenantSession): Promise<Metrics> {
-  const [rows, blocks] = await queryTenant(session, async (tx) => [
-    await tx
-      .select()
-      .from(schema.tenantMetrics)
-      .where(eq(schema.tenantMetrics.tenantId, session.tenant.id))
-      .orderBy(asc(schema.tenantMetrics.key)),
-    await tx
-      .select()
-      .from(schema.blockedDependencies)
-      .where(
-        and(
-          eq(schema.blockedDependencies.tenantId, session.tenant.id),
-          eq(schema.blockedDependencies.subjectKind, 'metric'),
+  const [{ rows, blocks }, floors] = await Promise.all([
+    queryTenant(session, async (tx) => ({
+      rows: await tx
+        .select()
+        .from(schema.tenantMetrics)
+        .where(eq(schema.tenantMetrics.tenantId, session.tenant.id))
+        .orderBy(asc(schema.tenantMetrics.key)),
+      blocks: await tx
+        .select()
+        .from(schema.blockedDependencies)
+        .where(
+          and(
+            eq(schema.blockedDependencies.tenantId, session.tenant.id),
+            eq(schema.blockedDependencies.subjectKind, 'metric'),
+          ),
         ),
-      ),
+    })),
+    rateFloors(session),
   ]);
 
   const configs = rows.map(
@@ -250,6 +301,18 @@ export async function loadMetrics(session: TenantSession): Promise<Metrics> {
       return metric.target;
     },
     blocked: (key) => blockedByMetric.get(key) ?? null,
+    /*
+     * Resolved from `formula_key`, exactly as `direction` is, and for the same
+     * reason: whether a figure needs a population is a property of the formula
+     * rather than of the tenant's name for it. A key with no configuration row
+     * falls back to treating the key as the formula name, which is how the
+     * activity metrics — `leads_created`, `calls_handled` — resolve.
+     */
+    population: (key, population) =>
+      assessPopulation(byKey.get(key)?.formulaKey ?? key, population, floors.render),
+    comparable: (key, population) =>
+      assessPopulation(byKey.get(key)?.formulaKey ?? key, population, floors.compare),
+    floors,
   };
 }
 
@@ -289,7 +352,7 @@ export type WindowBucket = {
   valueVolume: number;
 };
 
-export type Granularity = 'month' | 'week';
+export type Granularity = 'month' | 'week' | 'day';
 
 /**
  * One bucket per month or per week across the window, carrying spend and stage
@@ -308,7 +371,9 @@ export async function windowBuckets(
   model: AttributionModel = 'last_touch',
 ): Promise<WindowBucket[]> {
   const spans: DayBucket[] =
-    granularity === 'month' ? monthBucketsIn(range) : evenBucketsIn(range, 7);
+    granularity === 'month'
+      ? monthBucketsIn(range)
+      : evenBucketsIn(range, granularity === 'week' ? 7 : 1);
 
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
@@ -951,4 +1016,221 @@ export async function ingestionStart(session: TenantSession): Promise<Ingestion>
 /** True when the whole of `range` is inside what `from` covers. */
 export function covers(from: string | null, range: DateRange): boolean {
   return from !== null && range.start >= from;
+}
+
+/* ------------------------------------------------------------------------- */
+/* How fresh each source is                                                  */
+/* ------------------------------------------------------------------------- */
+
+export type SourceFreshness = {
+  platform: string;
+  label: string;
+  /**
+   * How the data arrives.
+   *
+   * `sync` is pulled on a schedule — hourly, by Vercel Cron — so "today" on
+   * every figure drawn from it means "as of the last run", and the gap between
+   * the run and now is a real gap in the record. `webhook` is pushed as it
+   * happens, so there is no such gap and the age of the newest record is a
+   * statement about the phones rather than about the connector.
+   */
+  arrival: 'sync' | 'webhook';
+  /**
+   * The last successful run for a synced source, or the newest record received
+   * for a pushed one. Null where nothing has ever arrived.
+   */
+  at: Date | null;
+  /** True where the most recent finished run did not succeed. */
+  failing: boolean;
+};
+
+/**
+ * How current each source on the executive screen is.
+ *
+ * Every figure on that screen is as of its source's last run, and hourly
+ * syncing makes that a real distinction rather than a pedantic one: a range
+ * ending today is a partial day everywhere, and the part that is missing is
+ * however long ago the connector last ran. Left unstated, a client reads a
+ * morning figure as the day's figure and a flat afternoon as a flat afternoon.
+ *
+ * Two sources are treated differently on purpose:
+ *
+ *   * **Calls arrive by webhook**, so there is no run to be behind. What is
+ *     reported is the newest call received, and it is never stale in the sense
+ *     the other rows use — a quiet hour on the phones is a quiet hour, not a
+ *     broken connector, and colouring it amber would say the opposite.
+ *   * **Only the sources this screen draws from are listed.** Paid media that
+ *     has reported spend, the CRM, and calls. GA4 and Search Console are
+ *     connected and healthy and back no figure here, so their sync ages are not
+ *     facts about anything on this page — a row of five timestamps where three
+ *     are irrelevant is a strip nobody reads, and the connections screen is
+ *     where an idle connector belongs.
+ */
+export async function sourceFreshness(session: TenantSession): Promise<SourceFreshness[]> {
+  return queryTenant(session, async (tx) => {
+    const tenantId = session.tenant.id;
+
+    const [connections, runs, [newestCall], spendPlatforms] = await Promise.all([
+      tx
+        .select({ platform: schema.connections.platform, status: schema.connections.status })
+        .from(schema.connections)
+        .where(eq(schema.connections.tenantId, tenantId))
+        .orderBy(asc(schema.connections.platform)),
+
+      // Two facts per platform, and they are not the same one: the last run
+      // that *succeeded* is what the figures are as of, and the last run that
+      // *finished* is what says whether the connector is currently broken. A
+      // source whose last success was an hour ago and whose last run failed ten
+      // minutes ago is both current and failing, and reporting only one of
+      // those would mislead in one direction or the other.
+      tx
+        .select({
+          platform: schema.syncRuns.platform,
+          lastSuccess: sql<string | Date | null>`max(${schema.syncRuns.finishedAt}) filter (where ${schema.syncRuns.status} = 'succeeded')`,
+          lastFinishStatus: sql<string | null>`(array_agg(${schema.syncRuns.status} order by ${schema.syncRuns.finishedAt} desc))[1]`,
+        })
+        .from(schema.syncRuns)
+        .where(and(eq(schema.syncRuns.tenantId, tenantId), isNotNull(schema.syncRuns.finishedAt)))
+        .groupBy(schema.syncRuns.platform),
+
+      // The newest call on record, by when it happened rather than by when the
+      // row was written: the webhook's claim is that a call is here as soon as
+      // it ends, and `occurred_at` is what tests that claim.
+      tx
+        .select({ at: sql<string | Date | null>`max(${schema.calls.occurredAt})` })
+        .from(schema.calls)
+        .where(eq(schema.calls.tenantId, tenantId)),
+
+      // Which paid-media platforms have actually written a figure. A connector
+      // that is healthy and has reported nothing is not behind on anything this
+      // screen shows.
+      tx
+        .selectDistinct({ platform: schema.dailyMetrics.platform })
+        .from(schema.dailyMetrics)
+        .where(eq(schema.dailyMetrics.tenantId, tenantId)),
+    ]);
+
+    const byPlatform = new Map(runs.map((r) => [r.platform, r]));
+
+    /*
+     * An aggregate comes back as text, not as a Date.
+     *
+     * A plain `timestamptz` column is parsed by the driver; `max()` over one is
+     * not, and the difference is invisible until a `.getTime()` two files away
+     * throws on a server render. Coerced here, where the shape is declared,
+     * rather than trusted at the call site.
+     */
+    const toDate = (value: string | Date | null | undefined): Date | null => {
+      if (!value) return null;
+      const date = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    // The sources behind the figures on the executive screen, and nothing else.
+    const onScreen = new Set<string>([
+      'salesforce',
+      'call_tracking',
+      ...spendPlatforms.map((row) => row.platform),
+    ]);
+
+    return connections
+      .filter((c) => c.status !== 'not_configured' && onScreen.has(c.platform))
+      .map((connection): SourceFreshness => {
+        const webhook = connection.platform === 'call_tracking';
+        const run = byPlatform.get(connection.platform);
+        return {
+          platform: connection.platform,
+          label: platformLabel(connection.platform),
+          arrival: webhook ? 'webhook' : 'sync',
+          at: toDate(webhook ? newestCall?.at : run?.lastSuccess),
+          // A webhook source has no run to fail. Its connection status still
+          // carries a fault where one is known, and that is the connections
+          // screen's subject rather than this strip's.
+          failing: !webhook && run?.lastFinishStatus != null && run.lastFinishStatus !== 'succeeded',
+        };
+      });
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Campaigns that are configured but not running                             */
+/* ------------------------------------------------------------------------- */
+
+export type PausedCampaigns = {
+  platform: string;
+  label: string;
+  /** Campaigns the platform reports as paused. */
+  paused: number;
+  /** Every campaign on the account, running or not. */
+  total: number;
+  /**
+   * Paused campaigns that spent inside the window asked about.
+   *
+   * The finding, as opposed to the count. An account accumulates paused
+   * campaigns the way a drawer accumulates cables — thirty-three of Spartan's
+   * thirty-nine Google campaigns are paused and most have never run under this
+   * engagement. A campaign that *was* spending and has stopped is a different
+   * fact, and it is the one worth a line on a briefing.
+   */
+  pausedWithRecentSpend: number;
+  /** Spend those campaigns took before they stopped. */
+  recentSpend: number;
+};
+
+/**
+ * Paused campaigns per platform, and how many of them ran recently.
+ *
+ * `status` is the platform's own word, stored verbatim — Google says `PAUSED`
+ * and `REMOVED`, Meta says `PAUSED` — so the match is case-insensitive on
+ * `paused` alone. `REMOVED` is deliberately not counted: a deleted campaign is
+ * not a configuration somebody left behind, it is one they cleaned up.
+ */
+export async function pausedCampaigns(
+  session: TenantSession,
+  since: string,
+): Promise<PausedCampaigns[]> {
+  return queryTenant(session, async (tx) => {
+    const rows = await tx
+      .select({
+        platform: schema.campaigns.platform,
+        total: sql<number>`count(*)::int`,
+        paused: sql<number>`count(*) filter (where upper(${schema.campaigns.status}) = 'PAUSED')::int`,
+        pausedWithRecentSpend: sql<number>`count(*) filter (
+          where upper(${schema.campaigns.status}) = 'PAUSED' and coalesce(s.spend, 0) > 0
+        )::int`,
+        recentSpend: sql<string>`coalesce(sum(s.spend) filter (
+          where upper(${schema.campaigns.status}) = 'PAUSED'
+        ), 0)`,
+      })
+      .from(schema.campaigns)
+      .leftJoin(
+        tx
+          .select({
+            campaignId: schema.dailyMetrics.campaignId,
+            spend: sql<string>`sum(${schema.dailyMetrics.spend})`.as('spend'),
+          })
+          .from(schema.dailyMetrics)
+          .where(
+            and(
+              eq(schema.dailyMetrics.tenantId, session.tenant.id),
+              gte(schema.dailyMetrics.date, since),
+            ),
+          )
+          .groupBy(schema.dailyMetrics.campaignId)
+          .as('s'),
+        sql`s.campaign_id = ${schema.campaigns.id}`,
+      )
+      .where(eq(schema.campaigns.tenantId, session.tenant.id))
+      .groupBy(schema.campaigns.platform)
+      .orderBy(asc(schema.campaigns.platform));
+
+    return rows.map((row) => ({
+      platform: row.platform,
+      label: platformLabel(row.platform),
+      paused: Number(row.paused),
+      total: Number(row.total),
+      pausedWithRecentSpend: Number(row.pausedWithRecentSpend),
+      recentSpend: Number(row.recentSpend),
+    }));
+  });
 }

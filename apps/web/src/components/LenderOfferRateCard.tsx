@@ -1,4 +1,4 @@
-import { formatCount, formatRate } from '@zeeraa/core';
+import { formatCount, formatRate, type PopulationVerdict } from '@zeeraa/core';
 import { KpiCard } from '@/components/KpiCard';
 import { NoDelta } from '@/components/ui/Delta';
 import type { MetricConfig } from '@/lib/dashboard';
@@ -19,28 +19,41 @@ import type { SubmissionReport } from '@/lib/reporting';
 export function LenderOfferRateCard({
   report,
   metric,
+  gate,
   span,
 }: {
   report: SubmissionReport;
   metric: MetricConfig | undefined;
+  /**
+   * Whether enough submissions have been decided for the rate to mean
+   * anything.
+   *
+   * Optional, and absent means ungated. An offer rate over four decided
+   * submissions can only take five values, and one of them is 25% — a figure
+   * that looks like a finding and is an artefact of the denominator.
+   */
+  gate?: PopulationVerdict;
   span?: 3 | 4 | 6;
 }) {
   const { overall } = report;
   const label = metric?.label ?? 'Lender offer rate';
+  const withheld = gate !== undefined && !gate.sufficient;
 
   return (
     <KpiCard
       span={span}
       label={label}
-      value={overall.rate === null ? null : formatRate(overall.rate)}
+      value={withheld || overall.rate === null ? null : formatRate(overall.rate)}
       notMeasured={
-        report.empty
-          ? 'No lender submissions are ingested yet'
-          : 'No lender has decided a submission in this window'
+        withheld
+          ? gate.reason!
+          : report.empty
+            ? 'No lender submissions are ingested yet'
+            : 'No lender has decided a submission in this window'
       }
       delta={<NoDelta />}
       context={
-        overall.rate === null
+        withheld || overall.rate === null
           ? undefined
           : `${formatCount(overall.offered)} of ${formatCount(overall.decided)} decided · ` +
             `${formatCount(overall.undecided)} awaiting an answer`

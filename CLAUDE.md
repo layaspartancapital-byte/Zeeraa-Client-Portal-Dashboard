@@ -96,6 +96,29 @@ commit history and get it wrong.
   a new cost metric cannot render green as it rises. A screen never states a
   direction — `apps/web/test/metric-direction-usage.test.ts` reads the sources
   and fails if one does.
+- **A contracted curve is plotted against ramp month, never against a
+  calendar.** The contract says what M3 costs; it does not say when M3 is, and
+  `engagement_start_month` is a separate config row that may be unset. Drawing
+  the commitment on a calendar axis makes it undrawable until somebody records
+  the start — so `rampSeries` in `packages/core` pairs M1–Mn with the actuals
+  and never asks for an actual while the start month is null. **A ramp actual is
+  a completed calendar month**, gated on its own denominator like any other
+  ratio: a month in progress is on the month-to-date cards, not on a curve of
+  monthly results.
+- **A ratio has a minimum population, and the metric declares it.** Whether a
+  formula means anything below a population is a property of the formula, so it
+  is declared in `packages/core/src/population.ts` keyed on `formula_key`,
+  beside the function that computes it — along with the noun for the population,
+  because "fewer than three" invites "three of what". How large the population
+  must be is a judgement about a client's volumes and stays in the
+  `min_rate_denominator` config row, which carries two: `render`, the smallest
+  denominator the figure may be drawn over, and `minimum`, the smallest it may
+  be *compared* against. They are different questions and a figure can clear one
+  and not the other. A screen calls `metrics.population()` or
+  `metrics.comparable()` with the denominator it actually divided by and never
+  names a formula or a floor —
+  `apps/web/test/population-gate-usage.test.ts` reads the sources and fails if
+  one does. An undeclared count is ungated; an undeclared *ratio* is gated.
 - **A channel's metric takes both halves from that channel.** Cost per deal is
   that channel's spend over the deals attributed to that channel; a channel's
   conversion rate is its own numerator over its own denominator. Deals no
@@ -165,6 +188,14 @@ The short version:
   plot zero for a bucket nobody ingested.
 - A blocked or unmeasured figure is an amber `Not measured` badge with the reason
   in its tooltip. Never a zero.
+- **The executive screen is a briefing and has no date control at all.** Zero is
+  not two: each block states its own period in words — the ramp covers the
+  engagement, measured figures cover this month to date with the last whole
+  month beside them, findings are current state — and monthly performance is
+  where a range is scrubbed. **A count from one period is never subtracted from
+  a count in the other**, because month-to-date against a whole month is mostly
+  a difference in calendar days; `TwoPeriodKpi` renders both figures and no
+  delta. Rates and costs do compare.
 - **One date control per page, and it is `DateRangePicker`.** Two date fields
   plus the presets, resolved by `resolveDateRange` in `packages/core` so five
   screens cannot disagree about what `?from=&to=` means. The resolved period is

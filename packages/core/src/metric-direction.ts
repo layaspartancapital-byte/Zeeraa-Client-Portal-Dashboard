@@ -30,6 +30,9 @@ const FORMULA_DIRECTION: Record<string, ImprovementDirection | null> = {
   cpm: 'down',
   cpa: 'down',
   stage_velocity: 'down',
+  /* Speed to lead is a time taken, and the desk's own figure: a median that
+     falls is the desk answering sooner. */
+  speed_to_lead: 'down',
   /* Rates are not uniformly one way, which is why this is a table and not a
      rule about the word "rate". A duplicate is waste and a resubmission is
      rework; both falling is the good outcome. */
@@ -46,6 +49,8 @@ const FORMULA_DIRECTION: Record<string, ImprovementDirection | null> = {
   ctr: 'up',
   conversion_rate: 'up',
   connect_rate: 'up',
+  leads_created: 'up',
+  calls_connected: 'up',
 
   /**
    * Declared neutral, not left out.
@@ -57,6 +62,14 @@ const FORMULA_DIRECTION: Record<string, ImprovementDirection | null> = {
    * it.
    */
   paid_media_spend: null,
+  /**
+   * Call volume is neutral for the same reason spend is.
+   *
+   * A desk that dialled twice as much has not achieved anything yet, and one
+   * that dialled less may simply have had fewer leads to call. What the dialling
+   * produced is `connect_rate` and `speed_to_lead`, and those are assessed.
+   */
+  calls_handled: null,
   spend: null,
   impressions: null,
   clicks: null,

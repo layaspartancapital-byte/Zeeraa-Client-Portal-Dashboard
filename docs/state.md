@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 21 September 2026, end of session.**
+**Last updated: 22 September 2026, end of session.**
 
 ---
 
@@ -875,6 +875,140 @@ filters, an exact range typed into the fields lands as `?from=&to=`, a range
 back to January keeps the not-ingested treatment with no zeros, a reversed pair
 falls back with its message, `?days=30` still resolves to 30 days, and the
 export href carries the range. No horizontal scroll at 1600px or 375px.
+
+## The executive screen is a briefing (22 September 2026, later)
+
+Replaced the range-adaptive screen built earlier the same day. That version
+solved the right problem with a control the screen should not have had: an
+executive view is a standing report, and a screen two readers can rescope is a
+screen two readers quote different numbers from.
+
+Full reasoning in `docs/brief-amendments.md`, "§12 — the executive screen is a
+briefing, and the ramp is drawn on an M axis".
+
+**No date picker.** Each block states its own period in words: the ramp covers
+the engagement on an M1–M8 axis, every measured figure covers this month to date
+with the last whole month beside it, and the findings are current state. Counts
+from the two periods are never subtracted — they are different lengths — so
+funded deals and volume render as two figures with no delta. Rates and costs do
+compare.
+
+**The ramp is plotted against M1–M8, not a calendar.** This is what makes the
+hero work with no start month recorded. The contract says M3 costs $3,496; it
+does not say when M3 is. `rampSeries` in core pairs the curve with actuals and
+never asks for an actual while the start month is null.
+
+**Only a completed month gets an actual, gated on its own denominator.** Caught
+by setting a start month for testing: September was three weeks old, held one
+attributed deal, and plotted at $18,792 against a $3,321 target — the card
+reported the engagement as far behind plan on a month that had not happened.
+
+**All five contracted metrics render; four have no curve.** `engagement_targets`
+holds cost per funded deal M1–M8 and M1's budget, and nothing else. CPA,
+approvals and funded deals show an amber `Not recorded` naming what is missing,
+and the budget strip reads `$30,000 · M1 only`.
+
+| | Contracted | On screen |
+| --- | --- | --- |
+| Cost per funded deal | M1–M8, $4,000 → $2,705 | full tracker |
+| CPA | nothing | `Not recorded` |
+| Budget | M1 only, $30,000 | `$30,000 · M1 only` |
+| Approvals | nothing | `Not recorded` |
+| Funded deals | nothing | `Not recorded` |
+
+**Efficiency is a table, one row per channel**, with cost per lead, application,
+approval and funded deal — and coverage on each *cell*, because Google Ads can
+claim 185 of a month's leads and one of its funded deals. Over September to
+date: $101.58 per lead, $361.39 per application, $1,105 per approval, and cost
+per funded deal withheld on one attributed deal.
+
+**Needs attention carries findings, not metrics** — speed to lead with the
+five-minute share, call volume with the connect rate, campaigns that were
+spending and are now paused, degraded connections, and funded deals no channel
+can claim. Two levels, `act` and `watch`; nothing shouts.
+
+**`budgetPacing` is a new core metric** and declares no improvement direction:
+overspending is not a failure and underspending is not thrift. `on_plan` is a
+five per cent band, and a projection below a quarter of the month elapsed is
+labelled early rather than withheld. It does not render for Spartan today —
+the budget sits on a ramp month and the start month is unrecorded — so the card
+shows the spend with `No budget set`.
+
+**The page refetches itself hourly**, matching the sync cadence:
+`revalidate = 3600` plus `AutoRefresh`, which uses `router.refresh()` and pauses
+while the tab is hidden.
+
+**Removed:** `HeroCard`, `ChannelSnapshot`, `SpeedToLeadCard`, `GatedOutcomes`.
+Deleted rather than left unimported, for the reason the retired offer rate was.
+
+**One bug surfaced:** `max()` over a `timestamptz` comes back as text where a
+plain column comes back as a `Date`, and the freshness strip threw on its first
+server render.
+
+Verified at 1440px and 390px with the start month unset (Spartan's real state),
+set to 2026-06 (actuals plotted, M3 behind plan) and set to 2026-09 (pacing
+renders, 79.5% spent against 73.3% elapsed, lands at $32,503). No horizontal
+scroll at either width. 270 core tests, 18 web tests, all screens still 200.
+
+## The executive screen adapts to the range (22 September 2026)
+
+**Superseded by the briefing above, later the same day.** The population gate,
+the source-freshness strip and the `render`/`minimum` floor split all survive
+into it; the two-block reordering and the date picker do not.
+
+
+
+The screen rendered the same eight outcome cards whatever the date picker
+resolved, which the picker itself had just made untenable: cost per funded deal,
+attributed share and the lender offer rate all divide by funded deals, and
+Spartan funds about seven a month. Asked about one day they divided by nought,
+by one or by two. Meanwhile leads, calls and speed to lead — all ingested, all
+on other screens — were not there at all, so a short range had nothing to offer.
+
+Full reasoning in `docs/brief-amendments.md`, "§12 — the executive screen adapts
+to the range, and a ratio has a minimum population".
+
+**Two blocks now, and what is measurable decides which leads.** An activity
+block (spend, leads created, calls made, calls connected, speed to lead,
+applications) and the outcome block that was there before. Outcomes lead when
+every outcome ratio clears its population; otherwise activity leads. No day
+count anywhere in that decision — the rule the page orders itself by is the same
+one it states when it withholds a figure.
+
+**A ratio now has a minimum population**, declared per formula in
+`packages/core/src/population.ts`, with the floor in the tenant's config row.
+Below it the figure gets the amber `Not measured` treatment, never a number.
+Withheld outcome ratios collapse into one card with their populations and a
+"show 90 days" action rather than becoming one amber card each.
+
+**`min_rate_denominator` carries two floors now**, because it was always two
+judgements and only one of them was implemented:
+
+| | | Spartan |
+| --- | --- | ---: |
+| `minimum` | smallest denominator a rate may be **compared** against | 10 |
+| `render` | smallest denominator the figure may be **drawn** over | 3 |
+
+Using 10 as the render floor was tried and withheld **$8,629 over 9 attributed
+deals** on the ninety-day view, which is the figure this product exists to
+report. `metrics.population()` reads the render floor and `metrics.comparable()`
+the comparison one; a source-level test fails if a screen names either.
+
+**Source freshness is a strip under the title** — the age of each source's last
+successful sync, and the time today's figures are actually as of. Amber past two
+hours. Calls are the stated exception: they arrive by webhook, so the row is the
+newest call received and is never amber.
+
+**Three bugs this surfaced.** `max()` over a `timestamptz` comes back as text
+and threw on a server render; calls had no ingestion boundary, so a
+trailing-ninety-day window compared against six calls and rendered **+447,483%**;
+and "0 connected channels" appeared on a day with no spend, which implied a
+disconnection that had not happened.
+
+Verified at 1440px and 390px across a single quiet day, a single active day, 7,
+30 and 90 days: no horizontal scroll at any of them, and the block order flips
+at exactly the point the gates say it should. 249 core tests, 18 web tests,
+everything else unchanged.
 
 ## Meta Ads, connected and backfilled in production (19 September 2026)
 

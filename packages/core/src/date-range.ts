@@ -1,4 +1,10 @@
-import { addDays, monthRange, trailingWindow, type DateRange } from './dates';
+import {
+  addDays,
+  monthRange,
+  previousMonth,
+  trailingWindow,
+  type DateRange,
+} from './dates';
 
 /**
  * The page's date range: an exact pair of days, with presets for the common
@@ -186,13 +192,20 @@ export function formatRangeLabel(range: DateRange, locale = 'en-US'): string {
 }
 
 /**
- * Month buckets for a long range, week buckets for a short one.
+ * Month buckets for a long range, week buckets for a medium one, day buckets
+ * for a short one.
  *
  * A seven-day range drawn in months is one column, which is not a series. The
- * boundary is ten weeks: below it a month chart has at most three points.
+ * upper boundary is ten weeks: below it a month chart has at most three points.
+ * The lower one is three weeks, where a weekly chart is down to two columns and
+ * the range is short enough that a day is a legible unit — a single-day range
+ * resolves to one day bucket, which the charts draw as a point rather than as a
+ * line.
  */
-export function granularityFor(range: DateRange): 'month' | 'week' {
-  return rangeLengthDays(range) >= 70 ? 'month' : 'week';
+export function granularityFor(range: DateRange): 'month' | 'week' | 'day' {
+  const days = rangeLengthDays(range);
+  if (days >= 70) return 'month';
+  return days >= 21 ? 'week' : 'day';
 }
 
 /** The day before a range, back the same length — the comparison baseline. */
@@ -200,4 +213,59 @@ export function precedingRange(range: DateRange): DateRange {
   const length = rangeLengthDays(range);
   const end = addDays(range.start, -1);
   return { start: addDays(end, -(length - 1)), end };
+}
+
+/* ------------------------------------------------------------------------- */
+/* The briefing's fixed periods                                              */
+/* ------------------------------------------------------------------------- */
+
+export type BriefingPeriods = {
+  /** The first of this month to today, inclusive. */
+  monthToDate: DateRange;
+  /** The whole of the month before this one. */
+  lastFullMonth: DateRange;
+  /** `2026-09`, for the ramp's month arithmetic. */
+  currentMonth: string;
+  /** Days of this month elapsed, inclusive of today. */
+  elapsedDays: number;
+  /** Days this month holds. */
+  monthDays: number;
+  /**
+   * The elapsed share of the month, for pacing.
+   *
+   * Inclusive of today, because a budget is spent across today as well —
+   * measuring to yesterday would report every account as underspending by one
+   * day's worth on every day of the month.
+   */
+  elapsed: number;
+};
+
+/**
+ * The two periods the executive briefing reads, resolved once.
+ *
+ * The briefing has no date control: it is a standing report rather than a
+ * question somebody scopes, so every block states its own period in words and
+ * none of them can disagree about what it covers. These are the two, and they
+ * are deliberately not the same length — month to date against the last whole
+ * month is how a business talks about its own month, and the length difference
+ * is handled by never putting a *count* from one beside a count from the other
+ * as a delta. Rates and costs compare fine, because neither scales with the
+ * number of days.
+ */
+export function briefingPeriods(today: string): BriefingPeriods {
+  const currentMonth = today.slice(0, 7);
+  const current = monthRange(currentMonth);
+  const previous = monthRange(previousMonth(currentMonth));
+
+  const monthDays = rangeLengthDays(current);
+  const elapsedDays = Number(today.slice(8, 10));
+
+  return {
+    monthToDate: { start: current.start, end: today },
+    lastFullMonth: previous,
+    currentMonth,
+    elapsedDays,
+    monthDays,
+    elapsed: monthDays === 0 ? 0 : elapsedDays / monthDays,
+  };
 }

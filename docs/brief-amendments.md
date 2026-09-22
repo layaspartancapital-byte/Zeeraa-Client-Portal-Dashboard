@@ -2247,3 +2247,325 @@ control existed. Three mutations survived, which is what that harness is for.
 The tests now assert presence *and* absence, and the Search Console job policy
 got a test of its own rather than being assumed to behave like the GA4 one.
 **31 of 31 mutations killed.**
+
+---
+
+## §12 — the executive screen adapts to the range, and a ratio has a minimum population
+
+Built 22 September 2026.
+
+The executive screen was fixed. Whatever range the date picker resolved, it
+rendered the same eight cards, all of them outcome metrics: cost per funded
+deal, funded volume, funded deals, attributed share, the lender offer rate and
+applications. That is a defensible screen for a quarter and a bad one for a day,
+and the date picker had just made a day askable.
+
+Two failures, and they compound:
+
+1. **The outcome ratios divide by funded deals, and Spartan funds seven a
+   month.** Asked about a single day, cost per funded deal, attributed share and
+   the lender offer rate all divided by nought or by one. The screen became a
+   row of em dashes that reads as a broken dashboard rather than as a question
+   the day cannot answer — and where a denominator happened to be two, it
+   rendered a figure, which is worse.
+2. **Nothing on the screen moved within a day.** Leads, calls, connect rate and
+   speed to lead are all ingested and were all on other screens. A short range
+   therefore had nothing to offer even in principle.
+
+### The screen is two blocks, and what is measurable decides which one leads
+
+There is an activity block — spend, leads created, calls made, calls connected,
+speed to lead, applications — and an outcome block, which is what was there
+before. Both are always on the page; neither is ever hidden by the range,
+because a metric that vanishes when the reader shortens the window is a metric
+nobody can find again.
+
+**What leads is decided by what can be measured, not by a number of days.**
+Outcomes lead when every outcome ratio clears its population; otherwise activity
+leads. This was chosen over a fixed boundary — "activity under 28 days" — for
+three reasons: there is no constant to justify, the rule is the same one the
+screen states in words when it withholds a figure, and a client with the volume
+to support a cost per deal over a week gets one, which a day count would have
+denied.
+
+### A ratio has a minimum population, and it is a property of the formula
+
+`packages/core/src/population.ts` declares which formulas need a population
+before they mean anything, and what that population is called. The split is the
+same one `metric-direction.ts` makes:
+
+- **Whether a formula needs a population is a property of the formula.** There
+  is no client for whom a cost per deal over two deals is stable. Declared in
+  core, keyed on `formula_key`, with `RATIO_SHAPED` as the safety net for a
+  formula somebody adds and forgets to declare — an undeclared *count* is
+  ungated, an undeclared *ratio* is gated.
+- **How large the population must be is a judgement about a client's volumes**,
+  so it stays a config row.
+
+The noun is declared with the requirement, in both numbers, because "fewer than
+three" invites "three of what" and for a channel metric the answer — deals
+attributed to *this* channel, not deals in the period — is the separation rule
+restated where the reader is already asking.
+
+Below the population the figure does not render. Not smaller, not starred, not
+with a caveat beside it: the amber `Not measured` treatment every other
+unmeasurable figure on these screens gets, with the population in the tooltip.
+
+### `min_rate_denominator` now carries two floors, because it was two judgements
+
+The config row existed and said, in its own description, that it was the
+smallest denominator a rate may be **compared** against — the rate still renders
+below it and only the delta is suppressed. Using it as the render floor was
+tried and was wrong in the most visible way available: at 10, the ninety-day
+view withheld **$8,629 over 9 attributed deals**, which is the figure this
+product exists to report.
+
+So the row carries both, because they are two different questions:
+
+| | | Spartan |
+| --- | --- | ---: |
+| `minimum` | smallest denominator a rate may be **compared** against | 10 |
+| `render` | smallest denominator the figure may be **drawn** over | 3 |
+
+Three is the brief's own words — "rather than rendering a figure built on one or
+two deals". `metrics.population()` resolves the render floor and
+`metrics.comparable()` the comparison one; both take the denominator the card
+actually divided by, and no screen names a formula or a floor.
+`apps/web/test/population-gate-usage.test.ts` reads the sources and fails if one
+does, exactly as `metric-direction-usage.test.ts` does for direction.
+
+The comparison floor had been loaded by two screens and used by neither since it
+was added. It is now wired to the baselines it was written for.
+
+### Where every withheld ratio goes
+
+**Into one card, not one card each.** Four amber badges in a row reads as four
+failures; one card headed "Outcomes need a longer range", listing each metric
+with its population and its floor and carrying a single action — show 90 days —
+reads as what actually happened. The empty-state rule is one line plus at most
+one action, and this is that rule applied to a block rather than to a card.
+
+This applies whenever *any* outcome ratio is withheld, not only when all of them
+are. Two withheld cards and one measured one is the same wall in miniature, and
+the hero is the worst case: on a one-day range it was eight columns containing
+two empty channel panels — a large confident card saying nothing.
+
+**The gate is per channel, and the channel table obeys it too.** On ninety days
+Google Ads carries nine attributed deals and Meta carries one, so the hero
+renders Google's figure and withholds Meta's in its own panel, naming the
+channel. `ChannelSnapshot` takes the same verdicts: a screen that declines to
+state Meta's cost per deal above the fold and then prints it in a table four
+hundred pixels below has not withheld anything, it has only made the figure
+harder to find.
+
+### Freshness, because hourly sync means "today" is as of the last run
+
+A strip under the title, one entry per source, with the age of the last
+successful sync and — where the range ends today — the time the figures are
+actually as of. Amber past two hours, which is two missed runs on an hourly
+schedule.
+
+**Calls are the stated exception.** They arrive by webhook as each call ends, so
+there is no run to be behind; the row reports the newest call received and is
+never amber. A quiet Sunday on the phones is a quiet Sunday, and colouring it as
+a fault would say the opposite.
+
+**Only the sources this screen draws from are listed** — paid media that has
+reported spend, the CRM, and calls. GA4 and Search Console are connected,
+healthy, and back no figure here; five timestamps of which three are irrelevant
+is a strip nobody reads.
+
+### Three bugs this surfaced
+
+1. **`max()` over a `timestamptz` comes back as text.** A plain column is parsed
+   by the driver and an aggregate is not, and the difference was invisible until
+   `.getTime()` threw on a server render. Coerced where the shape is declared.
+2. **Calls had no ingestion boundary.** The call history starts on the export's
+   first day, so the ninety days before a trailing-ninety-day window hold six
+   calls against twenty-seven thousand — rendered as **+447,483%**, which is
+   exact and reads as a desk that has transformed itself. It is an import date,
+   and it now renders as one, like spend and the CRM already did.
+3. **"0 connected channels" on a day with no spend.** `data.channels` is the
+   channels that *reported* in the range; the line implied a disconnection that
+   had not happened, and now says what it measures.
+
+### Charts at a short range
+
+`granularityFor` gained a day tier under three weeks, so a single-day range
+resolves to one day bucket rather than to a week-wide column labelled with the
+wrong period. The activity mini charts draw the trailing thirty days in day
+buckets whatever the page range — the same argument the outcome cards' twelve
+months make: the figure above already carries the range, and what a reader wants
+under a daily number is where that day sits against the last month of days.
+
+---
+
+## §12 — the executive screen is a briefing, and the ramp is drawn on an M axis
+
+Built 22 September 2026, replacing the range-adaptive screen of earlier the same
+day. That version solved the right problem — the screen assumed a quarter and
+broke at a day — with a control the screen should not have had at all.
+
+### The date picker is gone from this screen
+
+A briefing is a standing report. A screen two readers can rescope is a screen
+two readers quote different numbers from, and "is the engagement on track" is
+not a question about an arbitrary window. So the executive screen has no range
+control and each block states its own period in words:
+
+| Block | Period |
+| --- | --- |
+| Engagement ramp | the engagement, M1–M8 |
+| Funded deals, volume, spend, funnel, efficiency | this month to date, with the last whole month beside it |
+| Needs attention, data quality | current state |
+
+This does not contradict "one date control per page, and it is
+`DateRangePicker`" — zero is not two, nothing on the page can disagree about
+what it covers, and monthly performance remains the screen for scrubbing.
+
+**Month to date against a whole month is two different lengths on purpose.**
+That is how a business talks about its own month. The mismatch is handled by
+never subtracting a *count* in one from a count in the other: funded deals and
+funded volume render as two figures with their periods under them, and carry no
+delta. Rates and costs do compare, because neither scales with the number of
+days. `TwoPeriodKpi` exists so that rule is a component rather than a habit.
+
+### The ramp is plotted against M1–M8, not against a calendar
+
+This is the change that makes the hero work at all. The contract says month
+three of the engagement costs $3,496; it does not say when month three is. The
+previous hero plotted the commitment on calendar buckets, so with the start
+month unrecorded — which is where Spartan still is — it drew an empty chart
+against a curve that had been fully specified since signature.
+
+On a ramp-month axis the commitment is always drawable and the *actual* is the
+half that waits. `rampSeries` in `packages/core` produces the pairing, and it
+never asks for an actual while `startMonth` is null: asking anyway would align a
+figure to a month nobody chose, and assuming the engagement began when ingestion
+did is the exact mistake the start month exists to prevent.
+
+### Only a completed month gets an actual, and only above the population floor
+
+Caught by looking at the chart with a start month set for testing. September was
+three weeks old, held one funded deal attributed to Google Ads, and plotted at
+**$18,792 against a $3,321 target** — so the card reported the engagement as
+catastrophically behind plan on the strength of a month that had not happened.
+
+Two rules, both narrow:
+
+1. **A ramp actual is a completed calendar month.** A ramp contracts a monthly
+   result and three weeks of one is not that. The month in progress is not
+   missing from the briefing — it is the three KPI cards immediately below —
+   but it is not a point on a curve of monthly results, and the line under the
+   chart says so.
+2. **A month's cost is gated on its own denominator**, by the same
+   `metrics.population()` the efficiency table uses. A point on a chart is a
+   stronger claim than a cell in a table: a reader takes a line as a
+   trajectory, and joining a one-deal month to the months either side draws a
+   shape that is not in the data.
+
+### All five contracted metrics render, and four of them have no curve
+
+`engagement_targets` contracts budget, CPA, approvals, cost per funded deal and
+funded deals. **Only cost per funded deal is entered (M1–M8), plus M1's budget.**
+
+Cost per funded deal and CPA get full trackers; budget, approvals and funded
+deals get a one-line strip. Each empty one carries an amber `Not recorded` and
+names what is missing, because the difference between that and omitting them is
+the difference between a dependency somebody can close and a feature nobody
+knows exists — the data-quality card's argument, applied to the contract.
+
+A partially entered curve says so: the budget strip reads `$30,000 · M1 only`
+rather than `$30,000`, which would read as a monthly budget rather than as one
+month of one.
+
+### `min_rate_denominator`'s comparison floor is now load-bearing twice
+
+Unchanged from earlier today, and worth restating because the briefing leans on
+it harder: `render` (3) decides whether a figure is drawn, `minimum` (10)
+decides whether it is compared. The efficiency table's funded-deal column
+divides by one or two every month and is withheld; its cost-per-lead column
+divides by 185 and is not.
+
+### Efficiency is a table, because the metric is per channel
+
+Cost per lead, per application, per approval and per funded deal, one row per
+channel. Four metrics across two channels is eight cards, and the single blended
+card that would fit the space is precisely what the separation rule exists to
+prevent — a figure that improves when a *different* channel has a good month.
+
+**Coverage rides on each cell, not on the row.** Google Ads can claim 185 of a
+month's leads and one of its funded deals; those two figures are supported to
+completely different degrees, and one coverage number per row would average them
+and hide the thing worth seeing.
+
+### Needs attention carries findings, not metrics
+
+The distinction is the card's whole purpose. A metric is "speed to lead:
+11h 37m". A finding is "leads wait for a first call — median over 639 of 1,457
+called, 3.6% reached within five minutes". The second is what an account
+director would otherwise put in an email, and it is what a briefing exists to
+replace.
+
+Five checks, none of them a threshold nobody agreed:
+
+- **speed to lead**, with the five-minute share — the industry's bar, named as
+  such rather than presented as this product's;
+- **calls this month**, with the connect rate and the abandoned count kept
+  outside its denominator;
+- **campaigns that were spending and are now paused** — `REMOVED` is excluded,
+  because a deleted campaign is one somebody cleaned up rather than a
+  configuration left behind;
+- **any connection degraded, failing or waiting on the client** — the last is
+  `watch` rather than `act`, since a dependency is not a fault;
+- **funded deals no channel can claim.**
+
+Two levels, `act` and `watch`, and no third angrier one. A briefing that shouts
+cannot be read.
+
+### Budget pacing, and what it refuses to say
+
+`budgetPacing` in `packages/core` reports where the month lands at the current
+rate and the variance against budget. Three decisions in it:
+
+- **No improvement direction.** Overspending is not a failure and underspending
+  is not thrift; what the spend bought decides that. So `on_plan` is neutral and
+  both `over` and `under` are amber — "look at this" — and nothing is ever
+  green, which would read as a score.
+- **`on_plan` is a band, not a point.** Five per cent either way. A card that
+  says "over" because a month is tracking 0.4% hot is a card nobody reads by
+  March.
+- **An early projection is stated as early rather than withheld.** Below a
+  quarter of the month elapsed one heavy day still swings it a long way;
+  withholding it would leave the reader to do worse arithmetic in their head.
+
+Where no budget applies the card still renders the spend, with the reason —
+losing a measurement to protect a comparison is the wrong trade. Today that
+reason is the start month: the budget sits on a ramp month and nothing says
+which calendar month that is.
+
+The header badge is `No budget set`, deliberately not the usual amber
+`Not measured`: the spend *is* measured and is the largest figure on the card.
+
+### The page refetches itself hourly
+
+`export const revalidate = 3600` plus `AutoRefresh`, matched to the sync
+cadence. It uses `router.refresh()` rather than a reload — a reload on a screen
+somebody is reading is jarring and would replay the charts' entrance — and it
+pauses while the tab is hidden, so a laptop shut over a weekend does not wake up
+and fire forty requests.
+
+### Removed with the old screen
+
+`HeroCard`, `ChannelSnapshot`, `SpeedToLeadCard` and `GatedOutcomes` are gone.
+The ramp card replaces the first, the efficiency table replaces the second, and
+speed to lead is a finding rather than a card. They are deleted rather than left
+unimported for the reason the retired offer rate was: dead code is one import
+away from coming back.
+
+### A bug this surfaced
+
+`max()` over a `timestamptz` returns text where a plain column returns a `Date`,
+so the freshness strip threw on a server render the first time it drew. Fixed
+where the shape is declared rather than trusted at the call site.
+
