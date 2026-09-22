@@ -495,6 +495,36 @@ three-year-old business failed the twelve-month bar. Each candidate now declares
 what a bare number in it means — `labelled`, `months` or `years` — and a unit
 carried by the value overrules the field, because one picklist mixes both.
 
+### The enumeration missed the best field, because it searched by name
+
+`How_long_have_you_been_in_business__c` holds the web form's own question and
+its clean bands — `Less than 6 months`, `6 - 12 months`, `1 - 3 Years`,
+`3 - 5 Years`, `5+ Years` — on **1,426 of September's 1,703 inbound leads**.
+The first sweep did not find it, because that sweep matched fields whose *name
+or label describes the concept*: `time in business`, `years in business`,
+`business start`. This field is named after the question a merchant was asked,
+so no concept-shaped pattern reaches it.
+
+**Find a field by what its values look like, not by what it is called.** The
+sweep that found it selected every textual field on Lead — 288 of them — over
+one month of leads and matched the *values* against the band strings. That is
+the sweep to run first next time; the name-based one is a shortcut that works
+until somebody names a field after a sentence.
+
+Its population rises exactly as the older fields empty, which is why coverage
+looked like it was collapsing:
+
+| | Mar | Apr | May | Jun | Jul | Aug | Sep |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `How_long_have_you_been_in_business__c` | 2 | 13 | 261 | 652 | 737 | 627 | **1,426** |
+| `MIYB_Years_in_Business__c` (codes) | 18 | 553 | 1,014 | 658 | 692 | 520 | 529 |
+| `Time_in_Business__c` | 5 | — | 75 | 227 | 177 | 224 | 180 |
+
+88% of its 3,727 populated values resolve against the bar. The 12% that do not
+are almost entirely `6 - 12 months`, which spans the twelve-month bar and
+resolves to neither answer — 447 leads. That band is the residue, and choosing a
+side for it would be inventing the answer.
+
 ### Candidates, in precedence order
 
 Revenue, all on Lead. Ordered by what actually answers:
@@ -513,10 +543,11 @@ Time in business, all on Lead:
 
 | Field | Bare number means | Answered |
 | --- | --- | ---: |
-| `Years_in_Business__c` | labelled | 1,674 |
-| `Time_in_Business__c` | labelled | 825 |
-| `Years_In_Business_Text__c` | years | 32 |
+| `How_long_have_you_been_in_business__c` | labelled | 3,279 |
+| `Years_in_Business__c` | labelled | 1,635 |
+| `Time_in_Business__c` | labelled | 822 |
 | `Time_in_Business_Months__c` | months | 32 |
+| `Years_In_Business_Text__c` | years | 31 |
 | `Time_in_Business_SEM_Value__c` | labelled | 0 |
 
 ### What the other objects hold, and why none of it feeds the bar
@@ -533,25 +564,23 @@ Time in business, all on Lead:
 
 ### Coverage, inbound leads only
 
+With `How_long_have_you_been_in_business__c` mapped:
+
 | Month | Leads | Revenue populated | Revenue usable | Duration populated | Duration usable | Both usable |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2026-03 | 249 | 100.0% | 100.0% | 97.2% | 97.2% | 97.2% |
-| 2026-04 | 634 | 90.1% | 85.5% | 95.0% | 93.5% | 83.8% |
-| 2026-05 | 1,309 | 95.7% | 54.6% | 68.7% | 68.0% | 28.0% |
-| 2026-06 | 986 | 98.9% | 94.8% | 28.9% | 28.0% | 27.1% |
-| 2026-07 | 976 | 96.6% | 92.2% | 20.3% | 19.2% | 19.2% |
-| 2026-08 | 981 | 88.1% | 83.7% | 22.8% | 20.7% | 20.6% |
-| 2026-09 | 1,702 | 95.2% | 93.8% | 10.6% | 9.9% | 9.9% |
-| **All time** | **7,580** | **85.6%** | **76.1%** | **34.7%** | **33.8%** | **26.0%** |
+| 2026-06 | 986 | 98.9% | 94.8% | 94.6% | 87.8% | 83.8% |
+| 2026-07 | 976 | 96.6% | 92.2% | 95.7% | 85.5% | 81.0% |
+| 2026-08 | 981 | 88.1% | 83.7% | 86.7% | 77.3% | 72.7% |
+| 2026-09 | 1,703 | 95.2% | 93.8% | 94.3% | 81.6% | 80.2% |
+| **All time** | **7,581** | **85.6%** | **76.1%** | **83.3%** | **76.5%** | **66.5%** |
 
-**Populated and usable are different questions**, and the gap is the finding:
+Before it was mapped, duration usable read 33.8% all-time and 9.9% for
+September, and the fall through the year looked like the forms giving up on the
+question. They had not: the answer had moved to a field nothing read.
+
+**Populated and usable are different questions**, and the gap is what to act on:
 719 leads carry a revenue answer that resolves to nothing — mostly
-`New Business`, which is a categorical label rather than an amount, and bands
-that straddle the $10,000 bar. Reporting population alone would have called
-`MIYB`'s 53% coverage.
-
-**The duration answer is disappearing.** Usable coverage runs 97.2% in March to
-9.9% in September as the web forms moved the question into the code field.
-Revenue is unaffected. Nothing on our side recovers this: it is one change to
-the forms, writing a duration into `Time_in_Business_Months__c`, which already
-exists and is read where it is populated.
+`New Business`, a categorical label rather than an amount, and bands straddling
+the $10,000 bar — and 517 carry a duration answer that does the same, almost all
+of them `6 - 12 months` against a twelve-month bar. Reporting population alone
+would have called `MIYB`'s 53% coverage.

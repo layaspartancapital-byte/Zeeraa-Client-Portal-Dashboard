@@ -181,3 +181,51 @@ describe('readDurationBand and the declared unit', () => {
     expect(judgeBand(readMoneyBand('$10,000 - $20,000', 'monthly'), 10_000).meets).toBe(true);
   });
 });
+
+/**
+ * The web form's own question, `How_long_have_you_been_in_business__c`.
+ *
+ * Every value below is one the field holds today. It is the best-covered
+ * duration answer in the org — 1,426 of September's 1,703 inbound leads — and
+ * it was invisible to an enumeration that matched field *names* for the
+ * concept, because it is named after the question a merchant was asked.
+ */
+describe('the form band values', () => {
+  const bar = 12;
+  it('resolves the bands that clear or miss the bar', () => {
+    for (const [value, expected] of [
+      ['5+ Years', true],
+      ['1 - 3 Years', true],
+      ['3 - 5 Years', true],
+      ['3+ years', true],
+      ['More than 2 Years', true],
+      ['2 years', true],
+      ['Less than 6 months', false],
+      ['less than 6 months', false],
+      ['Less than 1 year', false],
+      ['< 12 Months', false],
+      ['4 months', false],
+    ] as const) {
+      expect(judgeBand(readDurationBand(value, 'labelled'), bar, false).meets).toBe(expected);
+    }
+  });
+
+  it('refuses the band that contains the bar rather than picking a side', () => {
+    // 447 leads answer `6 - 12 months`. A business at eleven months misses the
+    // bar and one at twelve clears it, and the form does not say which. This is
+    // the residue that keeps the MQL coverage dependency open.
+    const verdict = judgeBand(readDurationBand('6 - 12 months', 'labelled'), bar, false);
+    expect(verdict.meets).toBeNull();
+    expect(verdict.reason).toBe('straddles');
+  });
+
+  it('refuses a test lead rather than reading it as a duration', () => {
+    expect(
+      judgeBand(
+        readDurationBand('test lead: dummy data for how long have you been in business?', 'labelled'),
+        bar,
+        false,
+      ).meets,
+    ).toBeNull();
+  });
+});

@@ -1002,11 +1002,30 @@ Populated and usable are different questions and the gap is the point: 719 leads
 carry a revenue answer that resolves to nothing, mostly `New Business` and bands
 straddling the $10,000 bar.
 
-**The duration answer is disappearing**, and this is the thing to act on. Usable
-coverage runs 97.2% in March to 9.9% in September as the web forms moved the
-question into the code field. Revenue is unaffected. Nothing on our side
-recovers it: the forms need to write a duration into
-`Time_in_Business_Months__c`, which already exists and is read where populated.
+**The duration answer was never lost — it had moved to an unmapped field.**
+`How_long_have_you_been_in_business__c` holds the web form's own question and
+its clean bands on 1,426 of September's 1,703 inbound leads. The first
+enumeration missed it because that sweep matched fields whose *name* describes
+the concept, and this one is named after the question a merchant was asked. A
+second sweep searched by **value** — every textual field on Lead, matched
+against the band strings — and found it immediately.
+
+Mapped on 22 September 2026, in the seed and on the production connection:
+
+| | Before | After |
+| --- | ---: | ---: |
+| Duration usable, all time | 33.8% | **76.5%** |
+| Duration usable, September | 9.9% | **81.6%** |
+| Both usable, which is what MQL needs | 26.0% | **66.5%** |
+
+**The lesson is in the tooling, not the field.** Find a field by what its values
+look like, not by what it is called; a concept-shaped pattern cannot reach a
+field named after a sentence. `docs/salesforce-fields.md` carries the sweep to
+run first.
+
+What remains is genuine: `6 - 12 months` spans the twelve-month bar and resolves
+to neither answer on 447 leads. The blocked dependency stays open for that and
+asks for the form option to be split, rather than for a decode key.
 
 **Not done: the cross-object coalesce is Lead-grain only.** The enumeration
 covered every object, and every non-Lead candidate is either a lender's criteria

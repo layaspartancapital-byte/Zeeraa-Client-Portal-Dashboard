@@ -515,6 +515,19 @@ export const spartan: TenantSeed = {
              * field names suggest. See `docs/salesforce-fields.md`.
              */
             timeInBusinessBands: [
+              /*
+               * The web form's own question, and the best-covered answer in the
+               * org by a distance: 1,426 of September's 1,703 inbound leads,
+               * 88% of its values resolving.
+               *
+               * It was missed by the first enumeration, which matched fields
+               * whose *name* describes the concept — `time in business`,
+               * `years in business`. This one is named after the question a
+               * merchant was asked, so no concept-shaped pattern finds it. The
+               * lesson is in `docs/salesforce-fields.md`: a field has to be
+               * found by what its values look like, not by what it is called.
+               */
+              { field: 'How_long_have_you_been_in_business__c', unit: 'labelled' },
               { field: 'Years_in_Business__c', unit: 'labelled' },
               { field: 'Time_in_Business__c', unit: 'labelled' },
               // Holds bare `3`, `4`, `5` meaning **years** beside `< 12 Months`
@@ -847,17 +860,18 @@ export const spartan: TenantSeed = {
       subjectKey: 'mql_coverage',
       label: 'MQL coverage — time in business',
       reason:
-        'The web forms stopped writing a readable duration. Every decodable ' +
-        'time-in-business field dried up through 2026 as the question moved ' +
-        'into MIYB_Years_in_Business__c, a vendor code — 0000, 1000, 1100, ' +
-        '1110, 1111 — which was chased for months and is now dropped rather ' +
-        'than decoded. Usable coverage falls 94.5% in April to 9.9% in ' +
-        'September; revenue is unaffected at 76%.',
+        'Largely resolved on 22 September 2026, and kept because the residue ' +
+        'is real. The form question lands in ' +
+        'How_long_have_you_been_in_business__c — 1,426 of September\'s 1,703 ' +
+        'inbound leads — which nothing had mapped, so the bar was reading the ' +
+        'older fields as they emptied. What remains undeterminable is the ' +
+        '"6 - 12 months" band, which spans the twelve-month bar and resolves ' +
+        'to neither answer: 447 leads, 12% of those who answered.',
       needed:
-        'The web forms writing a duration into a field that holds one — ' +
-        'Time_in_Business_Months__c already exists and is read first where it ' +
-        'is populated. One change on the client side, and the only one that ' +
-        'moves MQL coverage now.',
+        'Splitting the "6 - 12 months" option on the form, or a second ' +
+        'question for those who pick it. Nothing else on our side moves this: ' +
+        'the band genuinely contains the bar, and choosing a side would be ' +
+        'inventing the answer.',
       evidence:
         'Measured 18 September 2026 over 7,293 inbound leads: 16.5% qualified, ' +
         '39.8% unqualified, 43.6% undeterminable. Of the undeterminable, 1,075 ' +
