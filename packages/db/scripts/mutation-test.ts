@@ -37,6 +37,27 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop policy tenant_isolation on public.calls',
   },
   {
+    /*
+     * The delivery record names a client's vendor traffic and, in `reasons`,
+     * the values that vendor sends. A diagnostic table is still tenant data.
+     */
+    name: 'drop-webhook-deliveries-policy',
+    description: 'Drop the tenant_isolation policy on webhook_deliveries',
+    sql: 'drop policy tenant_isolation on public.webhook_deliveries',
+  },
+  {
+    /*
+     * The application reads deliveries and must not write them: a record of
+     * what happened that a screen can edit is a way to make a silent endpoint
+     * look busy. Row level security cannot restrict a column, so the grant is
+     * the whole control — and a grant is exactly the kind of thing added in a
+     * hurry because an insert was denied.
+     */
+    name: 'grant-app-write-on-webhook-deliveries',
+    description: 'Give zeeraa_app INSERT and UPDATE on webhook_deliveries',
+    sql: 'grant insert, update on public.webhook_deliveries to zeeraa_app',
+  },
+  {
     name: 'unforce-calls',
     description: 'Drop FORCE on calls, leaving the owner outside its policies',
     sql: 'alter table public.calls no force row level security',

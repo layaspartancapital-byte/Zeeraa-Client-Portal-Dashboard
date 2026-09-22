@@ -1163,12 +1163,47 @@ since 17 September. The only `aloware` sync runs are the two `import` runs of
 and nothing else, so the default webhook profile — the corrected one — is what
 the endpoint will use the moment a post arrives.
 
-**The database cannot distinguish "never called" from "called and rejected",**
-and that is a gap worth closing. A webhook delivery writes no `sync_runs` row;
-rejections are counted into the response body and then discarded. So the reader
-being wrong twice was invisible from here both times, and would be again. Either
-the route should record a run per delivery, or the rejection counts should go
-somewhere durable.
+### Deliveries are now visible — `webhook_deliveries`, migration 0022
+
+**The database could not distinguish "never called" from "called and rejected".**
+A webhook delivery wrote no `sync_runs` row, and the rejection counts went into
+the response body and were discarded, so the reader being wrong twice was
+invisible from here both times. Closed by a table.
+
+**A day bucket per tenant per source, not a row per delivery.** The endpoint is
+public, so a row per POST is a stranger's way of growing a table without limit;
+a counter is bounded however hard anybody pushes on it, and nobody needs the
+three hundred rows — they need to know there were three hundred and why three
+hundred were refused. `day` is the tenant's local day, like every date here.
+Two further bounds: an unknown slug records nothing at all, and `reasons` caps
+at forty distinct keys with the overflow accumulating under `(other reasons)`,
+because a rejection reason quotes the value that caused it and a vendor sending
+something new every time would otherwise grow one row without limit.
+
+**Every exit records, including the two that used to return first.** The slug is
+resolved at the top of the handler now. A deployment with no secret and a sender
+with the wrong one both used to leave exactly the trace an absent subscription
+leaves — nothing — and those are the two likeliest causes of this endpoint's
+silence. Recording an unauthenticated request is a deliberate trade: one upsert
+to a row that already exists, against being unable to tell the two apart.
+
+Read-only to the application, writable by `zeeraa_jobs`. **By the column grant,
+not by policy** — row level security cannot restrict a column, and a record of
+what happened that a screen can edit is a way to make a silent endpoint look
+busy. Same mechanism that keeps `memberships.role` out of reach.
+
+Recording is best-effort and never fails a delivery: a counter that cannot be
+written is worse than a call that is not counted, but it is not a reason to hand
+Aloware a 500 for a post already ingested.
+
+Ask it with `pnpm --filter @zeeraa/db webhook-deliveries [days]`, which reads
+`DATABASE_URL_MAINT` and is safe against production:
+
+```
+no rows at all            nobody has ever posted — subscription, or the URL
+received > 0, accepted 0  posting and being refused; `reasons` says why
+accepted > 0              working
+```
 
 The `call_tracking` connection reads `healthy` with no error and a null
 `last_synced_at`, because a pushed source has no run to fail — which is exactly
@@ -1998,14 +2033,24 @@ The mutation test **drops and rebuilds the schema it points at**, so it needs a
 throwaway database rather than the development one:
 
 ```bash
+cd packages/db
 DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa_mut \
 DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa_mut \
-  npx tsx packages/db/scripts/mutation-test.ts
+  npx tsx scripts/mutation-test.ts
 ```
 
+**From `packages/db`, not from the root.** The script shells out to
+`scripts/reset.ts` by a path relative to the working directory, so the
+root-relative form this file used to give fails on the first mutation with
+`ERR_MODULE_NOT_FOUND`.
+
 `zeeraa_mut` exists on the local cluster for this. It takes a few minutes — it
-re-migrates and runs the whole isolation suite once per mutation. 16 of 16
-killed as of 18 September 2026.
+re-migrates and runs the whole isolation suite once per mutation. **37 of 37
+killed as of 22 September 2026**, the two newest being the pair guarding
+`webhook_deliveries`: dropping its `tenant_isolation` policy, and granting
+`zeeraa_app` the write the column grant exists to withhold. Each was checked
+individually against the test meant to catch it, because a mutation that is
+killed by forty unrelated tests has not demonstrated the control it targets.
 
 Looking at the UI locally: sign in at `/signin` as `admin@zeeraa.com` or
 `ceo@spartancapitalgroup.com` with `zeeraa-development-password`, which

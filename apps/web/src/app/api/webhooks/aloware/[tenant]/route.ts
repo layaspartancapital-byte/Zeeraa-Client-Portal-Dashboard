@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
-import { ingestCallEvents } from '@zeeraa/jobs';
+import { ingestCallEvents, recordWebhookDelivery } from '@zeeraa/jobs';
 
 /**
  * Aloware posts call events here as they happen.
@@ -38,16 +38,44 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> },
 ): Promise<Response> {
+  /*
+   * The slug is resolved first because every exit below is worth recording.
+   *
+   * The refusals used to return before anything had been looked up, so a
+   * deployment with no secret and a sender with the wrong one both left exactly
+   * the trace an absent subscription leaves: nothing. Those two are the likely
+   * causes of this endpoint's silence, and they were the two the database could
+   * not name.
+   */
+  const { tenant: slug } = await params;
+  const record = (outcome: Parameters<typeof recordWebhookDelivery>[2]) =>
+    // Awaited rather than floated: a serverless function is frozen the moment
+    // the response resolves, and a dangling promise is a counter that lands
+    // sometimes.
+    recordWebhookDelivery(slug, 'aloware', outcome);
+
   if (!process.env.ALOWARE_WEBHOOK_SECRET) {
     console.error('[aloware] refused: ALOWARE_WEBHOOK_SECRET is not set on this deployment');
+    await record({ kind: 'refused', reason: 'ALOWARE_WEBHOOK_SECRET is not set' });
     return Response.json(
       { ok: false, error: 'ALOWARE_WEBHOOK_SECRET is not configured on this deployment.' },
       { status: 503 },
     );
   }
   if (!authorised(request)) {
-    // 404 rather than 401: an endpoint that must not be reachable should not
-    // confirm that it exists.
+    /*
+     * 404 rather than 401: an endpoint that must not be reachable should not
+     * confirm that it exists. Counted all the same, and the counter is what
+     * makes a misconfigured secret distinguishable from a subscription that was
+     * never pointed here.
+     *
+     * Recording an unauthenticated request is a deliberate trade. It costs one
+     * upsert to a row that already exists, it cannot grow the table — an
+     * unknown slug records nothing and a known one has a single bucket per day
+     * — and the alternative is being unable to tell the two failures apart,
+     * which is the position this whole change exists to leave.
+     */
+    await record({ kind: 'refused', reason: 'unauthenticated' });
     return new Response('Not found', { status: 404 });
   }
 
@@ -55,6 +83,7 @@ export async function POST(
   try {
     payload = await request.json();
   } catch {
+    await record({ kind: 'refused', reason: 'body is not JSON' });
     return Response.json({ ok: false, error: 'Body is not JSON.' }, { status: 400 });
   }
 
@@ -69,9 +98,10 @@ export async function POST(
       ? (payload as { data: Record<string, unknown>[] }).data
       : [payload as Record<string, unknown>];
 
-  const { tenant: slug } = await params;
   const result = await ingestCallEvents(slug, records);
   if (!result) return new Response('Not found', { status: 404 });
+
+  await record({ kind: 'read', accepted: result.accepted, rejected: result.rejected });
 
   /*
    * 200 even when every record was rejected.

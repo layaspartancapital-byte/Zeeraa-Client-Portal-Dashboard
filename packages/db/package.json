@@ -23,7 +23,8 @@
     "mutation-test": "tsx scripts/mutation-test.ts",
     "set-password": "tsx scripts/set-password.ts",
     "grant-membership": "tsx scripts/grant-membership.ts",
-    "delete-account": "tsx scripts/delete-account.ts"
+    "delete-account": "tsx scripts/delete-account.ts",
+    "webhook-deliveries": "tsx scripts/webhook-deliveries.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*",

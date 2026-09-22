@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 import {
+  date,
   index,
+  integer,
   jsonb,
   numeric,
   pgTable,
@@ -77,4 +79,53 @@ export const dataSources = pgTable(
     asOf: timestamp('as_of', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('data_sources_tenant_fact_key').on(t.tenantId, t.factKey)],
+);
+
+/**
+ * What reached a webhook endpoint, whether or not anything came of it.
+ *
+ * A pushed source has no sync run to fail, so its silence has no shape — and
+ * the Aloware endpoint spent four days refusing every post for two unrelated
+ * reasons with no trace of either in the database. A rejected delivery answers
+ * 200 on purpose (a webhook sender retries a non-2xx forever), counts its
+ * reasons into the response body, and throws them away.
+ *
+ * **One bucket per tenant per source per day, not a row per delivery.** The
+ * endpoint is public, so a row per POST is a stranger's way of growing a table
+ * without limit; a counter is bounded however hard anybody pushes on it. Nobody
+ * needs the three hundred rows, they need to know there were three hundred and
+ * why three hundred were refused.
+ */
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** The connector key, as `sync_runs.platform` writes it: `aloware`. */
+    source: text('source').notNull(),
+    /** The tenant's local day. Normalised at ingest, like every date here. */
+    day: date('day').notNull(),
+    /**
+     * Requests that reached the handler for this tenant, refusals included.
+     *
+     * The count that answers "has anything ever arrived", which is the whole
+     * reason the table exists.
+     */
+    received: integer('received').notNull().default(0),
+    /** Rows upserted, and records the reader refused. One POST may be a batch. */
+    accepted: integer('accepted').notNull().default(0),
+    rejected: integer('rejected').notNull().default(0),
+    /**
+     * reason -> count, mixing requests and records on purpose.
+     *
+     * A request refused before its body was read has no records to count, and
+     * `unauthenticated: 40` is the most actionable line this table can carry.
+     */
+    reasons: jsonb('reasons').notNull().default(sql`'{}'::jsonb`),
+    firstReceivedAt: timestamp('first_received_at', { withTimezone: true }).notNull().defaultNow(),
+    lastReceivedAt: timestamp('last_received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('webhook_deliveries_tenant_source_day_key').on(t.tenantId, t.source, t.day)],
 );
