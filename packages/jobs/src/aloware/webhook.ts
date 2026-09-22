@@ -78,15 +78,16 @@ export async function ingestCallEvents(
      *
      * It shares `normalizeCall` underneath, so a call delivered by both routes
      * still produces byte-identical rows — but it applies the webhook's field
-     * names first, and two allow-list gates before them. The export's reader
-     * was being used here and rejected every post as "not a call (blank)",
-     * because the trigger sends no `Type` column.
+     * names first, and gates on `Type`, `Current Status` and `Disposition
+     * Status` before them. Not on `Event`: Aloware sends
+     * `OutboundSMS-DispositionCompleted` on calls as well as texts, so the
+     * event name describes neither the channel nor the state.
      */
     const result = normalizeWebhookCall(record, tenant.mapping, tenant.timezone);
     if (!result.row) {
       // The reason and the value that caused it, because the rejected value is
-      // the actionable half: "not a call event (OutboundSMS-DispositionCompleted)"
-      // says exactly what to add to the allow-list, where "not a call" does not.
+      // the actionable half: "not a finished outcome (in-progress)" says
+      // exactly which vocabulary to extend, where "not a call" does not.
       count(result.type !== undefined ? `${result.reason} (${result.type})` : result.reason);
       continue;
     }

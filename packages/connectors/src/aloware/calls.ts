@@ -124,13 +124,13 @@ export type AlowareMapping = {
   /**
    * The webhook's own shape, which is not the export's.
    *
-   * Aloware's Zapier "Call Disposed" trigger posts different field names,
-   * different types and a different discriminator from the CSV: `ID` rather
-   * than `Communication ID`, `Created At` rather than `Started At`, `Type` as
-   * `1` rather than `"call"`, `Direction` as `2` rather than `"outbound"`, and
-   * the agent's name nested under `User`. Read with the export's mapping,
-   * every post was rejected as "not a call (blank)" — which is why the webhook
-   * had delivered nothing even before anybody checked the subscription.
+   * Aloware's Zapier "Call Disposed" trigger posts different field names and
+   * different types from the CSV: `ID` rather than `Communication ID`,
+   * `Created At` rather than `Started At`, `Type` as `1` rather than `"call"`,
+   * `Direction` as `2` rather than `"outbound"`, and the agent's name nested
+   * under `User`. Read with the export's mapping, every post was rejected as
+   * "not a call (blank)" — which is why the webhook had delivered nothing even
+   * before anybody checked the subscription.
    *
    * Absent means the tenant has no webhook configured and the endpoint refuses
    * everything, which is the correct state for a client whose subscription has
@@ -143,34 +143,33 @@ export type AlowareWebhookProfile = {
   /** Field names, dotted for a nested one: `User.Name`. */
   columns: AlowareMapping['columns'];
   /**
-   * The `Event` values that are a finished call, and the only ones ingested.
+   * The `Type` values that are a phone call rather than a text.
    *
-   * **An allow-list, because the trigger fires on far more than calls.** The
-   * sample that prompted this is `OutboundSMS-DispositionCompleted`: a text
-   * message, posted while the call leg was still ringing, with zero duration.
-   * A deny-list of the SMS events would have let the next new event type
-   * through silently and counted a text as a call.
-   *
-   * Anything not listed is rejected and counted by its own name, so the
-   * endpoint's log says exactly what to add.
+   * **This is the channel gate, and `Event` is not.** The obvious reading of
+   * `Event: OutboundSMS-DispositionCompleted` is that the post describes a text
+   * message; it does not. Aloware sends that event name for calls as well, so
+   * an allow-list of `…Call-DispositionCompleted` events rejects every real
+   * delivery — which is what the first version of this gate did. `Type` is the
+   * field whose CSV counterpart holds the literal word `call`, and it is the
+   * only one in the payload that describes what the record *is*.
    */
-  allowedEvents: string[];
+  callTypes: (string | number)[];
   /**
-   * `Current Status` values that mean the call is over.
+   * `Current Status` values meaning the leg is still live.
    *
-   * The second gate, and independent of the first: an event may be named for a
-   * completed disposition while the call itself is still `ringing`, which is
-   * exactly what the sample does. Talk time and duration are both zero there,
-   * so ingesting it would add a call that never happened and timestamp the
-   * desk's response at the moment it started dialling.
+   * A deny-list rather than an allow-list of finished states, and the
+   * difference is not stylistic. The only status ever observed is `ringing`, on
+   * the post that must be rejected — so an allow-list of finished statuses
+   * would be pure invention, and inventing an allow-list is the mistake this
+   * gate is replacing. What *is* observable is the vocabulary of in-flight
+   * words, and the completion allow-list proper lives on the disposition
+   * instead, where it was derived from 28,863 real records rather than guessed.
    */
-  completedStatuses: string[];
+  inFlightStatuses: string[];
   /** Numeric direction codes, because the webhook sends `2` not `outbound`. */
   directions: Record<string, CallRow['direction']>;
   /** Where the call's own status lives. */
   statusColumn: string;
-  /** Where the event name lives. */
-  eventColumn: string;
 };
 
 export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
@@ -193,13 +192,11 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
    * The Zapier "Call Disposed" trigger's shape, from a real post of
    * 22 September 2026.
    *
-   * Every name here was taken from that payload rather than guessed. The two
-   * allow-lists are the exception and are marked as such: the sample is an SMS
-   * event on a ringing leg, so it shows what must be *rejected* and not what a
-   * finished call looks like. Both default to the completed-call form of the
-   * observed convention, and both fail closed — an unlisted value is rejected
-   * and logged by name, so confirming them is one config edit rather than a
-   * code change.
+   * Every name here was taken from that payload rather than guessed. The one
+   * sample is a call still ringing — a rejection case — so it shows what must
+   * not pass and never what a finished call looks like. Nothing here is
+   * inferred from `Event`, which names the channel wrongly: it reads
+   * `OutboundSMS-DispositionCompleted` on calls too.
    */
   webhook: {
     columns: {
@@ -211,7 +208,8 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
       // tenant's zone. Reading it as UTC would put every call four hours early
       // and make speed to lead read as neglect.
       startedAt: 'Created At',
-      // Present as `1`, and not the discriminator. `allowedEvents` is.
+      // Present as `1` rather than the word `call`, and it is the channel
+      // discriminator — see `callTypes`.
       type: 'Type',
       direction: 'Direction',
       disposition: 'Disposition Status',
@@ -224,16 +222,27 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
       contactId: 'Contact Id',
       userName: 'User.Name',
     },
-    // INFERRED from `OutboundSMS-DispositionCompleted`, the one event observed.
-    // Confirm against a real call before trusting the count.
-    allowedEvents: ['InboundCall-DispositionCompleted', 'OutboundCall-DispositionCompleted'],
-    // INFERRED. The observed value is `ringing`, which is what must not pass.
-    completedStatuses: ['completed'],
-    // `2` with an `Outbound…` event name is the evidence for outbound; `1` is
-    // its complement and is the one part of this not seen directly.
+    // `1` is the observed value on a call, and `call` is what the same field
+    // holds in the CSV export. Both accepted so one reader serves both shapes.
+    callTypes: [1, 'call'],
+    // Observed: `ringing`. The rest are the same convention's siblings, and
+    // each one costs a rejection if it is wrong — never a phantom call.
+    inFlightStatuses: [
+      'ringing',
+      'queued',
+      'in-queue',
+      'initiated',
+      'in-progress',
+      'dialing',
+      'connecting',
+      'routing',
+      'on-hold',
+      'new',
+    ],
+    // `2` on an outbound post is the evidence for outbound; `1` is its
+    // complement and is the one part of this not seen directly.
     directions: { '1': 'inbound', '2': 'outbound' },
     statusColumn: 'Current Status',
-    eventColumn: 'Event',
   },
   // Every non-completed disposition this export actually contains, plus the
   // obvious neighbours. An unlisted value is reported rather than absorbed.
@@ -416,9 +425,28 @@ export function normalizeCall(
 /**
  * One webhook post into a row, or a reason it is not a completed call.
  *
- * Two gates before the shared normaliser runs, both allow-lists and both
- * fail-closed. An unconfigured tenant, an unknown event and a call still in
- * flight are each rejected by name, so the endpoint's log says which.
+ * Three gates, none of which looks at `Event`. The event name is the obvious
+ * discriminator and it is a false one: Aloware sends
+ * `OutboundSMS-DispositionCompleted` on calls as well as texts, so gating on it
+ * rejected every real delivery. What is left are the fields that describe the
+ * record rather than the notification:
+ *
+ *   1. **`Type`** — call or text. The channel, and the only field that carries
+ *      it.
+ *   2. **`Current Status`** — whether the leg is still live. `ringing` is not a
+ *      call that happened.
+ *   3. **`Disposition Status`** — whether the outcome is a finished one, judged
+ *      against the same vocabulary the CSV import uses. `in-progress` is in
+ *      none of the three lists, so it fails without anything being added for
+ *      the webhook's sake.
+ *
+ * **`Talk Time` is deliberately not a gate**, and `Duration` is not either. Talk
+ * time is legitimately zero on every call nobody answered, and those are most
+ * of a dialler's output: requiring it would discard the attempts, leave only
+ * the conversations, and report a connect rate near 100%. Duration is zero on a
+ * dial that failed instantly, which is still the desk responding and still the
+ * timestamp speed to lead is measured from. Both are recorded on the row and
+ * neither decides admission.
  */
 export function normalizeWebhookCall(
   record: Record<string, unknown>,
@@ -429,23 +457,40 @@ export function normalizeWebhookCall(
   if (!profile) {
     return { row: null, reason: 'no webhook mapping configured for this tenant' };
   }
+  const named = (value: string) => (value === '' ? '(blank)' : value);
 
-  const event = String(readField(record, profile.eventColumn) ?? '').trim();
-  if (!profile.allowedEvents.some((allowed) => norm(allowed) === norm(event))) {
-    // Named rather than bucketed: the point of an allow-list is that the
-    // rejected value tells you what to add.
-    return { row: null, reason: 'not a call event', type: event === '' ? '(blank)' : event };
+  const type = String(readField(record, profile.columns.type) ?? '').trim();
+  if (!profile.callTypes.some((allowed) => norm(allowed) === norm(type))) {
+    return { row: null, reason: 'not a call', type: named(type) };
   }
 
+  /*
+   * Blank is rejected with the in-flight values rather than allowed with the
+   * finished ones. A post that does not say where the call is has not said it
+   * is over, and the gate has to fail in the direction that costs a log line.
+   */
   const status = String(readField(record, profile.statusColumn) ?? '').trim();
-  if (!profile.completedStatuses.some((done) => norm(done) === norm(status))) {
-    return { row: null, reason: 'call not finished', type: status === '' ? '(blank)' : status };
+  if (status === '' || profile.inFlightStatuses.some((live) => norm(live) === norm(status))) {
+    return { row: null, reason: 'call still in flight', type: named(status) };
+  }
+
+  /*
+   * The completion allow-list, and the reason there is no second one in the
+   * profile: `connectedDispositions`, `abandonedDispositions` and
+   * `attemptedDispositions` are already the terminal vocabulary, taken from
+   * 28,863 real calls. `in-progress` is in none of them, so the sample fails
+   * here on evidence rather than on a guess — and a disposition the import does
+   * not know is reported by name here exactly as it is there.
+   */
+  const disposition = String(readField(record, profile.columns.disposition) ?? '').trim();
+  if (!classifyDisposition(disposition, mapping).recognised) {
+    return { row: null, reason: 'not a finished outcome', type: named(disposition) };
   }
 
   /*
    * The webhook's own columns, and `callTypes: []` to switch off the export's
-   * type check — `Type` is `1` here and the discriminator is `Event`, which the
-   * two gates above have already applied.
+   * type check — `Type` is `1` here, not `call`, and the gate above has already
+   * applied the webhook's own list to it.
    */
   const asExport: AlowareMapping = { ...mapping, columns: profile.columns, callTypes: [] };
 

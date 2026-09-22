@@ -1029,15 +1029,15 @@ posts with the CSV export's field mapping, and the two shapes barely overlap.
 | --- | --- | --- |
 | upsert key | `Communication ID` | `ID` |
 | timestamp | `Started At` | `Created At` |
-| discriminator | `Type` = `"call"` | `Event` = `OutboundSMS-DispositionCompleted`; `Type` is `1` |
+| channel | `Type` = `"call"` | `Type` = `1` |
 | direction | `"outbound"` | `2` |
 | contact id | `Contact ID` | `Contact Id` |
 | merchant's number | `Contact Number` | `Lead Number` |
 | agent | `User Name` | `User.Name`, nested |
 
-`Type` is absent from the post, so every record was rejected as
-"not a call (blank)" — a 200 and a log line, forever. That is a second and
-independent cause of the zero webhook rows, on top of whatever is wrong with
+`Type` is `1` and the export's `callTypes` is `['call']`, so every record was
+rejected as "not a call (1)" — a 200 and a log line, forever. That is a second
+and independent cause of the zero webhook rows, on top of whatever is wrong with
 the subscription itself.
 
 **`normalizeWebhookCall` is the webhook's reader**, sharing `normalizeCall`
@@ -1046,28 +1046,55 @@ applies the webhook's own columns, supports a dotted path for the nested agent,
 and maps the numeric direction code — `2` was reading as `unknown`, and
 direction is what speed to lead is measured on.
 
-**Two allow-list gates, both fail-closed**, because the trigger fires on far
-more than finished calls. The sample is the case in point: an SMS, posted while
-the call leg was still *ringing*, with zero duration and
-`Disposition Status: in-progress`.
+**`Event` is not a discriminator, and gating on it rejected everything.**
+Aloware sends `Event: OutboundSMS-DispositionCompleted` on *calls* as well as
+texts — the name describes neither the channel nor the state. The one sample is
+a call that was still ringing, and reading its event name as "SMS" is what
+produced the first version of this gate: an allow-list of
+`InboundCall-/OutboundCall-DispositionCompleted`, which Aloware never sends, so
+it would have refused every real delivery. Spartan sends no SMS at all.
 
-1. `Event` must be an allow-listed call event. A deny-list of the SMS forms
-   would let the next new event type through and count a text as a call.
-2. `Current Status` must be a completed status. Independent of the first,
-   because an event named `…-DispositionCompleted` can still describe a ringing
-   leg — which is exactly what the sample does.
+**Three gates on the fields that describe the record**, each fail-closed and
+each logging the value that failed it:
 
-A rejected record is counted by reason *and value* —
-`not a call event (OutboundSMS-DispositionCompleted)`, `call not finished
-(ringing)` — so the log says what to add rather than that something was wrong.
+1. **`Type`** — the channel. `1` on the observed call, and the same field holds
+   the literal word `call` in the CSV export; both are accepted. This is what
+   `Event` was wrongly doing.
+2. **`Current Status`** — whether the leg is live. A *deny-list* of in-flight
+   words (`ringing`, `queued`, `initiated`, …), not an allow-list of finished
+   ones, because `ringing` is the only status ever observed and an allow-list of
+   finished states would be the same invention over again. A blank status is
+   rejected with them: a post that does not say where the call is has not said
+   it is over.
+3. **`Disposition Status`** — whether the outcome is terminal, judged by
+   `classifyDisposition(...).recognised` against the same vocabulary the CSV
+   import uses. That allow-list is not a guess: it was derived from 28,863 real
+   calls, and `in-progress` is in none of its three lists, so the sample fails
+   here on evidence.
 
-**Two values are inferred and marked as such in the code.** The sample shows
-what must be rejected, not what a finished call looks like, so
-`allowedEvents` (`InboundCall-/OutboundCall-DispositionCompleted`) and
-`completedStatuses` (`completed`) follow the observed naming convention and
-need confirming against a real call. They fail closed, so a wrong guess rejects
-and logs rather than ingesting rubbish — and correcting it is a config edit on
-the `aloware` row, not a deploy.
+**`Talk Time` and `Duration` are recorded and never gate.** Talk time is
+legitimately zero on every call nobody answered, which is most of a dialler's
+output — requiring it would discard the attempts, keep only the conversations
+and report a connect rate near 100%. Duration is zero on a dial that failed
+instantly, which is still the desk responding and still the timestamp speed to
+lead is measured from.
+
+The deny-list's bargain is stated in a test: an unobserved finished status
+passes if the disposition is terminal. That is the right way round. A gate that
+is slightly loose is corrected by the next post on the same Communication ID —
+the upsert key — whereas a gate that is slightly strict is silent forever, which
+is the failure that has already happened once here.
+
+A rejected record is counted by reason *and* value — `not a call (2)`,
+`call still in flight (ringing)`, `not a finished outcome (in-progress)` — so
+the log says which vocabulary to extend, and extending it is a config edit on
+the `aloware` row rather than a deploy.
+
+**What is still inferred:** only one payload exists and it is a rejection case,
+so no finished call's `Current Status` has been seen. The deny-list and the
+`Type: 1` reading are corroborated by that sample rather than contradicted by
+it, which is more than the event allow-list had, but a real completed post
+should still be checked against them.
 
 `Created At` is a bare wall clock and goes through `parseWallClock` in the
 tenant's zone, the same as the export. A test pins 19:47:42 New York to
