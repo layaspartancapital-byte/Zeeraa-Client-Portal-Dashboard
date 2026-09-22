@@ -967,6 +967,36 @@ back to January keeps the not-ingested treatment with no zeros, a reversed pair
 falls back with its message, `?days=30` still resolves to 30 days, and the
 export href carries the range. No horizontal scroll at 1600px or 375px.
 
+## The funnel row is rebuilt (22 September 2026, last)
+
+One component, both screens — the executive briefing and the funnel view draw
+the same `FunnelStages`. Full reasoning in `docs/brief-amendments.md`, "§12 —
+the funnel row is a funnel, not seven differently-shaped cards".
+
+**Cards are three fixed rows and one ⓘ.** They had grown a line per caveat with
+a tooltip each, so seven stages rendered seven heights and up to two tooltips
+apiece. Label, figure, and one supporting line that always says what the figure
+counts; everything else composes into a two-sentence tooltip and into the
+accessible table, which prints. Every card is 124px at every width — an
+explicit minimum height, because `items-stretch` equalises within a flex line
+only and a wrapped row came out 34px taller than the one below it.
+
+**The blue top border is gone.** It marked `is_optimization_target` in colour
+alone, which was both unexplained and against the rule this product applies
+everywhere else. Target stages say `· target` in text.
+
+**Every gap says something.** Four of six transitions carry no rate, and a bare
+em dash reads as missing data rather than as the deliberate refusal it is. The
+chips now read `not a gate`, `not nested` or `retired`, with the counts behind
+the ⓘ. Only `Application → SQL` and `Lead → MQL` are rates at month-to-date;
+over 90 days the funnel view also shows `27.8%` into UW approved.
+
+**Widths were measured rather than eyeballed.** The first attempt sized the
+connector column at 74px, narrower than the chip inside it — the words
+overflowed onto the cards and truncated to `not neste`. Verified at 1440, 1280,
+1024, 768 and 390px: uniform card height, no chip overflow, no clipped text, no
+label colliding with its ⓘ, no horizontal page scroll.
+
 ## The engagement model is loaded (22 September 2026, later still)
 
 All five contracted series are in `engagement_targets` for M1–M8, from

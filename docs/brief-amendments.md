@@ -2673,3 +2673,84 @@ single mistyped digit.
 They are not loaded rather than being loaded somewhere approximate. The
 `funded_targets` reconciliation row already covers the disagreement between the
 proposal's funded-volume figures, and this is a fourth source for it.
+
+---
+
+## §12 — the funnel row is a funnel, not seven differently-shaped cards
+
+Rebuilt 22 September 2026, on both screens that draw it — the executive
+briefing and the funnel view share one component, so the fix is one fix.
+
+### The card grew a line per caveat, and stopped reading as a number
+
+Each stage card had accumulated a line for every qualification that applied to
+it: the grain it counts at, deals that were later declined, the coverage horizon
+where the source has one, and the share of leads the qualification bar could be
+evaluated against. Each line carried its own ⓘ, so `UW approved` rendered four
+lines and two tooltips while `Funded` rendered two lines and one. Seven stages
+came out seven different heights, and the eye could not find the figures among
+the qualifications.
+
+**The card is now three fixed rows — label, figure, one supporting line — and
+one ⓘ.** The rows have explicit minimum heights and the card an explicit
+minimum height, so every card is 124px at every width, including on a wrapped
+row. `items-stretch` equalises within a flex line only, which is why a fixed
+height was needed rather than left to the layout: at 1024px the first row came
+out 34px taller than the second.
+
+The supporting line always says what the figure counts — `inbound leads`,
+`leads past the bar`, `opportunities` — and nothing else, so it is comparable
+across the row. Everything that used to be its own line is in the tooltip,
+composed in priority order rather than concatenated: the first sentence says
+what the number counts with the origin or horizon folded in as a clause, and
+the second is whichever single caveat matters most. Two sentences, which is the
+budget §2 sets for an ⓘ. The full text is also in the accessible table, which
+prints, so nothing moved behind a hover only.
+
+### The blue top border was colour as the only encoding
+
+Three cards carried a blue top border and nothing said why. It marked
+`is_optimization_target`, which is a real and useful fact — these are the stages
+the engagement is judged on — but encoding it in a colour alone breaks the rule
+this product applies everywhere else, and it read as decoration.
+
+The border is gone. A target stage says `· target` on its supporting line, which
+is text, survives a greyscale print, and is explained in the card's ⓘ.
+
+### A bare em dash is the wrong way to withhold a rate
+
+Four of Spartan's six transitions carry no conversion rate, for four different
+reasons, and each rendered as `—` with the explanation behind a tooltip. A dash
+reads as missing data. It is the opposite: a deliberate refusal, because the
+later population is not drawn from the earlier one and their ratio would not be
+a conversion rate.
+
+Every gap now carries words:
+
+| | Chip | Why |
+| --- | --- | --- |
+| Lead → MQL | `11.5%` | both sides at lead grain |
+| MQL → Application | `not a gate` | MQL is computed from what a lead reported, so an unqualified lead can still apply |
+| Application → SQL | `95.9%` | nests within the configured tolerance |
+| SQL → UW approved | `not nested` | 5 of 41 never reached SQL |
+| UW approved → Offer | `not nested` | 2 of 18 have no approval event |
+| Offer → Funded | `not nested` | none of the 3 funded deals has an offer event |
+
+The specific numbers stay in the chip's ⓘ. On the funnel view, where the
+retired deal-level offer rate is passed in as a suppressed transition, the same
+chip reads `retired`.
+
+### Widths were measured, not eyeballed
+
+The first attempt gave the connector column 74px, which is narrower than the
+chip inside it: the words overflowed both edges, sat on top of the cards and
+truncated to `not neste` — worse than the dash. The row is a budget, so it was
+solved as one. At 1440px the card has about 1,080px of usable width; seven
+cards at a legible minimum and six connectors wide enough to hold two short
+words leaves 54px per connector and about 108px per card. The arrow went from
+the rate chip to buy the figure a character, and the funnel reads left to right
+without it.
+
+Verified by measurement at 1440, 1280, 1024, 768 and 390px: every card exactly
+124px, no chip overflowing its column, no clipped text, no label colliding with
+its ⓘ, and no horizontal page scroll.
