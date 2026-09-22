@@ -1176,6 +1176,35 @@ Two nulls on the row, neither a fault:
   matched calls, so the figure could not see it. **Fixed below**; the lead on
   that phone key already existed (`00QVr000012jHmDMAU`, created 20 September).
 
+### Rebranded to Zeeraa — dark chrome, light content (22 September 2026)
+
+The rail and the title band are `--color-chrome` (`#14161A`) and carry the gold
+enso and wordmark; cards, tables and charts are unchanged on the canvas they
+were designed for. **Gold marks the active nav item and nothing else**, enforced
+by `apps/web/test/chrome-contrast.test.ts`, which reads the sources rather than
+trusting review.
+
+This reverses spec v2's "no gold, no serif, no black band" for the chrome only.
+Recorded in `docs/brief-amendments.md`, "§12 — dark chrome and the Zeeraa mark",
+with the arithmetic that decided the accent value, the tenant mark's ring and
+migration `0023`.
+
+Zeeraa sits above the client under a hairline. Verified at 1600, 1440 and 390 —
+no horizontal scroll at any width — and in the collapsed rail, where the lockup
+crops to the enso.
+
+**Two things outstanding, both small.**
+
+- **Migration `0023` has not been applied to Neon.** It only changes a column
+  default and the one live tenant sets its colour explicitly, so nothing renders
+  wrongly until a second tenant is created without one.
+- **Ask the client for an SVG of the mark.** The raster's wordmark is a darker
+  bronze than its enso and was drawn for print; its thin serif strokes go
+  sub-pixel below about 30px, so it reads dimmer than the ring at rail size. A
+  `brightness(1.3)` lift and a larger lockup get it most of the way. An SVG
+  would render crisply at any size and let the two halves carry their own
+  values, where a raster takes one filter for both.
+
 ### 0022 verified on Neon, and the first deliveries counted
 
 Applied 22 September. `webhook_deliveries` is owned by `zeeraa_owner` — not
