@@ -189,9 +189,26 @@ export function readDurationBand(raw: string, unit: DurationUnit = 'labelled'): 
  */
 export function rangeMeetsMinimum(range: NumericRange, minimum: number): boolean | null {
   if (range.low != null && range.low >= minimum) return true;
-  if (range.high != null && (range.highExclusive ? range.high <= minimum : range.high < minimum)) {
-    return false;
-  }
+  /*
+   * A band whose top **is** the minimum fails.
+   *
+   * `6 - 12 months` against a twelve-month bar admits exactly one qualifying
+   * value — a business at precisely twelve months — and eleven failing ones.
+   * Read as a straddle it made 447 leads undeterminable and put a hole in MQL
+   * coverage that looked like missing data.
+   *
+   * It is not missing data, because **the form's bands partition**: the option
+   * above `6 - 12 months` is `1 - 3 years`, so the first means "has not reached
+   * a year" and the second is where twelve months lands. The upper bound of a
+   * band is the lower bound of the next one, and belongs to the next one.
+   *
+   * The same reading applies to money — `$5,000 - $10,000` sits under
+   * `$10,000 - $20,000` — and to a point value, which is unaffected because
+   * `low >= minimum` answers it first: `x12_Months` is [12, 12] and qualifies.
+   * What still straddles is a band that genuinely contains the bar with room
+   * either side, like `< $15,000` against $10,000.
+   */
+  if (range.high != null && range.high <= minimum) return false;
   return null;
 }
 

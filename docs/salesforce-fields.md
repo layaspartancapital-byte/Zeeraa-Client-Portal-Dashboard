@@ -602,23 +602,46 @@ Time in business, all on Lead:
 
 ### Coverage, inbound leads only
 
-With `How_long_have_you_been_in_business__c` mapped:
+### A band whose top is the bar fails, because the bands partition
+
+Confirmed 22 September 2026: the bar is 12+ months and $10,000+ monthly, so
+`6 - 12 months` is out. It had been read as a straddle, because the band
+includes twelve months and a business at exactly twelve would qualify — but the
+option above it is `1 - 3 Years`, so the form's own bands partition and twelve
+months belongs to the band above. `rangeMeetsMinimum` now fails a range whose
+upper bound is the minimum, whether or not that bound is exclusive.
+
+The change is narrower than it sounds. A point value is unaffected, because
+`low >= minimum` answers `x12_Months` before the upper bound is consulted, and
+a band reaching *past* the bar with room either side still straddles —
+`< $15,000` against $10,000 is undeterminable and stays so.
+
+It settled 447 duration answers. Populated-but-unusable duration fell from 518
+to **15**.
+
+With `How_long_have_you_been_in_business__c` mapped and that rule applied:
 
 | Month | Leads | Revenue populated | Revenue usable | Duration populated | Duration usable | Both usable |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2026-06 | 986 | 98.9% | 94.8% | 94.6% | 87.8% | 83.8% |
-| 2026-07 | 976 | 96.6% | 92.2% | 95.7% | 85.5% | 81.0% |
-| 2026-08 | 981 | 88.1% | 83.7% | 86.7% | 77.3% | 72.7% |
-| 2026-09 | 1,703 | 95.2% | 93.8% | 94.3% | 81.6% | 80.2% |
-| **All time** | **7,581** | **85.6%** | **76.1%** | **83.3%** | **76.5%** | **66.5%** |
+| 2026-06 | 986 | 98.9% | 94.8% | 94.6% | 94.6% | 90.6% |
+| 2026-07 | 976 | 96.6% | 92.2% | 95.7% | 95.7% | 91.3% |
+| 2026-08 | 981 | 88.1% | 83.7% | 86.7% | 86.6% | 82.1% |
+| 2026-09 | 1,707 | 95.2% | 93.7% | 94.3% | 94.3% | 92.8% |
+| **All time** | **7,585** | **85.6%** | **76.1%** | **83.3%** | **83.1%** | **73.2%** |
 
-Before it was mapped, duration usable read 33.8% all-time and 9.9% for
+Before the field was mapped, duration usable read 33.8% all-time and 9.9% for
 September, and the fall through the year looked like the forms giving up on the
 question. They had not: the answer had moved to a field nothing read.
 
-**Populated and usable are different questions**, and the gap is what to act on:
-719 leads carry a revenue answer that resolves to nothing — mostly
-`New Business`, a categorical label rather than an amount, and bands straddling
-the $10,000 bar — and 517 carry a duration answer that does the same, almost all
-of them `6 - 12 months` against a twelve-month bar. Reporting population alone
-would have called `MIYB`'s 53% coverage.
+**Revenue is now what limits MQL**, which is a reversal. Duration leaves only 15
+populated answers unresolved; revenue leaves 719, and they are two things and
+nothing else:
+
+| | Leads | |
+| --- | ---: | --- |
+| `New Business` | 462 | a label, not an amount. It already fails the *duration* test, on the reading that a business which has not started trading has no trading history. The same reading would fail it on revenue — that is a decision, not a parse |
+| `< $15,000` | 257 | genuinely contains the $10,000 bar; needs the form option split |
+
+**Populated and usable are different questions**, and that gap is the whole
+point of measuring both. Reporting population alone would have called `MIYB`'s
+53% coverage.

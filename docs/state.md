@@ -1018,6 +1018,38 @@ Mapped on 22 September 2026, in the seed and on the production connection:
 | Duration usable, September | 9.9% | **81.6%** |
 | Both usable, which is what MQL needs | 26.0% | **66.5%** |
 
+**A band whose top is the bar now fails.** The MQL bar is confirmed at 12+
+months and $10,000+ monthly, so `6 - 12 months` is out — it had been read as a
+straddle because the band includes twelve months, but the option above it is
+`1 - 3 Years`, so the form's bands partition and twelve months belongs to the
+band above. `rangeMeetsMinimum` fails a range whose upper bound *is* the
+minimum, exclusive or not. A point value is unaffected (`x12_Months` is [12,12]
+and `low >= minimum` answers it first), and a band reaching past the bar still
+straddles.
+
+| | Before | After |
+| --- | ---: | ---: |
+| Duration usable, all time | 76.5% | **83.1%** |
+| Duration usable, September | 81.5% | **94.3%** |
+| Both usable, which is what MQL needs | 66.5% | **73.2%** |
+| September, both usable | 80.1% | **92.8%** |
+
+Populated duration answers resolving to nothing fell from 518 to **15**.
+
+**Revenue is now what limits MQL**, which is a reversal, and the blocked
+dependency is repointed accordingly — `mql_time_in_business_decode` is dropped
+and `mql_revenue_coverage` replaces it. The 719 unresolved revenue answers are
+two things: 462 `New Business`, which is a label rather than an amount, and 257
+`< $15,000`, which genuinely contains the $10,000 bar. `New Business` already
+fails the *duration* test on the reading that a business which has not started
+trading has no trading history; applying the same reading to revenue would
+settle 462 leads, and that is a decision rather than a parse — it has not been
+taken.
+
+**Stored verdicts need a re-sync.** `leads.mql_verdict` is written at ingest, so
+the figures on screen carry the old reading until Salesforce is re-pulled. The
+coverage above is measured from the org, not from the warehouse.
+
 **Revenue was swept the same way and needed no change.** The form's five
 revenue bands land in three fields and all three were already mapped, the
 best-covered first: `Average_Monthly_Revenue_Text2__c` on 1,442 of September's

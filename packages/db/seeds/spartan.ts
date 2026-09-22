@@ -855,28 +855,30 @@ export const spartan: TenantSeed = {
       // What is blocked is the coverage itself, and this is the single biggest
       // reason it falls short — so it is a dependency on the client, stated as
       // one, rather than a caveat buried beside a number.
-      key: 'mql_time_in_business_decode',
+      key: 'mql_revenue_coverage',
       subjectKind: 'metric',
       subjectKey: 'mql_coverage',
-      label: 'MQL coverage — time in business',
+      label: 'MQL coverage — revenue',
       reason:
-        'Largely resolved on 22 September 2026, and kept because the residue ' +
-        'is real. The form question lands in ' +
-        'How_long_have_you_been_in_business__c — 1,426 of September\'s 1,703 ' +
-        'inbound leads — which nothing had mapped, so the bar was reading the ' +
-        'older fields as they emptied. What remains undeterminable is the ' +
-        '"6 - 12 months" band, which spans the twelve-month bar and resolves ' +
-        'to neither answer: 447 leads, 12% of those who answered.',
+        'Time in business is resolved and revenue is now what limits MQL. ' +
+        'Of 7,585 inbound leads, 83.1% can be judged on duration and 76.1% on ' +
+        'revenue, so 73.2% can be judged at all. The revenue shortfall is two ' +
+        'things and nothing else: 462 leads answer "New Business", which is a ' +
+        'label rather than an amount, and 257 answer "< $15,000", which ' +
+        'genuinely contains the $10,000 bar.',
       needed:
-        'Splitting the "6 - 12 months" option on the form, or a second ' +
-        'question for those who pick it. Nothing else on our side moves this: ' +
-        'the band genuinely contains the bar, and choosing a side would be ' +
-        'inventing the answer.',
+        'A decision on what "New Business" means against a revenue minimum — ' +
+        'it already fails the *duration* test, on the reading that a business ' +
+        'which has not started trading has no trading history, and the same ' +
+        'reading would fail it on revenue and settle 462 leads. The 257 at ' +
+        '"< $15,000" need the form to split that option; the band contains ' +
+        'the bar and choosing a side would be inventing the answer.',
       evidence:
-        'Measured 18 September 2026 over 7,293 inbound leads: 16.5% qualified, ' +
-        '39.8% unqualified, 43.6% undeterminable. Of the undeterminable, 1,075 ' +
-        'carry only the undecodable field, 1,617 carry no answer at all, and ' +
-        '175 answer in a band that spans the $10,000 bar.',
+        'Measured 22 September 2026 with `pnpm --filter @zeeraa/connectors ' +
+        'qualification-coverage`: duration 83.3% populated and 83.1% usable, ' +
+        'revenue 85.6% populated and 76.1% usable, both 73.2%. Only 15 ' +
+        'populated duration answers now resolve to nothing, against 719 ' +
+        'revenue answers.',
     },
     {
       // Not a blocked stage. Both ends are measured: the approval transitions

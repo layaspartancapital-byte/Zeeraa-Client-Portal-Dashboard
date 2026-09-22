@@ -86,10 +86,12 @@ describe('duration bands against 12 months', () => {
     }
   });
 
-  it('refuses a band that contains twelve months', () => {
-    // `0 - 1 Years` admits 3 months and 11 months as readily as 12.
+  it('fails a band whose top is the bar, because the bands partition', () => {
+    // `0 - 1 Years` is the option below `1 - 3 Years`, so it means "has not
+    // reached a year". Read as a straddle it was undeterminable; read as the
+    // form intends it is a plain fail.
     for (const raw of ['0 - 1 Years', '0-1 Years']) {
-      expect(duration(raw), raw).toEqual({ meets: null, reason: 'straddles' });
+      expect(duration(raw), raw).toEqual({ meets: false, reason: 'resolved' });
     }
   });
 
@@ -114,9 +116,20 @@ describe('rangeMeetsMinimum', () => {
     expect(rangeMeetsMinimum({ low: 5_000, high: null, highExclusive: false }, 10_000)).toBeNull();
   });
 
-  it('handles the exclusive upper bound at the boundary', () => {
+  it('fails at the upper boundary whether or not it is exclusive', () => {
+    // The bands partition, so the top of one belongs to the next. Only a range
+    // reaching *past* the minimum can still straddle it.
     expect(rangeMeetsMinimum({ low: null, high: 10_000, highExclusive: true }, 10_000)).toBe(false);
-    expect(rangeMeetsMinimum({ low: null, high: 10_000, highExclusive: false }, 10_000)).toBeNull();
+    expect(rangeMeetsMinimum({ low: null, high: 10_000, highExclusive: false }, 10_000)).toBe(false);
+    expect(rangeMeetsMinimum({ low: 5_000, high: 10_000, highExclusive: false }, 10_000)).toBe(false);
+    expect(rangeMeetsMinimum({ low: null, high: 15_000, highExclusive: true }, 10_000)).toBeNull();
+  });
+
+  it('still qualifies a point value at the minimum', () => {
+    // `x12_Months` is [12, 12]. `low >= minimum` answers it before the upper
+    // bound is consulted, which is what keeps the change above narrow.
+    expect(rangeMeetsMinimum({ low: 12, high: 12, highExclusive: false }, 12)).toBe(true);
+    expect(rangeMeetsMinimum({ low: 12, high: 36, highExclusive: false }, 12)).toBe(true);
   });
 });
 
@@ -168,9 +181,12 @@ describe('readDurationBand and the declared unit', () => {
     expect(judgeBand(readDurationBand('1 - 3 años', 'labelled'), 12).meets).toBe(true);
   });
 
-  it('still straddles where the band contains the bar', () => {
-    expect(judgeBand(readDurationBand('0 - 1 Years', 'labelled'), 12).meets).toBeNull();
-    expect(judgeBand(readDurationBand('0 - 1 Years', 'labelled'), 12).reason).toBe('straddles');
+  it('still straddles where the band genuinely contains the bar', () => {
+    // `0 - 1 Years` tops out *at* twelve months and is now a fail; a band that
+    // reaches past the bar with room either side is the case that survives.
+    expect(judgeBand(readDurationBand('0 - 1 Years', 'labelled'), 12).meets).toBe(false);
+    expect(judgeBand(readDurationBand('6 - 24 Months', 'labelled'), 12).meets).toBeNull();
+    expect(judgeBand(readDurationBand('6 - 24 Months', 'labelled'), 12).reason).toBe('straddles');
   });
 
   it('leaves money alone, because a bare amount there is genuine', () => {
@@ -210,13 +226,13 @@ describe('the form band values', () => {
     }
   });
 
-  it('refuses the band that contains the bar rather than picking a side', () => {
-    // 447 leads answer `6 - 12 months`. A business at eleven months misses the
-    // bar and one at twelve clears it, and the form does not say which. This is
-    // the residue that keeps the MQL coverage dependency open.
+  it('fails `6 - 12 months`, because the band above it starts at a year', () => {
+    // 447 leads answer this. It was read as a straddle and left them
+    // undeterminable; the bar is 12+ months and this option is the one below
+    // `1 - 3 Years`, so it is a plain fail.
     const verdict = judgeBand(readDurationBand('6 - 12 months', 'labelled'), bar, false);
-    expect(verdict.meets).toBeNull();
-    expect(verdict.reason).toBe('straddles');
+    expect(verdict.meets).toBe(false);
+    expect(verdict.reason).toBe('resolved');
   });
 
   it('refuses a test lead rather than reading it as a duration', () => {
