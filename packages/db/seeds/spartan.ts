@@ -213,12 +213,12 @@ export const spartan: TenantSeed = {
       description:
         'The calendar month the engagement begins, as YYYY-MM. M1 of the ' +
         'ramp in `engagement_targets` lands on it, and every later month ' +
-        'follows from it. Null until the contract is signed — and null is the ' +
-        'reason the executive hero shows actual cost per funded deal with no ' +
-        'target line today. It is not a date to guess: assuming the engagement ' +
-        'began when ingestion did would put M1 in June 2026 and report the ' +
-        'client as five months behind a curve nobody started.',
-      value: { month: null },
+        'follows from it; the six months before it are drawn as the baseline. ' +
+        'October 2026, recorded 23 September 2026. It is not a date to guess: ' +
+        'assuming the engagement began when ingestion did would have put M1 in ' +
+        'June 2026 and reported the client as behind a curve nobody started. ' +
+        'Change it with scripts/set-engagement-start.ts, not db:seed.',
+      value: { month: '2026-10' },
     },
     {
       key: 'min_rate_denominator',

@@ -193,6 +193,14 @@ secret (`67e4309c2482`, which still fails every credential).
   NEW/OLD and two settings, so what it refuses is unchanged, and maintenance
   gains no privilege. Covered by `member-writes.test.ts` ("admin recovery")
   and the mutation `own-row-guard-invoker`. Mutations 47/47.
+- **The ramp is on the calendar** (23 September 2026). M1 = October 2026 via
+  `scripts/set-engagement-start.ts` (dry run first; refuses to move a recorded
+  month without `--replace`). All six contracted metrics draw a six-month
+  baseline, the start marker, the Google Ads target and, as months finish, the
+  gap. Until October closes, no engagement month has a figure. See
+  `docs/brief-amendments.md`, "§12 — the ramp is drawn on the calendar once M1
+  is recorded".
+
 **Next:** nothing outstanding.
 
 

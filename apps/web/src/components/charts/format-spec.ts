@@ -48,3 +48,22 @@ export function formatter(spec: FormatSpec): (value: number) => string {
         }).format(value)}%`;
   }
 }
+
+/**
+ * The same values, short enough for a y-axis tick: `$320K`, `$1.2M`, `600`.
+ *
+ * Only for the axis. A 56-pixel gutter clips `$1,200,000` to `200,000`, which
+ * reads as a different number, and a clipped number is worse than a rounded
+ * one. The tooltip and the figures under the chart keep the full value.
+ */
+export function axisFormatter(spec: FormatSpec): (value: number) => string {
+  const full = formatter(spec);
+  if (spec.kind !== 'currency' && spec.kind !== 'count' && spec.kind !== 'projection') return full;
+  const compact = new Intl.NumberFormat('en-US', {
+    ...(spec.kind === 'currency' ? { style: 'currency', currency: spec.currency } : {}),
+    notation: 'compact',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+  return (value) => (Math.abs(value) >= 10_000 ? compact.format(value) : full(value));
+}

@@ -258,3 +258,171 @@ export function rampSeries(
     last: contractedValues.at(-1) ?? null,
   };
 }
+
+/* ------------------------------------------------------------------------- */
+/* The ramp on the calendar, once it has a start                             */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * One month's actual, as the screen read it.
+ *
+ * `value` null is "Not measured" and `reason` says why — no spend synced for
+ * the month, or too few deals for a cost per deal to mean anything. Never a
+ * zero: a month nobody measured is not a month that cost nothing.
+ */
+export type MonthActual = { value: number | null; reason: string | null };
+
+export type TimelinePhase = 'baseline' | 'engagement';
+
+/**
+ * - `complete`: a finished month with a figure.
+ * - `partial`: the month in progress with a figure, which is month-to-date
+ *   and is never compared against a monthly target.
+ * - `not_measured`: a month that has happened, with no figure.
+ * - `future`: a month that has not happened. Not "not measured", because
+ *   there is nothing yet to measure.
+ */
+export type TimelineStatus = 'complete' | 'partial' | 'not_measured' | 'future';
+
+export type TimelinePoint = {
+  month: MonthKey;
+  phase: TimelinePhase;
+  /** 1-based ramp month, or null for a baseline month. */
+  monthIndex: number | null;
+  /** The contracted figure, engagement months only. */
+  target: number | null;
+  /** The finished month's figure. Null for partial, unmeasured and future months. */
+  actual: number | null;
+  /** The month in progress, month to date. Null everywhere else. */
+  partial: number | null;
+  status: TimelineStatus;
+  /**
+   * The month in progress, whatever its status. A partial month with too few
+   * deals is `not_measured` *and* in progress, and says both.
+   */
+  inProgress: boolean;
+  /** Why a month that has happened has no figure. */
+  reason: string | null;
+  /** Finished engagement months with both halves, and nowhere else. */
+  gap: TargetGap | null;
+  /**
+   * Whether the gap is judged. False for a metric that declares no direction —
+   * spend over budget is a fact about pacing, not good or bad news — so its
+   * gap is stated as over or under and never coloured.
+   */
+  assessed: boolean;
+};
+
+export type RampTimeline = {
+  metric: RampMetricKey;
+  startMonth: MonthKey;
+  points: TimelinePoint[];
+  /** Finished engagement months with a gap, oldest first. */
+  finished: TimelinePoint[];
+  contracted: boolean;
+};
+
+/**
+ * The contracted curve on the calendar, with what came before it.
+ *
+ * Only callable with a start month, which is the reason `rampSeries` stays the
+ * M1–Mn shape: until the start is recorded the calendar has nowhere to put the
+ * commitment. Once it is, the baseline is the argument — the months before
+ * Zeeraa, on the same axis and by the same arithmetic, so the target is read
+ * against where the client actually was.
+ *
+ * `readActual` is asked for every month that has happened, and never for one
+ * that has not. The month in progress comes back as `partial`: a ramp
+ * contracts a monthly result, and three weeks of one is drawn apart and never
+ * assessed against it.
+ */
+export function rampTimeline(
+  targets: readonly RampTarget[],
+  metric: RampMetricKey,
+  options: {
+    startMonth: MonthKey;
+    /** Calendar months drawn before M1. */
+    baselineMonths: number;
+    /** The tenant's current `YYYY-MM`. */
+    currentMonth: MonthKey;
+    readActual: (month: MonthKey) => MonthActual;
+    direction?: ImprovementDirection | null;
+  },
+): RampTimeline {
+  const { startMonth, baselineMonths, currentMonth, readActual, direction = null } = options;
+  const ordered = [...targets].sort((a, b) => a.monthIndex - b.monthIndex);
+  const lastIndex = ordered.at(-1)?.monthIndex ?? 0;
+
+  const points: TimelinePoint[] = [];
+  for (let offset = -Math.max(0, baselineMonths); offset < lastIndex; offset += 1) {
+    const month = shiftMonth(startMonth, offset);
+    const monthIndex = offset >= 0 ? offset + 1 : null;
+    const row = monthIndex === null ? undefined : ordered.find((t) => t.monthIndex === monthIndex);
+    const raw = row?.[metric];
+    const target = raw === null || raw === undefined ? null : Number(raw);
+
+    let actual: number | null = null;
+    let partial: number | null = null;
+    let status: TimelineStatus = 'future';
+    let reason: string | null = null;
+
+    if (month <= currentMonth) {
+      const read = readActual(month);
+      if (read.value === null) {
+        status = 'not_measured';
+        reason = read.reason;
+      } else if (month === currentMonth) {
+        status = 'partial';
+        partial = read.value;
+      } else {
+        status = 'complete';
+        actual = read.value;
+      }
+    }
+
+    points.push({
+      month,
+      phase: monthIndex === null ? 'baseline' : 'engagement',
+      monthIndex,
+      target,
+      actual,
+      partial,
+      status,
+      inProgress: month === currentMonth,
+      reason,
+      gap:
+        status === 'complete' && target !== null
+          ? direction
+            ? gapToTarget(actual!, target, direction)
+            : unassessedGap(actual!, target)
+          : null,
+      assessed: direction !== null,
+    });
+  }
+
+  return {
+    metric,
+    startMonth,
+    points,
+    finished: points.filter((p) => p.gap !== null),
+    contracted: points.some((p) => p.target !== null),
+  };
+}
+
+/** The distance alone, for a metric with no declared direction. */
+function unassessedGap(actual: number, target: number): TargetGap {
+  return {
+    absolute: actual - target,
+    relative: target === 0 ? null : (actual - target) / Math.abs(target),
+    assessment: 'level',
+    target,
+    actual,
+  };
+}
+
+/** `YYYY-MM` moved by a signed number of months. */
+function shiftMonth(month: MonthKey, by: number): MonthKey {
+  const total = Number(month.slice(0, 4)) * 12 + (Number(month.slice(5, 7)) - 1) + by;
+  const year = Math.floor(total / 12);
+  return `${year}-${String((total % 12) + 1).padStart(2, '0')}`;
+}

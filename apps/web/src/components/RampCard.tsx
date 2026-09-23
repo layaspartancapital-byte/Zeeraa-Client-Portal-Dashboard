@@ -5,11 +5,14 @@ import {
   type ImprovementDirection,
   type RampMetricKey,
   type RampSeries,
+  type RampTimeline,
+  type TimelinePoint,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { RampChart } from '@/components/charts/RampChart';
+import { RampTimelineChart, type RampTimelineChartPoint } from '@/components/charts/RampTimelineChart';
 import type { FormatSpec } from '@/components/charts/format-spec';
 
 export type RampPanel = {
@@ -21,6 +24,15 @@ export type RampPanel = {
   direction: ImprovementDirection | null;
   /** What has to happen for this curve to exist, where it does not. */
   missing: string;
+  /**
+   * The same curve on the calendar, with the baseline before it — once the
+   * start month is recorded. Null keeps the panel on the M1–Mn axis.
+   */
+  timeline: RampTimeline | null;
+  /** The channel the model contracts this for, and the actual is scoped to. */
+  channel: string;
+  /** What the actual divides or counts, in words: stated under the title. */
+  basis: string;
 };
 
 /**
@@ -80,20 +92,29 @@ export function RampCard({
         }
         info={
           <InfoTip label="How the ramp is tracked" align="start">
-            The contract commits a figure for each month of the engagement, so
-            the axis is M1–M8 rather than a calendar. The actual is plotted only
-            once the start month is recorded, because nothing else says which
-            calendar month M1 is.
+            {startMonth === null
+              ? 'The contract commits a figure for each month of the engagement, so the axis is M1–M8 until the start month is recorded; nothing else says which calendar month M1 is.'
+              : `Each target is ${platformLabel} only, from the engagement model, and each actual is ${platformLabel}'s own spend and attributed deals. The six months before M1 are the baseline, measured the same way.`}
           </InfoTip>
         }
       />
 
+      {/*
+        On the calendar every contracted metric gets the full chart: the
+        baseline is the argument for each of them, and a one-line summary has
+        no baseline to show. Before the start month they stay compact, because
+        a curve with nothing against it is a large empty rectangle.
+      */}
       <div className="grid gap-px border-t border-border bg-border lg:grid-cols-2">
         <RampPanelBody panel={primary} startMonth={startMonth} />
         <RampPanelBody panel={secondary} startMonth={startMonth} />
+        {startMonth !== null &&
+          compact.map((panel) => (
+            <RampPanelBody key={panel.metric} panel={panel} startMonth={startMonth} />
+          ))}
       </div>
 
-      {compact.length > 0 && (
+      {startMonth === null && compact.length > 0 && (
         <CardBody className="border-t border-border pt-4">
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
             {compact.map((panel) => (
@@ -139,7 +160,10 @@ function RampPanelBody({ panel, startMonth }: { panel: RampPanel; startMonth: st
   return (
     <section className="flex min-w-0 flex-col gap-2 bg-surface px-5 py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-[13px] font-semibold text-text">{panel.label}</h3>
+        <h3 className="text-[13px] font-semibold text-text">
+          {panel.label}
+          {panel.timeline && <span className="font-normal text-text-2"> · {panel.channel}</span>}
+        </h3>
         {series.contracted ? (
           <p className="text-[12px] tabular text-text-3">
             <CurveSummary panel={panel} />
@@ -148,9 +172,12 @@ function RampPanelBody({ panel, startMonth }: { panel: RampPanel; startMonth: st
           <Badge tone="warn">Not recorded</Badge>
         )}
       </div>
+      {panel.timeline && <p className="-mt-1 text-[12px] leading-snug text-text-3">{panel.basis}</p>}
 
       {!series.contracted ? (
         <p className="text-[13px] leading-snug text-text-3">{panel.missing}</p>
+      ) : panel.timeline ? (
+        <TimelineBody panel={panel} timeline={panel.timeline} />
       ) : (
         <>
           <RampChart
@@ -188,6 +215,139 @@ function RampPanelBody({ panel, startMonth }: { panel: RampPanel; startMonth: st
       )}
     </section>
   );
+}
+
+/**
+ * The calendar ramp: the chart, the months with no figure named in one line,
+ * and the gap for each finished month.
+ *
+ * The gap is written out rather than left to the bars, with its arrow and its
+ * sign, because a delta is never colour alone.
+ */
+function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTimeline }) {
+  const render = renderer(panel);
+  // Whole dollars on a gap: "$922.68 under" is precision the monthly target
+  // does not have.
+  const money = panel.format.kind === 'currency';
+  const unmeasured = groupReasons(timeline.points.filter((p) => p.status === 'not_measured'));
+  const inProgressUnmeasured = timeline.points.find(
+    (p) => p.inProgress && p.status === 'not_measured',
+  );
+  const partial = timeline.points.find((p) => p.status === 'partial');
+
+  return (
+    <>
+      <RampTimelineChart
+        id={`ramp-timeline-${panel.metric}`}
+        points={timeline.points.map((p, i) => chartPoint(p, timeline.points[i - 1]))}
+        format={panel.format}
+        channel={panel.channel}
+        caption={panel.label}
+        height={panel.metric === 'costPerFundedDeal' || panel.metric === 'cpa' ? 232 : 208}
+      />
+
+      {timeline.finished.length === 0 ? (
+        <p className="text-[12px] leading-snug text-text-3">
+          No engagement month has finished yet · M1 is {monthName(timeline.startMonth)}.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] tabular text-text-2">
+          {timeline.finished.map((p) => {
+            const gap = p.gap!;
+            const arrow = gap.absolute > 0 ? '↑' : gap.absolute < 0 ? '↓' : '→';
+            const sign = gap.absolute > 0 ? '+' : gap.absolute < 0 ? '−' : '';
+            const tone = !p.assessed
+              ? 'text-text-2'
+              : gap.assessment === 'ahead'
+                ? 'text-up-text'
+                : gap.assessment === 'shortfall'
+                  ? 'text-down-text'
+                  : 'text-text-2';
+            const word = !p.assessed
+              ? gap.absolute > 0
+                ? 'over'
+                : gap.absolute < 0
+                  ? 'under'
+                  : 'on target'
+              : gap.assessment === 'ahead'
+                ? 'ahead'
+                : gap.assessment === 'shortfall'
+                  ? 'behind'
+                  : 'on target';
+            return (
+              <li key={p.month}>
+                M{p.monthIndex} {render(gap.actual)} vs {render(gap.target)}{' '}
+                <span className={tone}>
+                  {arrow} {sign}
+                  {render(money ? Math.round(Math.abs(gap.absolute)) : Math.abs(gap.absolute))} {word}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {partial && (
+        <p className="text-[12px] leading-snug text-text-3">
+          {monthName(partial.month)} is partial, month to date, and is not compared with a target.
+        </p>
+      )}
+      {unmeasured.map(({ months, reason }) => (
+        <p key={reason} className="flex flex-wrap items-center gap-1.5 text-[12px] leading-snug text-text-3">
+          <Badge tone="warn">Not measured</Badge>
+          <span>
+            {months
+              .map((m) => (m === inProgressUnmeasured?.month ? `${shortMonth(m)} (partial, to date)` : shortMonth(m)))
+              .join(', ')}{' '}
+            · {reason}
+          </span>
+        </p>
+      ))}
+    </>
+  );
+}
+
+function chartPoint(p: TimelinePoint, previous: TimelinePoint | undefined): RampTimelineChartPoint {
+  const [year, m] = p.month.split('-');
+  // The year on the first tick only: `Jan ’27` is wide enough that the axis
+  // drops it at 1440, and the tooltip carries the full date.
+  const yearTurns = !previous;
+  return {
+    key: p.month,
+    label: yearTurns ? `${shortMonth(p.month)} ’${year!.slice(2)}` : shortMonth(p.month),
+    title:
+      p.monthIndex === null
+        ? `${monthName(p.month)} · baseline${p.inProgress ? ' · partial' : ''}`
+        : `M${p.monthIndex} · ${monthName(p.month)}${p.inProgress ? ' · partial' : ''}`,
+    phase: p.phase,
+    target: p.target,
+    actual: p.actual,
+    partial: p.partial,
+    status: p.status,
+    inProgress: p.inProgress,
+    reason: p.reason,
+    gap: p.gap ? { absolute: p.gap.absolute, assessment: p.gap.assessment } : null,
+    assessed: p.assessed,
+  };
+}
+
+/** Months sharing a reason, so the line says it once. */
+function groupReasons(points: TimelinePoint[]): { months: string[]; reason: string }[] {
+  const groups = new Map<string, string[]>();
+  for (const p of points) {
+    const reason = p.reason ?? 'No figure for this month.';
+    groups.set(reason, [...(groups.get(reason) ?? []), p.month]);
+  }
+  return [...groups].map(([reason, months]) => ({ reason, months }));
+}
+
+/** `Oct`, from `2026-10`. */
+function shortMonth(month: string): string {
+  const [year, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(year!, m! - 1, 1)).toLocaleDateString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
 }
 
 /**

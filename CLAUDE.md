@@ -112,15 +112,18 @@ commit history and get it wrong.
   a new cost metric cannot render green as it rises. A screen never states a
   direction — `apps/web/test/metric-direction-usage.test.ts` reads the sources
   and fails if one does.
-- **A contracted curve is plotted against ramp month, never against a
-  calendar.** The contract says what M3 costs; it does not say when M3 is, and
-  `engagement_start_month` is a separate config row that may be unset. Drawing
-  the commitment on a calendar axis makes it undrawable until somebody records
-  the start — so `rampSeries` in `packages/core` pairs M1–Mn with the actuals
-  and never asks for an actual while the start month is null. **A ramp actual is
-  a completed calendar month**, gated on its own denominator like any other
-  ratio: a month in progress is on the month-to-date cards, not on a curve of
-  monthly results.
+- **A contracted curve is plotted against ramp month until the start month is
+  recorded, and on the calendar after.** The contract says what M3 costs; it
+  does not say when M3 is, and `engagement_start_month` may be unset — so
+  `rampSeries` in `packages/core` pairs M1–Mn with the actuals and never asks
+  for an actual while the start month is null. Once it is set, `rampTimeline`
+  draws the six months before M1 as the baseline, the start as a marker, and
+  the targets on their calendar months (reversed 23 September 2026; see
+  `docs/brief-amendments.md`). **A ramp actual is a completed calendar month**,
+  gated on its own denominator like any other ratio; the month in progress is
+  drawn apart as partial and never compared with a monthly target, and a
+  month with no figure is `Not measured` with its reason, never a zero. Each
+  ramp chart names the channel its target is contracted for.
 - **A ratio has a minimum population, and the metric declares it.** Whether a
   formula means anything below a population is a property of the formula, so it
   is declared in `packages/core/src/population.ts` keyed on `formula_key`,

@@ -3063,3 +3063,53 @@ minutes 3.4% → 3.6% over 670 leads. The median falls by a factor of three to
 five, but the five-minute share barely moves: 3,327 of 4,015 waits ran through
 closed hours, and only 144 leads were rung before the clock started. Even on
 the desk's own hours, very few leads get a call within five minutes.
+
+## §12 — the ramp is drawn on the calendar once M1 is recorded
+
+Requested 23 September 2026, with M1 recorded as **October 2026**. This reverses
+the rule that a contracted curve is never plotted against a calendar. That rule
+existed because the start month could be unset, and a curve drawn on a calendar
+axis could not be drawn at all until somebody recorded it. That is still true
+before the start is recorded, and `rampSeries` still draws M1–M8 then. Once the
+start is recorded, the calendar axis is drawable, and it carries the argument
+the M-axis could not: where the client was before Zeeraa.
+
+`rampTimeline` in `packages/core/src/ramp.ts` produces, per contracted metric:
+
+- **Baseline · before Zeeraa**: the six calendar months before M1, measured by
+  the same arithmetic as the engagement months, as a solid line. Six fit
+  fourteen months on a phone. Spend is synced only from June 2026, so April and
+  May read Not measured on the spend-based panels.
+- **Engagement starts**: a marker on the boundary of M1.
+- **Target**: M1–M8 from the engagement model, dashed with hollow dots and
+  labelled on the line.
+- **Finished months**: the actual, solid, with a bar from actual to target and
+  a signed, arrowed gap under the chart. Green and red come from the metric's
+  declared direction. Budget declares none, so its gap reads over or under and
+  is never coloured.
+- **The month in progress**: a hollow dot on a dotted link, never joined to the
+  line and never compared with a monthly target.
+- **A month with no figure**: an amber hatch, and a `Not measured` line naming
+  the months and the reason (spend not synced, Salesforce not synced, or the
+  population floor). Never a zero. A count in a synced month is a measurement
+  even at zero.
+
+Measured and contracted are told apart by line style, marker and on-chart
+label, not by colour.
+
+**Every target is Google Ads only, and so is every actual.** The model is
+"SpartanCapital Google Ads Budget Projection for 8 Months": budget is Google Ads
+spend, CPA is that budget over approvals, CPF is budget over funded deals, and
+funded amount is funded deals at the model's average deal size. The actuals take
+the ramp channel's own spend and its own attributed approvals, funded deals and
+funded volume. A deal is attributed to Google Ads by its gclid, which Salesforce
+keeps, so the pre-June baseline months are real counts even though click-level
+data starts on 20 June. Each chart's title, target line, key and basis line name
+the channel from the ramp's platform, not from code.
+
+One inconsistency in the model is recorded, not corrected: M1's Funded Amount is
+$80,000 with an average deal size of 0, where 7.5 deals at the $20,000 used from
+M2 on would be $150,000. The target is the model's figure.
+
+Pacing no longer says a month before the start "falls outside the contracted
+ramp". It says the engagement has not started.

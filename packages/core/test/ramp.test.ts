@@ -4,6 +4,7 @@ import {
   monthKeyOf,
   rampMonthIndex,
   rampMonthKey,
+  rampTimeline,
   seriesTrend,
   targetForMonth,
   type RampTarget,
@@ -154,5 +155,94 @@ describe('seriesTrend', () => {
 describe('monthKeyOf', () => {
   it('takes the month a tenant-local day falls in', () => {
     expect(monthKeyOf('2026-09-21')).toBe('2026-09');
+  });
+});
+
+describe('rampTimeline', () => {
+  const measured: Record<string, number | null> = {
+    '2026-06': null,
+    '2026-07': 5200,
+    '2026-08': 4800,
+    '2026-09': 4100,
+    '2026-10': 4300,
+    '2026-11': 3500,
+  };
+  const readActual = (month: string) => {
+    const value = measured[month] ?? null;
+    return { value, reason: value === null ? 'fewer than 3 funded deals' : null };
+  };
+
+  const before = rampTimeline(RAMP, 'costPerFundedDeal', {
+    startMonth: '2026-10',
+    baselineMonths: 4,
+    currentMonth: '2026-09',
+    readActual,
+    direction: 'down',
+  });
+
+  it('draws the baseline months before M1, then the eight contracted months', () => {
+    expect(before.points.map((p) => p.month)).toEqual([
+      '2026-06', '2026-07', '2026-08', '2026-09',
+      '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05',
+    ]);
+    expect(before.points.slice(0, 4).every((p) => p.phase === 'baseline' && p.target === null)).toBe(true);
+    expect(before.points[4]).toMatchObject({ phase: 'engagement', monthIndex: 1, target: 4000 });
+  });
+
+  it('marks a thin baseline month not measured, with its reason, never zero', () => {
+    expect(before.points[0]).toMatchObject({
+      status: 'not_measured',
+      actual: null,
+      reason: 'fewer than 3 funded deals',
+    });
+  });
+
+  it('draws the month in progress as partial, apart from the finished months', () => {
+    expect(before.points[3]).toMatchObject({ status: 'partial', actual: null, partial: 4100 });
+  });
+
+  it('does not ask for a month that has not happened', () => {
+    const asked: string[] = [];
+    rampTimeline(RAMP, 'costPerFundedDeal', {
+      startMonth: '2026-10',
+      baselineMonths: 2,
+      currentMonth: '2026-09',
+      readActual: (month) => (asked.push(month), { value: 1, reason: null }),
+    });
+    expect(asked).toEqual(['2026-08', '2026-09']);
+    expect(before.points.slice(4).every((p) => p.status === 'future')).toBe(true);
+    expect(before.finished).toEqual([]);
+  });
+
+  it('gives each finished engagement month its gap, and the partial month none', () => {
+    const later = rampTimeline(RAMP, 'costPerFundedDeal', {
+      startMonth: '2026-10',
+      baselineMonths: 4,
+      currentMonth: '2026-12',
+      readActual,
+      direction: 'down',
+    });
+    expect(later.finished.map((p) => p.monthIndex)).toEqual([1, 2]);
+    // M1: $4,300 against $4,000 is behind; M2: $3,500 against $3,680 is ahead.
+    expect(later.finished[0]!.gap).toMatchObject({ absolute: 300, assessment: 'shortfall' });
+    expect(later.finished[1]!.gap).toMatchObject({ absolute: -180, assessment: 'ahead' });
+    // December is in progress with no figure yet.
+    expect(later.points.find((p) => p.month === '2026-12')).toMatchObject({ status: 'not_measured', gap: null });
+  });
+
+  it('states a gap without judging it where the metric declares no direction', () => {
+    const budget = rampTimeline(RAMP, 'budget', {
+      startMonth: '2026-10',
+      baselineMonths: 0,
+      currentMonth: '2026-11',
+      readActual: () => ({ value: 31_500, reason: null }),
+      direction: null,
+    });
+    expect(budget.finished[0]).toMatchObject({ assessed: false });
+    expect(budget.finished[0]!.gap).toMatchObject({ absolute: 1_500, assessment: 'level' });
+  });
+
+  it('never assesses a baseline month against a target', () => {
+    expect(before.points.filter((p) => p.phase === 'baseline').every((p) => p.gap === null)).toBe(true);
   });
 });
