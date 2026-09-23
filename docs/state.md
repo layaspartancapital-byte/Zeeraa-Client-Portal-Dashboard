@@ -213,16 +213,19 @@ secret (`67e4309c2482`, which still fails every credential).
   (`baseline_snapshots`, 0032) — June–August frozen, September freezes itself
   on 5 October if clean (`baseline_freeze`). Scripts: `repull`, `reconcile`,
   `freeze-baseline`, `load-config-row`. Mutations 53/53.
-- **The Vercel cron barely fires.** Three `cron-hourly` runs in eight days
-  (18 and 22 September); `/api/cron/sync` answers 404 to an unauthenticated
-  GET, so `CRON_SECRET` is set and the route is healthy — the schedule is not
-  invoking it. Check the project's Cron Jobs page (enabled? plan?) in Vercel.
-  Until then the sources are kept current by manual runs; the nightly and
-  reconciliation routes are daily, which every plan allows.
+- **The crons never registered, and preflight never ran on Vercel — fixed
+  23 September 2026.** Vercel's Cron Jobs page showed no jobs: the project's
+  Root Directory is `apps/web`, and `vercel.json` sat at the repository root,
+  where Vercel does not look. Every "verified" claim about it below (the
+  hourly cron of 18 September, preflight on every deploy of 22 September) was
+  true only locally. The file is now `apps/web/vercel.json`, without the
+  `comment` keys Vercel's strict schema would reject, and
+  `apps/web/test/vercel-config.test.ts` pins its place and contents. The three
+  cron runs recorded on 18 and 22 September were manual invocations.
 
-**Next:** confirm the Vercel cron is enabled and firing (the first nightly and
-reconciliation runs should appear in `sync_runs` and `reconciliation_checks`
-the morning after deploy).
+**Next:** confirm the three crons appear on Vercel's Cron Jobs page, then that
+`cron-hourly` runs appear in `sync_runs` on the hour and the first nightly
+(07:00 UTC) and reconciliation (08:00 UTC) runs land.
 
 
 
@@ -387,7 +390,7 @@ does locally. `scripts/migrate.ts` has no way to name a role, and setting
 `role` as a postgres.js startup parameter does not work — it was tried and the
 session still reported `neondb_owner`.
 
-**Preflight runs on every deploy as of 22 September 2026.** `vercel.json`
+**Preflight runs on every deploy — in fact only from 23 September 2026, when `vercel.json` moved to `apps/web/` (see above).** `vercel.json`
 carries a `buildCommand`:
 
 ```

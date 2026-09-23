@@ -205,7 +205,12 @@ commit history and get it wrong.
   parameter and a managed Postgres has none, so it does not deploy. See
   `docs/brief-amendments.md`, "§5 and §12 — the policy helpers no longer
   elevate".
-- **The deploy runs `preflight`**, from `buildCommand` in `vercel.json`: row
+- **`vercel.json` lives in `apps/web/`**, the Vercel project's Root Directory.
+  Vercel reads nothing above it: at the repository root the crons never
+  registered and preflight never ran on a deploy, while both looked verified
+  locally. Its schema is strict — an unknown key (a `comment`) fails the
+  deploy. `apps/web/test/vercel-config.test.ts` holds all three.
+- **The deploy runs `preflight`**, from `buildCommand` in `apps/web/vercel.json`: row
   level security enforced for the runtime role, tenant context transaction-local,
   and no `app.*` function or `public` table owned by a role that can bypass row
   level security. It exits non-zero and `&&` stops the build, so a database that
