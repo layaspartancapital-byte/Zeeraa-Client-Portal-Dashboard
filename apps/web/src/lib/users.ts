@@ -87,6 +87,17 @@ function assertMayGrant(session: TenantSession, role: Role): void {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** The refusal raised by the last-Zeeraa-admin triggers, through any wrappers. */
+function isLastZeeraaAdmin(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && depth < 5; depth += 1) {
+    if (typeof e === 'object' && 'message' in e && /last Zeeraa admin/.test(String((e as { message?: unknown }).message))) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * A Postgres unique-violation, through however many wrappers drizzle and
  * postgres.js have put around it. The code is on the original error, which
@@ -304,7 +315,17 @@ export async function revokeMembership(
         ),
       )
       .returning({ userId: schema.memberships.userId }),
-  );
+  ).catch((error: unknown) => {
+    // `memberships_protect_last_zeeraa_admin` (0027): a tenant always keeps
+    // one Zeeraa admin, or nobody can administer it.
+    if (isLastZeeraaAdmin(error)) {
+      throw new UserAdminError(
+        'This is the last Zeeraa admin on this engagement. Grant another Zeeraa admin access first.',
+        409,
+      );
+    }
+    throw error;
+  });
   if (removed.length === 0) throw new UserAdminError('No such person in this engagement.', 404);
 
   // Only if this was their last engagement. Somebody who still holds another

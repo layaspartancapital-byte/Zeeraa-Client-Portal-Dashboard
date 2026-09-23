@@ -33,10 +33,19 @@
   scope assertions to the fixture's own tenants.
 - **A Zeeraa admin needs a membership row per tenant.** No blanket grant by
   role: access has to be answerable from `memberships`, and revocable there.
-- **A client admin may never grant a Zeeraa role.** `zeeraa_admin` and
-  `zeeraa_member` are the roles `canSwitchTenant` lets out of the tenant, so a
-  client admin able to grant one could mint an account that reads every other
-  client. Enforced in `memberships_admin_write`, not by the role picker.
+- **Only a Zeeraa admin administers accounts.** Creating an account,
+  granting or removing access, resetting a password and finding an unattached
+  account all require `zeeraa_admin` in the current tenant — in
+  `canManageUsers`, in every People server action, and in the account policies
+  of migration 0027, which are what hold without the application. A client
+  admin could once reset the password of a Zeeraa admin who shared their
+  tenant, and be handed it; `apps/web/test/people-guard.test.ts` and
+  `packages/db/test/account-admin.test.ts` keep that shut.
+- **A tenant always keeps one Zeeraa admin.** `memberships_protect_last_zeeraa_admin`
+  refuses removing the last one — by membership, by account deletion, or in a
+  single statement removing several — for every role, maintenance included.
+  Deleting the tenant itself is allowed; `app.tenant_index` is how the trigger
+  tells the two apart.
 - **`memberships` is not updatable from the application except for the two
   notification columns.** Row level security cannot restrict columns, so the
   column grant does it: `memberships_update_own` would otherwise let anybody

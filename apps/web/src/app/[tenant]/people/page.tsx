@@ -29,9 +29,11 @@ export const metadata = { title: 'People' };
  * shown again, and offers a reset rather than a recovery, because a recovery
  * flow needs a mailbox nobody here is sending to.
  *
- * A client admin sees the same screen as a Zeeraa admin, minus the Zeeraa roles
- * in the role picker. The picker is presentation; `memberships_admin_write` is
- * what actually refuses.
+ * **Zeeraa admins only** (23 September 2026). A client admin is refused by
+ * `requireRole(slug, canManageUsers)` on the page and again in every server
+ * action below — each one re-checks, because an action is a POST endpoint that
+ * can be called without the page — and by the account policies of migration
+ * 0027, which are what hold when the application is not in the way.
  */
 /**
  * Re-renders the page with a message.

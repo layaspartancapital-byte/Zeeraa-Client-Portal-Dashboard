@@ -154,7 +154,22 @@ secret (`67e4309c2482`, which still fails every credential).
   September against a Salesforce copy last synced 18 September, Search Console
   published through 20 September and Google Ads synced that day.
 
-**Next:** nothing outstanding from the 23 September brief.
+- **People is Zeeraa-admin-only** (migration 0027). A client admin could reset
+  a Zeeraa admin's password and be handed it — now refused in `canManageUsers`,
+  in every People action, and in the account policies. The last Zeeraa admin
+  of a tenant cannot be removed (trigger, with `app.tenant_index` so deleting a
+  tenant still works). 0027 mutations: client-admin grant, remove, reset,
+  create, and the dropped last-admin trigger.
+- **Audit, reported and not acted on:** every tenant data table's
+  `tenant_isolation` policy is FOR ALL with the tenant check only, so at the
+  database any member — client viewer included — may write that tenant's
+  connections, config, targets, reconciliation items and CRM rows. No
+  application path exposes it. Also `users_update_self` lets a user write their
+  own email and clear `must_change_password` directly. Awaiting the client's
+  decision.
+
+**Next:** the client's decision on the audit findings above.
+
 
 ## Cost per funded deal — Google Ads, trailing 90 days
 

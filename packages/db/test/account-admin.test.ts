@@ -1,19 +1,22 @@
 /**
- * The policies behind account administration (migration 0017).
+ * The policies behind account administration (migrations 0017, 0019, 0027).
  *
- * Three things have to hold, and the application cannot be what makes them
- * hold — the role checks in `lib/users.ts` produce a readable error and are
- * deleted by any attacker who is not using the application:
+ * Account administration is a Zeeraa admin's alone (0027). The application's
+ * `canManageUsers` produces a readable error; these are what hold when
+ * somebody calls the database without it:
  *
- *   1. a client admin may add people to their own engagement and to no other;
- *   2. a client admin may not mint a Zeeraa role, which would escape the tenant;
- *   3. nobody may promote themselves by updating their own membership row.
+ *   1. a client admin can create, grant, remove, reset and look up nothing —
+ *      in particular they cannot reset a Zeeraa admin's password, which would
+ *      hand them an account that reaches every client;
+ *   2. a Zeeraa admin can do all of it, in the tenant they are working in;
+ *   3. nobody may promote themselves by updating their own membership row;
+ *   4. a tenant always keeps one Zeeraa admin.
  *
  * Every assertion is scoped to the fixture's own tenants: these run against the
  * same Postgres as every other suite.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { withTenant, withUserOnly } from '../src/tenant-context';
 import * as schema from '../src/schema/index';
 import { appClient, asOwner, cleanup, failure, ownerClient, seedTwoTenants, type Fixture } from './fixtures';
@@ -42,11 +45,86 @@ afterAll(async () => {
 });
 
 const ctx = () => ({ tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' as const });
+const zeeraa = () => ({ tenantId: fx.tenantA, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' as const });
 
-describe('a client admin granting access', () => {
-  it('may add somebody to their own tenant as a client role', async () => {
+describe('a client admin, calling the database directly', () => {
+  it('cannot grant access to anybody, at any role', async () => {
+    for (const role of ['client_viewer', 'client_admin', 'zeeraa_member', 'zeeraa_admin'] as const) {
+      const error = await failure(() =>
+        withTenant(
+          ctx(),
+          (tx) => tx.insert(schema.memberships).values({ userId: outsiderId, tenantId: fx.tenantA, role }),
+          app.db,
+        ),
+      );
+      expect(error.code).toBe('42501');
+    }
+  });
+
+  it('cannot remove anybody — a client member or a Zeeraa admin', async () => {
+    for (const target of [fx.zeeraaAdmin, fx.zeeraaAdminAOnly]) {
+      const removed = await withTenant(
+        ctx(),
+        (tx) =>
+          tx
+            .delete(schema.memberships)
+            .where(and(eq(schema.memberships.userId, target), eq(schema.memberships.tenantId, fx.tenantA)))
+            .returning(),
+        app.db,
+      );
+      expect(removed).toHaveLength(0);
+    }
+    const survivors = await asOwner(owner.db, (tx) =>
+      tx.select().from(schema.memberships).where(eq(schema.memberships.tenantId, fx.tenantA)),
+    );
+    expect(survivors.map((m) => m.userId)).toEqual(
+      expect.arrayContaining([fx.zeeraaAdmin, fx.zeeraaAdminAOnly]),
+    );
+  });
+
+  it("cannot reset a Zeeraa admin's password — the escalation 0027 closes", async () => {
     const rows = await withTenant(
       ctx(),
+      (tx) =>
+        tx
+          .update(schema.users)
+          .set({ passwordHash: 'attacker-chosen', mustChangePassword: true })
+          .where(eq(schema.users.id, fx.zeeraaAdmin))
+          .returning({ id: schema.users.id }),
+      app.db,
+    );
+    expect(rows).toHaveLength(0);
+    const [victim] = await asOwner(owner.db, (tx) =>
+      tx.select({ hash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, fx.zeeraaAdmin)),
+    );
+    expect(victim?.hash).not.toBe('attacker-chosen');
+  });
+
+  it('cannot create an account', async () => {
+    const error = await failure(() =>
+      withTenant(
+        ctx(),
+        (tx) => tx.insert(schema.users).values({ email: `ca-made-${Date.now()}@example.test`, name: 'No' }),
+        app.db,
+      ),
+    );
+    expect(error.code).toBe('42501');
+  });
+
+  it('cannot look up an account attached to no engagement', async () => {
+    const visible = await withTenant(
+      ctx(),
+      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, outsiderId)),
+      app.db,
+    );
+    expect(visible).toHaveLength(0);
+  });
+});
+
+describe('a Zeeraa admin', () => {
+  it('may grant access at any role, and remove it again', async () => {
+    const rows = await withTenant(
+      zeeraa(),
       (tx) =>
         tx
           .insert(schema.memberships)
@@ -55,69 +133,147 @@ describe('a client admin granting access', () => {
       app.db,
     );
     expect(rows).toHaveLength(1);
-
-    await asOwner(owner.db, (tx) =>
-      tx
-        .delete(schema.memberships)
-        .where(
-          and(
-            eq(schema.memberships.userId, outsiderId),
-            eq(schema.memberships.tenantId, fx.tenantA),
-          ),
-        ),
+    const removed = await withTenant(
+      zeeraa(),
+      (tx) =>
+        tx
+          .delete(schema.memberships)
+          .where(and(eq(schema.memberships.userId, outsiderId), eq(schema.memberships.tenantId, fx.tenantA)))
+          .returning(),
+      app.db,
     );
+    expect(removed).toHaveLength(1);
   });
 
-  it('may not mint a Zeeraa role, which would escape the tenant', async () => {
-    // The escalation this policy exists to stop: zeeraa_member is a role
-    // `canSwitchTenant` lets out of this engagement entirely, so a client admin
-    // able to grant one could read every other client in the system.
-    for (const role of ['zeeraa_admin', 'zeeraa_member'] as const) {
-      const error = await failure(() =>
-        withTenant(
-          ctx(),
-          (tx) =>
-            tx
-              .insert(schema.memberships)
-              .values({ userId: outsiderId, tenantId: fx.tenantA, role }),
-          app.db,
-        ),
-      );
-      expect(error.code).toBe('42501');
-    }
-  });
-
-  it('may not add anybody to another tenant', async () => {
+  it('may not grant access to a tenant other than the one in context', async () => {
     const error = await failure(() =>
       withTenant(
-        ctx(),
+        zeeraa(),
         (tx) =>
-          tx
-            .insert(schema.memberships)
-            .values({ userId: outsiderId, tenantId: fx.tenantB, role: 'client_viewer' }),
+          tx.insert(schema.memberships).values({ userId: outsiderId, tenantId: fx.tenantB, role: 'client_viewer' }),
         app.db,
       ),
     );
     expect(error.code).toBe('42501');
   });
 
-  it('may not remove somebody from another tenant', async () => {
+  it('may reset a password in the tenant, and not outside it', async () => {
+    const inside = await withTenant(
+      zeeraa(),
+      (tx) =>
+        tx
+          .update(schema.users)
+          .set({ mustChangePassword: true })
+          .where(eq(schema.users.id, fx.clientAdminA))
+          .returning({ id: schema.users.id }),
+      app.db,
+    );
+    expect(inside).toHaveLength(1);
+    const outside = await withTenant(
+      zeeraa(),
+      (tx) =>
+        tx
+          .update(schema.users)
+          .set({ passwordHash: 'attacker-chosen' })
+          .where(eq(schema.users.id, fx.clientViewerB))
+          .returning({ id: schema.users.id }),
+      app.db,
+    );
+    expect(outside).toHaveLength(0);
+  });
+
+  it('may create an account, and see it before it has any membership', async () => {
+    const email = `za-made-${Date.now()}@example.test`;
+    await withTenant(zeeraa(), (tx) => tx.insert(schema.users).values({ email, name: 'Made' }), app.db);
+    const [row] = await asOwner(owner.db, (tx) =>
+      tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.email, email)),
+    );
+    expect(row).toBeDefined();
+    const visible = await withTenant(
+      zeeraa(),
+      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, row!.id)),
+      app.db,
+    );
+    expect(visible).toHaveLength(1);
+    await asOwner(owner.db, (tx) => tx.delete(schema.users).where(eq(schema.users.id, row!.id)));
+  });
+
+  it("sees an unattached account but not another engagement's roster", async () => {
+    const all = await withTenant(zeeraa(), (tx) => tx.select().from(schema.users), app.db);
+    const ids = all.map((u) => u.id);
+    expect(ids).toContain(outsiderId);
+    expect(ids).not.toContain(fx.clientViewerB);
+  });
+});
+
+describe('the last Zeeraa admin of a tenant', () => {
+  // Tenant B's only Zeeraa admin is `fx.zeeraaAdmin`; tenant A has two.
+  const ctxB = () => ({ tenantId: fx.tenantB, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' as const });
+
+  it('cannot have their membership removed, by anybody', async () => {
+    const error = await failure(() =>
+      withTenant(
+        ctxB(),
+        (tx) =>
+          tx
+            .delete(schema.memberships)
+            .where(and(eq(schema.memberships.userId, fx.zeeraaAdmin), eq(schema.memberships.tenantId, fx.tenantB))),
+        app.db,
+      ),
+    );
+    expect(error.message).toMatch(/last Zeeraa admin/);
+
+    // Not by a maintenance session either: this is a trigger, not a policy.
+    const maint = await failure(() =>
+      asOwner(owner.db, (tx) =>
+        tx
+          .delete(schema.memberships)
+          .where(and(eq(schema.memberships.userId, fx.zeeraaAdmin), eq(schema.memberships.tenantId, fx.tenantB))),
+      ),
+    );
+    expect(maint.message).toMatch(/last Zeeraa admin/);
+  });
+
+  it('cannot be deleted as an account', async () => {
+    const error = await failure(() =>
+      asOwner(owner.db, (tx) => tx.delete(schema.users).where(eq(schema.users.id, fx.zeeraaAdmin))),
+    );
+    expect(error.message).toMatch(/last Zeeraa admin/);
+  });
+
+  it('can be removed where another Zeeraa admin remains', async () => {
+    // Tenant A keeps `zeeraaAdminAOnly`. Removed and restored.
     const removed = await withTenant(
-      ctx(),
+      zeeraa(),
       (tx) =>
         tx
           .delete(schema.memberships)
-          .where(eq(schema.memberships.tenantId, fx.tenantB))
+          .where(and(eq(schema.memberships.userId, fx.zeeraaAdmin), eq(schema.memberships.tenantId, fx.tenantA)))
           .returning(),
       app.db,
     );
-    expect(removed).toHaveLength(0);
-
-    // And tenant B still has its people.
-    const survivors = await asOwner(owner.db, (tx) =>
-      tx.select().from(schema.memberships).where(eq(schema.memberships.tenantId, fx.tenantB)),
+    expect(removed).toHaveLength(1);
+    await asOwner(owner.db, (tx) =>
+      tx.insert(schema.memberships).values({ userId: fx.zeeraaAdmin, tenantId: fx.tenantA, role: 'zeeraa_admin' }),
     );
-    expect(survivors.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a single statement that removes every Zeeraa admin at once', async () => {
+    const error = await failure(() =>
+      asOwner(owner.db, (tx) =>
+        tx
+          .delete(schema.memberships)
+          .where(and(eq(schema.memberships.tenantId, fx.tenantA), eq(schema.memberships.role, 'zeeraa_admin'))),
+      ),
+    );
+    expect(error.message).toMatch(/last Zeeraa admin/);
+    const left = await asOwner(owner.db, (tx) =>
+      tx
+        .select()
+        .from(schema.memberships)
+        .where(and(eq(schema.memberships.tenantId, fx.tenantA), eq(schema.memberships.role, 'zeeraa_admin'))),
+    );
+    expect(left).toHaveLength(2);
   });
 });
 
@@ -182,191 +338,6 @@ describe('self-promotion through the membership row', () => {
       app.db,
     );
     expect(rows[0]?.pref).toBe('digest');
-  });
-});
-
-describe('creating an account', () => {
-  const created: string[] = [];
-  afterAll(async () => {
-    if (created.length > 0) {
-      await asOwner(owner.db, (tx) =>
-        tx.delete(schema.users).where(inArray(schema.users.id, created)),
-      );
-    }
-  });
-
-  it('is permitted to an admin and refused to a viewer', async () => {
-    const email = `made-${Date.now()}@example.test`;
-    await withTenant(
-      ctx(),
-      (tx) => tx.insert(schema.users).values({ email, name: 'Made By Admin' }),
-      app.db,
-    );
-    const [row] = await asOwner(owner.db, (tx) =>
-      tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.email, email)),
-    );
-    expect(row).toBeDefined();
-    created.push(row!.id);
-
-    const error = await failure(() =>
-      withTenant(
-        { tenantId: fx.tenantB, userId: fx.clientViewerB, role: 'client_viewer' },
-        (tx) =>
-          tx
-            .insert(schema.users)
-            .values({ email: `denied-${Date.now()}@example.test`, name: 'Denied' }),
-        app.db,
-      ),
-    );
-    expect(error.code).toBe('42501');
-  });
-
-  it('is visible to the admin who created it, before any membership', async () => {
-    // This used to assert the opposite, and the opposite was the bug: an
-    // account sharing no tenant with anybody was invisible to every admin, so
-    // removing a membership made the person unreachable. 0019 admits exactly
-    // this case. See "an account attached to no engagement" below.
-    //
-    // `createUser` still generates the id rather than relying on RETURNING.
-    // Nothing forces that now, but it also does not depend on a policy staying
-    // permissive to be able to finish an insert it already made.
-    const visible = await withTenant(
-      ctx(),
-      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, outsiderId)),
-      app.db,
-    );
-    expect(visible).toHaveLength(1);
-  });
-});
-
-describe('an account attached to no engagement', () => {
-  /**
-   * The deadlock reported on 21 September 2026. Remove somebody's membership
-   * and they became unreachable: "create" refused because `users_email_key` is
-   * global, and "add existing" refused because the lookup could not see a user
-   * who shares no tenant with anybody.
-   */
-  it('is visible to an admin, so their access can be granted again', async () => {
-    const visible = await withTenant(
-      ctx(),
-      (tx) =>
-        tx
-          .select({ id: schema.users.id, email: schema.users.email })
-          .from(schema.users)
-          .where(eq(schema.users.id, outsiderId)),
-      app.db,
-    );
-    expect(visible).toHaveLength(1);
-    expect(visible[0]?.email).toBe(outsiderEmail);
-  });
-
-  it('can then actually be granted access, which is the point', async () => {
-    const rows = await withTenant(
-      ctx(),
-      (tx) =>
-        tx
-          .insert(schema.memberships)
-          .values({ userId: outsiderId, tenantId: fx.tenantA, role: 'client_viewer' })
-          .returning({ id: schema.memberships.id }),
-      app.db,
-    );
-    expect(rows).toHaveLength(1);
-
-    // And once attached it is no longer "unattached" — the row is now visible
-    // because it shares the tenant, not because of the new policy.
-    await asOwner(owner.db, (tx) =>
-      tx
-        .delete(schema.memberships)
-        .where(
-          and(
-            eq(schema.memberships.userId, outsiderId),
-            eq(schema.memberships.tenantId, fx.tenantA),
-          ),
-        ),
-    );
-  });
-
-  it('is not visible to a client viewer, who administers nobody', async () => {
-    const visible = await withTenant(
-      { tenantId: fx.tenantB, userId: fx.clientViewerB, role: 'client_viewer' },
-      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, outsiderId)),
-      app.db,
-    );
-    expect(visible).toHaveLength(0);
-  });
-
-  it('does not drag another engagement\'s roster into view with it', async () => {
-    // The whole risk of this policy. `clientViewerB` holds a membership in
-    // tenant B only, so from tenant A they must stay hidden — the helper reads
-    // `app.membership_index` as definer precisely so a membership the caller
-    // cannot see still counts.
-    const visible = await withTenant(
-      ctx(),
-      (tx) => tx.select().from(schema.users).where(eq(schema.users.id, fx.clientViewerB)),
-      app.db,
-    );
-    expect(visible).toHaveLength(0);
-  });
-
-  it('does not let an admin enumerate every user in the system', async () => {
-    const all = await withTenant(ctx(), (tx) => tx.select().from(schema.users), app.db);
-    const ids = all.map((u) => u.id);
-    // Their own tenant's people, plus the unattached account. Not tenant B's.
-    expect(ids).toContain(fx.clientAdminA);
-    expect(ids).toContain(outsiderId);
-    expect(ids).not.toContain(fx.clientViewerB);
-  });
-});
-
-describe('resetting a password', () => {
-  it('reaches somebody in the tenant', async () => {
-    const rows = await withTenant(
-      ctx(),
-      (tx) =>
-        tx
-          .update(schema.users)
-          .set({ passwordHash: 'x', mustChangePassword: true })
-          .where(eq(schema.users.id, fx.zeeraaAdmin))
-          .returning({ id: schema.users.id }),
-      app.db,
-    );
-    expect(rows).toHaveLength(1);
-  });
-
-  it('cannot reach somebody outside it', async () => {
-    const rows = await withTenant(
-      ctx(),
-      (tx) =>
-        tx
-          .update(schema.users)
-          .set({ passwordHash: 'attacker-chosen' })
-          .where(eq(schema.users.id, fx.clientViewerB))
-          .returning({ id: schema.users.id }),
-      app.db,
-    );
-    expect(rows).toHaveLength(0);
-
-    const [victim] = await asOwner(owner.db, (tx) =>
-      tx
-        .select({ hash: schema.users.passwordHash })
-        .from(schema.users)
-        .where(eq(schema.users.id, fx.clientViewerB)),
-    );
-    expect(victim?.hash).toBeNull();
-  });
-
-  it('cannot reach an account that belongs to no tenant', async () => {
-    const rows = await withTenant(
-      ctx(),
-      (tx) =>
-        tx
-          .update(schema.users)
-          .set({ passwordHash: 'attacker-chosen' })
-          .where(eq(schema.users.id, outsiderId))
-          .returning({ id: schema.users.id }),
-      app.db,
-    );
-    expect(rows).toHaveLength(0);
   });
 });
 

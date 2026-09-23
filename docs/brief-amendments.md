@@ -2995,3 +2995,22 @@ Decided 23 September 2026.
   never drawn against an unread baseline. Rules in `lib/coverage.ts`, guarded by
   `coverage-usage.test.ts`.
 
+## §11 and §14 — only a Zeeraa admin administers accounts
+
+Decided 23 September 2026, after a client admin was found able to see People
+and remove Zeeraa users. It was worse than it looked: `users_admin_manage`
+(0017) let a client admin reset the password of anybody sharing their tenant,
+Zeeraa admins included, and the reset hands back the new password — an account
+that reaches every client. The suite asserted that case as passing.
+
+Client admins now have no People access at all. `canManageUsers` is
+`zeeraa_admin` only, so the rail drops the link and the page and every server
+action refuse; migration 0027 narrows every account policy to `zeeraa_admin`,
+so the database refuses the same calls made without the application. A tenant
+always keeps one Zeeraa admin: a trigger refuses removing the last one by
+membership or by account deletion, for every role.
+
+This reverses the 21 September decision that let client admins add their own
+people ("a client waiting on Zeeraa to add their own new hire is a support
+ticket"). The cost is exactly that support ticket.
+

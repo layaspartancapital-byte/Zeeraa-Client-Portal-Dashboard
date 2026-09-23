@@ -30,32 +30,26 @@ export function canManageConnections(role: Role): boolean {
 }
 
 /**
- * Who may create accounts and reset passwords.
+ * Who may open People: create accounts, grant and remove access, reset
+ * passwords. **Zeeraa admins only** (client decision, 23 September 2026).
  *
- * Both admin roles, because there is no email in this product: nobody can
- * invite themselves, and a client waiting on Zeeraa to add their own new hire
- * is a support ticket rather than a security boundary. What a client admin
- * cannot do is reach another tenant or mint a Zeeraa role — see
- * `assignableRoles`, and the `memberships_admin_write` policy that actually
- * enforces it.
+ * It was both admin roles, and that was a privilege escalation rather than a
+ * convenience: a client admin could reset the password of a Zeeraa admin who
+ * held a membership in their tenant, be handed the new password, and sign in
+ * as somebody who can reach every client. Migration 0027 makes the same rule
+ * the database's; this function is the readable half.
  */
 export function canManageUsers(role: Role): boolean {
-  return role === 'zeeraa_admin' || role === 'client_admin';
+  return role === 'zeeraa_admin';
 }
 
 /**
- * The roles an admin may grant in the tenant they are administering.
- *
- * A client admin may grant client roles only. Granting `zeeraa_member` would
- * hand out a role that `canSwitchTenant` lets out of this tenant entirely, so
- * this is privilege escalation rather than a matter of taste, and the policy
- * repeats the restriction in SQL — this function decides what the form offers,
- * and is not what decides what the database accepts.
+ * The roles an admin may grant in the tenant they are administering: every
+ * role for a Zeeraa admin, none for anybody else. `memberships_admin_write`
+ * decides what the database accepts; this decides what the form offers.
  */
 export function assignableRoles(role: Role): readonly Role[] {
-  if (role === 'zeeraa_admin') return ROLES;
-  if (role === 'client_admin') return CLIENT_ROLES;
-  return [];
+  return role === 'zeeraa_admin' ? ROLES : [];
 }
 
 /** "Sync now", admin screens, target reconciliation. */

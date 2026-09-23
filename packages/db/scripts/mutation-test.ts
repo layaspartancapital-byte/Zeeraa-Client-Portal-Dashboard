@@ -225,10 +225,11 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop index public.search_console_metrics_upsert_key',
   },
   {
-    // The escalation `memberships_admin_write` exists to stop: a client admin
-    // handing out a role that `canSwitchTenant` lets out of the tenant.
-    name: 'client-admin-can-grant-zeeraa-roles',
-    description: 'Let a client admin grant any role, not only the client ones',
+    // 0027: account administration is a Zeeraa admin's alone. Each of these
+    // restores 0017's client-admin clause to one account policy — exactly the
+    // edit somebody makes to "let the client add their own new hire".
+    name: 'client-admin-can-grant-access',
+    description: 'Let a client admin grant membership again (the 0017 policy)',
     sql: `drop policy memberships_admin_write on public.memberships;
           create policy memberships_admin_write on public.memberships
             as permissive for insert to zeeraa_app
@@ -236,12 +237,49 @@ const MUTATIONS: Mutation[] = [
                         and app.effective_role() in ('zeeraa_admin','client_admin'))`,
   },
   {
+    name: 'client-admin-can-remove-access',
+    description: 'Let a client admin remove anybody from their tenant, Zeeraa admins included',
+    sql: `drop policy memberships_admin_remove on public.memberships;
+          create policy memberships_admin_remove on public.memberships
+            as permissive for delete to zeeraa_app
+            using (tenant_id = app.current_tenant_id()
+                   and app.effective_role() in ('zeeraa_admin','client_admin'))`,
+  },
+  {
+    // The one that mattered most: a reset hands the new password back, and
+    // the target can be a Zeeraa admin who reaches every client.
+    name: 'client-admin-can-reset-passwords',
+    description: "Let a client admin reset any password in their tenant, a Zeeraa admin's included",
+    sql: `drop policy users_admin_manage on public.users;
+          create policy users_admin_manage on public.users
+            as permissive for update to zeeraa_app
+            using (app.effective_role() in ('zeeraa_admin','client_admin')
+                   and exists (select 1 from public.memberships m
+                               where m.user_id = users.id and m.tenant_id = app.current_tenant_id()))
+            with check (app.effective_role() in ('zeeraa_admin','client_admin')
+                   and exists (select 1 from public.memberships m
+                               where m.user_id = users.id and m.tenant_id = app.current_tenant_id()))`,
+  },
+  {
+    name: 'client-admin-can-create-accounts',
+    description: 'Let a client admin create accounts again',
+    sql: `drop policy users_admin_create on public.users;
+          create policy users_admin_create on public.users
+            as permissive for insert to zeeraa_app
+            with check (app.effective_role() in ('zeeraa_admin','client_admin'))`,
+  },
+  {
+    name: 'last-zeeraa-admin-unprotected',
+    description: 'Drop the trigger that keeps one Zeeraa admin on every tenant',
+    sql: 'drop trigger memberships_protect_last_zeeraa_admin on public.memberships',
+  },
+  {
     name: 'membership-write-unscoped',
     description: 'Let an admin grant access to a tenant other than their own',
     sql: `drop policy memberships_admin_write on public.memberships;
           create policy memberships_admin_write on public.memberships
             as permissive for insert to zeeraa_app
-            with check (app.effective_role() in ('zeeraa_admin','client_admin'))`,
+            with check (app.effective_role() = 'zeeraa_admin')`,
   },
   {
     // Row level security cannot restrict columns, so the column grant is the
@@ -296,7 +334,7 @@ const MUTATIONS: Mutation[] = [
     sql: `drop policy users_admin_resolve_unattached on public.users;
           create policy users_admin_resolve_unattached on public.users
             as permissive for select to zeeraa_app
-            using (app.effective_role() in ('zeeraa_admin','client_admin'))`,
+            using (app.effective_role() = 'zeeraa_admin')`,
   },
   {
     // As an invoker-rights function the helper reads `memberships` under the
