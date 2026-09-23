@@ -63,9 +63,9 @@ view are removed", and the section below.
 
 ## Funded deals audited and fixed; UI brief applied (23 September 2026)
 
-**Production is migrated to 0025 and loaded; the code is committed locally and
-not yet deployed.** Until the deploy, the running app ignores `excluded_reason`
-and the new columns, so July still shows the two renewals.
+**Deployed (fc16ae2, then 899df4a) and production is migrated to 0026.** 0026
+dated the 14 webhook calls the old code wrote in the gap and made the four
+local-date columns NOT NULL.
 
 **Funded reconciled one for one** against Salesforce (Aug 7, Sep 4 by
 `csbs__Funded_Date_Time__c`, agreeing with the stage history and the Contract).
@@ -120,20 +120,39 @@ secret (`67e4309c2482`, which still fails every credential).
   the range, pacing always this month, ratios still population-gated (a one-day
   range withholds CPF).
 
+**Later the same day:**
+
+- **Renewals are excluded from every stage**, not only Funded:
+  `stage_exclusions` uses `stages: ['*']`, which also excludes the two leads
+  that converted into renewals (`leads.excluded_reason`, 0026). Production: 57
+  events and 2 leads excluded; June loses 22 renewal deals from its earlier
+  stages; funded counts are unchanged.
+- **Executive never renders a zero for an unsynced range.** `rangeCoverage` in
+  core: a range after a source's last successful read shows `Not measured`
+  naming the source and the day, on the figure and on its comparison; a range
+  running past it says "synced through …". The other screens do not do this
+  yet.
+- **Codespaces `ENCRYPTION_KEY` now matches `.env`** (and so production). A
+  Codespace keeps the old value until it is rebuilt or restarted.
+- **Turn Clean Pros and E&D Transform are real deals** re-entered in csbs on 30
+  June after the package went live mid-June. Contemporaneous Lead → Funded
+  changes (4 June and 2 June), rep notes, the offers' terms, signed-agreement
+  SMS and application files; no payment or commission record exists in the org
+  for any deal. Turn Clean Pros' lender is the inactive "Test Lender" placeholder
+  standing in for EBF, which was never set up — per-lender figures are wrong for
+  that deal. Both belong in June either way.
+- **Open question for the client:** `csbs__Funded_Date_Time__c` is the time of
+  data entry and `csbs__Funded_Date__c` looks like the business funding date on
+  backfilled deals. No month changes today apart from Onu Ventures, which is
+  already corrected; switching the mapping is a decision, not made.
+
 **Next:**
 
-1. **Deploy** — push `main`. Migrations 0024 and 0025 are already applied.
-2. **After the deploy**, a migration that re-runs 0024's backfill for rows the
-   old code wrote without a date (webhook calls, any hourly sync) and then sets
-   the four date columns NOT NULL. Keep that file out of the repo until the
-   deploy is live — `db:migrate` applies everything pending.
-3. Spartan's logo: `DATABASE_URL_OWNER="$NEON_DIRECT_URL" npx tsx
+1. Spartan's logo: `DATABASE_URL_OWNER="$NEON_DIRECT_URL" npx tsx
    packages/db/scripts/set-tenant-logo.ts spartan <file> --dry-run`, then again
-   without it. The tile is 32px square with `object-contain`; revisit the size
-   if the file is a wide wordmark.
-4. A range reaching past the last sync renders zeros on the executive screen
-   (seen locally for a day nobody ingested) — pre-existing, worth an ingested-
-   through gate.
+   without it. 32px square tile, `object-contain`.
+2. Extend `rangeCoverage` to monthly performance, funnel and platform pages.
+3. Decide the funded-date field (above).
 
 ## Cost per funded deal — Google Ads, trailing 90 days
 
