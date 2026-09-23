@@ -46,7 +46,7 @@ export const dataSourceKindEnum = pgEnum('data_source_kind', [
   'derived_from_assets',
 ]);
 
-export const stageOriginEnum = pgEnum('stage_origin', ['observed', 'computed']);
+export const stageOriginEnum = pgEnum('stage_origin', ['observed', 'computed', 'corrected']);
 
 /**
  * The state of one day of click ingestion.

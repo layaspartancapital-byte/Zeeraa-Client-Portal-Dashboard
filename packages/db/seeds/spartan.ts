@@ -65,12 +65,10 @@ export const spartan: TenantSeed = {
       formulaKey: 'cost_per_funded_deal',
       improvementDirection: 'down',
       isNorthStar: true,
-      targetValue: '4500',
-      needsReconciliation: true,
-      reconciliationNote:
-        'Target of $4,500 within 30 days sits beside a milestone ladder starting at ' +
-        '$30K funded volume and a month-one funded volume target of $100–150K. ' +
-        'Those three cannot all hold at once.',
+      // Settled 23 September 2026: the M1–M8 engagement model is Zeeraa's
+      // committed target sheet and governs every target. The target is the
+      // ramp month's row in `engagement_targets`, not one number for all time,
+      // so there is no single `targetValue` to hold here.
       definition:
         'Attributed media spend and fees in the period divided by the number of ' +
         'deals that reached the Funded stage in the same period.',
@@ -80,11 +78,11 @@ export const spartan: TenantSeed = {
       label: 'Funded volume',
       formulaKey: 'funded_volume',
       improvementDirection: 'up',
-      targetValue: '100000',
-      needsReconciliation: true,
-      reconciliationNote:
-        'Month-one target stated as $100–150K; the milestone ladder starts at $30K.',
-      definition: 'Sum of the funded amount on every deal that reached Funded in the period.',
+      // Settled by the engagement model, like cost per funded deal: the target
+      // is the ramp month's Funded Amount. Renewals are excluded.
+      definition:
+        'Sum of the funded amount (csbs__Funded__c) on every non-renewal deal that ' +
+        'reached Funded in the period.',
     },
     {
       key: 'funded_deals',
@@ -164,17 +162,16 @@ export const spartan: TenantSeed = {
     },
     {
       key: 'cpa',
-      label: 'Cost per acquisition',
+      label: 'CPA · cost per approval',
       formulaKey: 'cost_per_stage',
-      formulaArgs: { stage: 'sql' },
+      // Settled 23 September 2026 by the engagement model, which governs: its
+      // CPA is budget ÷ approvals in all eight months, so the "A" is an
+      // underwriting approval — not an SQL, and not the platform's conversion.
+      formulaArgs: { stage: 'uw_approved' },
       improvementDirection: 'down',
-      targetValue: '1000',
-      needsReconciliation: true,
-      reconciliationNote:
-        'CPA is quoted as $2,000 today improving to $1,000, while the Google Ads ' +
-        'baseline reports cost per conversion of $108.59. These are two different ' +
-        'definitions of the same word and must be settled before either renders.',
-      definition: 'Attributed spend divided by the count reaching the configured stage.',
+      definition:
+        'Attributed spend divided by the deals reaching UW approved, as the engagement ' +
+        'model defines it.',
     },
     {
       key: 'qualified_rate',
@@ -314,6 +311,57 @@ export const spartan: TenantSeed = {
       value: leadExclusion,
     },
     {
+      key: 'stage_exclusions',
+      description:
+        'Stage events that are real but are not counted. Renewal-type deals ' +
+        '(Renewal, Renewals, Addon, Win Back, Winback, Existing Business) ' +
+        'reaching Funded are existing merchants, not deals marketing produced, ' +
+        'so they are excluded from funded counts, funded volume and every cost ' +
+        'per funded deal. The client decided the list on 23 September 2026. ' +
+        'Matched case-insensitively on the opportunity Type field; the event is ' +
+        'kept with its reason so the exclusion can be audited.',
+      value: {
+        rules: [
+          {
+            reason: 'renewal',
+            dealTypes: [
+              'Renewal',
+              'Renewals',
+              'Addon',
+              'Win Back',
+              'Winback',
+              'Existing Business',
+            ],
+            stages: ['funded'],
+          },
+        ],
+      },
+    },
+    {
+      key: 'stage_corrections',
+      description:
+        'Stage dates corrected by hand over what the CRM records. Month only ' +
+        'where the day cannot be established; a corrected event is neither ' +
+        'observed nor computed and renders as corrected.',
+      value: {
+        corrections: [
+          {
+            opportunity: '006Vr00000eOpyPIAS',
+            stage: 'funded',
+            month: '2026-05',
+            source:
+              'Recorded 23 September 2026 on the client\u2019s instruction. Onu Ventures ' +
+              '($10,000) funded in May 2026; the day is unknown. Salesforce stamps ' +
+              '1 September because the rep could only move the stage after ' +
+              'backfilling a submission, an offer and a contract in the seven ' +
+              'minutes before (Description: \u201cWont let me update status. Funded ' +
+              'by me - 10k\u201d). The 13 May on the funded-date field is a copy of ' +
+              'CloseDate, the creation date. Last merchant contact 28 May.',
+          },
+        ],
+      },
+    },
+    {
       key: 'duplicate_cooloff_days',
       description: 'A repeat submission inside this window counts as a resubmission.',
       value: { days: 15 },
@@ -413,17 +461,24 @@ export const spartan: TenantSeed = {
    * somewhere in this engagement. The `cpa_definition` reconciliation row
    * carries the disagreement; this column is the ramp's own definition and is
    * unambiguous because the model computes it from its own two columns.
+   *
+   * **`fundedAmount` is the model's Funded Amount column**, loaded 23
+   * September 2026 once the model was confirmed as the committed target sheet.
+   * From M2 it is funded deals × the model's $20,000 minimum deal size,
+   * unrounded (11.4 × 20,000 is 228,000; the model says 228,261). M1's $80,000
+   * is the model's own figure and does not follow the rule — its deal-size
+   * column reads 0 — so it is transcribed, not derived.
    */
   engagementTargets: [
-    // Month  Budget      CPA   Approvals    CPF   Funded
-    { platform: 'google_ads', monthIndex: 1, budget: 30000, cpa: 750, approvals: 40, costPerFundedDeal: 4000, fundedDeals: 7.5 },
-    { platform: 'google_ads', monthIndex: 2, budget: 42000, cpa: 713, approvals: 58.9, costPerFundedDeal: 3680, fundedDeals: 11.4 },
-    { platform: 'google_ads', monthIndex: 3, budget: 58800, cpa: 677, approvals: 86.9, costPerFundedDeal: 3496, fundedDeals: 16.8 },
-    { platform: 'google_ads', monthIndex: 4, budget: 82320, cpa: 643, approvals: 128, costPerFundedDeal: 3321, fundedDeals: 24.8 },
-    { platform: 'google_ads', monthIndex: 5, budget: 115248, cpa: 611, approvals: 188.7, costPerFundedDeal: 3155, fundedDeals: 36.5 },
-    { platform: 'google_ads', monthIndex: 6, budget: 161347, cpa: 580, approvals: 278, costPerFundedDeal: 2997, fundedDeals: 53.8 },
-    { platform: 'google_ads', monthIndex: 7, budget: 225886, cpa: 551, approvals: 409.7, costPerFundedDeal: 2848, fundedDeals: 79.3 },
-    { platform: 'google_ads', monthIndex: 8, budget: 316241, cpa: 524, approvals: 603.8, costPerFundedDeal: 2705, fundedDeals: 116.9 },
+    // Month  Budget      CPA   Approvals    CPF   Funded   Funded amount
+    { platform: 'google_ads', monthIndex: 1, budget: 30000, cpa: 750, approvals: 40, costPerFundedDeal: 4000, fundedDeals: 7.5, fundedAmount: 80000 },
+    { platform: 'google_ads', monthIndex: 2, budget: 42000, cpa: 713, approvals: 58.9, costPerFundedDeal: 3680, fundedDeals: 11.4, fundedAmount: 228261 },
+    { platform: 'google_ads', monthIndex: 3, budget: 58800, cpa: 677, approvals: 86.9, costPerFundedDeal: 3496, fundedDeals: 16.8, fundedAmount: 336384 },
+    { platform: 'google_ads', monthIndex: 4, budget: 82320, cpa: 643, approvals: 128, costPerFundedDeal: 3321, fundedDeals: 24.8, fundedAmount: 495724 },
+    { platform: 'google_ads', monthIndex: 5, budget: 115248, cpa: 611, approvals: 188.7, costPerFundedDeal: 3155, fundedDeals: 36.5, fundedAmount: 730541 },
+    { platform: 'google_ads', monthIndex: 6, budget: 161347, cpa: 580, approvals: 278, costPerFundedDeal: 2997, fundedDeals: 53.8, fundedAmount: 1076587 },
+    { platform: 'google_ads', monthIndex: 7, budget: 225886, cpa: 551, approvals: 409.7, costPerFundedDeal: 2848, fundedDeals: 79.3, fundedAmount: 1586549 },
+    { platform: 'google_ads', monthIndex: 8, budget: 316241, cpa: 524, approvals: 603.8, costPerFundedDeal: 2705, fundedDeals: 116.9, fundedAmount: 2338073 },
   ],
 
   /**
@@ -614,6 +669,24 @@ export const spartan: TenantSeed = {
               linkedin_ads: 'Li_Fat_ID__c',
             },
             amount: 'Amount',
+            /*
+             * What the deal actually funded for, which is not `Amount`.
+             *
+             * A formula over the selected lender offer
+             * (`csbs__Selected_Offer__r.csbs__Funded__c`). `Amount` is what was
+             * asked for and can be far off: Shreeji Sales asked for $64,200
+             * and funded $40,900, which overstated September's volume by
+             * $23,300. It is also populated on five deals that were declined
+             * or lost after an offer was selected, which is harmless — volume
+             * sums only deals that reached Funded.
+             */
+            fundedAmount: 'csbs__Funded__c',
+            /*
+             * The deal type, read by `stage_exclusions`. Blank on 562 of 734
+             * opportunities (23 September 2026), so a renewal nobody labelled
+             * is counted as a new deal — the rule is only as good as the field.
+             */
+            dealType: 'Type',
             /*
              * Deliberately no decline reason here any more.
              *
@@ -924,16 +997,22 @@ export const spartan: TenantSeed = {
       subjectKey: 'revenue_band',
       label: 'Revenue bands',
       reason:
-        'Banding leads by revenue needs a revenue figure, and inbound leads ' +
-        'mostly do not carry one. Where both figures are present they disagree ' +
-        'more often than not, so there is not even a consistent basis to band on.',
+        'Partially measurable. The revenue answer is readable as a band on 87–97% ' +
+        'of inbound leads each month from June to September 2026, but the forms ' +
+        'offer bands that overlap — $10,000–$20,000 beside $15,000–$35,000 and ' +
+        '$10k–$15k — so there is no single set of bands to break leads down by, ' +
+        'and only the MQL verdict is stored at ingest, not the band.',
       needed:
-        'The same web-form revenue question that unblocks MQL. One field is ' +
-        'enough; the platform normalises monthly and annual to a monthly basis.',
+        'One set of revenue bands shared by every web form. On Zeeraa’s side, the ' +
+        'band stored per lead at ingest, which is platform work rather than a ' +
+        'client dependency.',
       evidence:
-        'Inbound leads: monthly revenue 8.8% (635 of 7,196), annual revenue ' +
-        '6.7% (482). One lead in the org carries both, and the two figures ' +
-        'disagree beyond the 10% tolerance.',
+        'Measured 23 September 2026 from Salesforce, inbound leads, eight revenue ' +
+        'fields read in the MQL order: populated 88.1–98.9% per month Jun–Sep, ' +
+        'readable as a band 87.0–96.9%. Most common answers: "Less than $10,000" ' +
+        '(1,367), "$10,000 - $20,000" (834), "< $10,000" (618), "less than ' +
+        '$10,000" (614), "$20,000 - $50,000" (330). The 8.8% figure this row ' +
+        'quoted before counted numeric fields only.',
     },
   ],
 
@@ -959,6 +1038,14 @@ export const spartan: TenantSeed = {
           source: 'SpartanCapital Google Ads Budget Projection for 8 Months',
         },
       ],
+      resolution: {
+        value: 'Cost per approval: attributed spend ÷ UW approvals, $750 in M1 to $524 in M8',
+        note:
+          'The M1–M8 engagement model governs all targets — it is Zeeraa’s committed ' +
+          'target sheet (client decision, 23 September 2026). Its CPA is budget ÷ ' +
+          'approvals in every month, so the KPI divides by UW approved.',
+        resolvedOn: '2026-09-23',
+      },
     },
     {
       key: 'funded_targets',
@@ -971,6 +1058,16 @@ export const spartan: TenantSeed = {
         { value: 'Milestone ladder starts at $30K funded volume', source: 'Proposal, milestones' },
         { value: 'Month-one funded volume of $100–150K', source: 'Proposal, month-one plan' },
       ],
+      resolution: {
+        value:
+          'The engagement model: cost per funded deal $4,000 in M1 to $2,705 in M8, ' +
+          'funded volume $80,000 in M1 to $2,338,073 in M8',
+        note:
+          'The M1–M8 engagement model governs all targets — it is Zeeraa’s committed ' +
+          'target sheet (client decision, 23 September 2026). The proposal’s figures ' +
+          'are superseded.',
+        resolvedOn: '2026-09-23',
+      },
     },
     {
       key: 'owned_database_size',

@@ -15,6 +15,7 @@ import {
   withMaintenance,
 } from '@zeeraa/db';
 import type { SyncContext } from './sync';
+import { parseStageCorrections, parseStageExclusions } from './stage-rules';
 
 /**
  * Assembles a sync context from configuration rather than from constants.
@@ -106,6 +107,10 @@ export async function resolveSalesforceContext(
       clickIdPriority: priority ?? DEFAULT_PLATFORM_PRIORITY,
       leadExclusion,
       mqlStageKey,
+      // Both throw on a malformed row, like the lead exclusion: a rule that
+      // silently parsed to nothing would count every renewal again.
+      stageExclusions: parseStageExclusions(byKey.get('stage_exclusions')),
+      stageCorrections: parseStageCorrections(byKey.get('stage_corrections')),
     } satisfies SyncContext;
   });
 }

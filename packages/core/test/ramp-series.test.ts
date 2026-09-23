@@ -11,9 +11,9 @@ import { RAMP_METRICS, briefingPeriods, rampSeries, type RampTarget } from '../s
  * chart against a fully specified curve.
  */
 const SPARTAN: RampTarget[] = [
-  { monthIndex: 1, costPerFundedDeal: 4000, budget: 30000, cpa: null, approvals: null, fundedDeals: null },
-  { monthIndex: 2, costPerFundedDeal: 3680, budget: null, cpa: null, approvals: null, fundedDeals: null },
-  { monthIndex: 3, costPerFundedDeal: 3496, budget: null, cpa: null, approvals: null, fundedDeals: null },
+  { monthIndex: 1, costPerFundedDeal: 4000, budget: 30000, cpa: null, approvals: null, fundedDeals: null, fundedAmount: null },
+  { monthIndex: 2, costPerFundedDeal: 3680, budget: null, cpa: null, approvals: null, fundedDeals: null, fundedAmount: null },
+  { monthIndex: 3, costPerFundedDeal: 3496, budget: null, cpa: null, approvals: null, fundedDeals: null, fundedAmount: null },
 ];
 
 describe('rampSeries', () => {
@@ -118,6 +118,7 @@ describe('rampSeries', () => {
       'budget',
       'approvals',
       'fundedDeals',
+      'fundedAmount',
     ]);
   });
 });

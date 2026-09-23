@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   numeric,
   pgTable,
@@ -31,6 +32,13 @@ export const leads = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     externalId: text('external_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /**
+     * The tenant-local calendar day of `created_at`, written at ingest from
+     * `tenants.timezone`. Reports bucket and filter on this, never on the
+     * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
+     * Nullable only until the deploy that writes it has shipped (see 0024).
+     */
+    createdOn: date('created_on', { mode: 'string' }),
     /**
      * The whole product depends on this surviving Lead → Opportunity
      * conversion. If it is absent the connector must raise a blocked state
@@ -115,6 +123,7 @@ export const leads = pgTable(
     uniqueIndex('leads_tenant_external_key').on(t.tenantId, t.externalId),
     index('leads_tenant_created_idx').on(t.tenantId, t.createdAt),
     index('leads_tenant_click_id_idx').on(t.tenantId, t.clickId),
+    index('leads_tenant_created_on_idx').on(t.tenantId, t.createdOn),
     // The call join runs over this on every speed-to-lead query.
     index('leads_tenant_phone_key_idx').on(t.tenantId, t.phoneKey),
     index('leads_tenant_converted_opp_idx').on(t.tenantId, t.convertedOpportunityId),
@@ -133,6 +142,12 @@ export const opportunities = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     /** Free text: stage vocabulary is per tenant, defined in funnel_stages. */
     currentStage: text('current_stage').notNull(),
+    /**
+     * The CRM's own deal type, verbatim — `Renewal`, `New Business`, null.
+     * Read by the `renewal_exclusion` config row at ingest; stored so the
+     * exclusion can be audited and revisited without a re-pull.
+     */
+    dealType: text('deal_type'),
     amount: numeric('amount', { precision: 18, scale: 2 }),
     fundedAmount: numeric('funded_amount', { precision: 18, scale: 2 }),
     declineReason: text('decline_reason'),
@@ -164,6 +179,27 @@ export const stageEvents = pgTable(
     stage: text('stage').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
     /**
+     * The tenant-local calendar day of `occurred_at`, written at ingest from
+     * `tenants.timezone`. Reports bucket and filter on this, never on the
+     * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
+     * Nullable only until the deploy that writes it has shipped (see 0024).
+     */
+    occurredOn: date('occurred_on', { mode: 'string' }),
+    /**
+     * `month` when only the month is known — a hand-recorded correction whose
+     * day nobody can establish. `occurred_at` is then the first instant of
+     * that month and must not feed a duration.
+     */
+    occurredPrecision: text('occurred_precision').notNull().default('instant'),
+    /**
+     * Why a real event is not counted, or null when it is. Set at ingest by a
+     * configured rule — a renewal reaching Funded is not marketing's deal.
+     * Every report filters on this; the row stays so the exclusion is auditable.
+     */
+    excludedReason: text('excluded_reason'),
+    /** For `origin = 'corrected'`: who corrected it, and on what evidence. */
+    correctionSource: text('correction_source'),
+    /**
      * Whether the CRM recorded this stage or the platform inferred it. MQL has
      * no timestamp field in Salesforce and is computed from the qualification
      * bar, so the distinction has to survive into the UI — a computed stage
@@ -180,6 +216,7 @@ export const stageEvents = pgTable(
       t.occurredAt,
     ),
     index('stage_events_tenant_stage_idx').on(t.tenantId, t.stage, t.occurredAt),
+    index('stage_events_tenant_stage_on_idx').on(t.tenantId, t.stage, t.occurredOn),
   ],
 );
 
@@ -296,6 +333,13 @@ export const submissions = pgTable(
      */
     declineReasons: text('decline_reasons').array(),
     submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+    /**
+     * The tenant-local calendar day of `submitted_at`, written at ingest from
+     * `tenants.timezone`. Reports bucket and filter on this, never on the
+     * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
+     * Nullable only until the deploy that writes it has shipped (see 0024).
+     */
+    submittedOn: date('submitted_on', { mode: 'string' }),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -303,6 +347,7 @@ export const submissions = pgTable(
   (t) => [
     uniqueIndex('submissions_upsert_key').on(t.tenantId, t.externalId),
     index('submissions_tenant_opportunity_idx').on(t.tenantId, t.opportunityExternalId),
+    index('submissions_tenant_submitted_on_idx').on(t.tenantId, t.submittedOn),
     index('submissions_tenant_outcome_idx').on(t.tenantId, t.outcome, t.submittedAt),
     index('submissions_tenant_lender_idx').on(t.tenantId, t.lenderExternalId, t.outcome),
   ],
@@ -341,6 +386,12 @@ export const calls = pgTable(
     externalId: text('external_id').notNull(),
     /** Normalised into the tenant timezone at ingest; the export has no offset. */
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    /**
+     * The tenant-local calendar day of `occurred_at`, written at ingest from
+     * `tenants.timezone`. A call at 9pm Eastern is that day's call; `to_char`
+     * on a UTC session filed it under tomorrow. Nullable until after 0024.
+     */
+    occurredOn: date('occurred_on', { mode: 'string' }),
     direction: callDirectionEnum('direction').notNull(),
     outcome: callOutcomeEnum('outcome').notNull(),
     /** The vendor's own status, verbatim, so a reclassification is a query. */
@@ -374,6 +425,7 @@ export const calls = pgTable(
   (t) => [
     uniqueIndex('calls_upsert_key').on(t.tenantId, t.externalId),
     index('calls_tenant_occurred_idx').on(t.tenantId, t.occurredAt),
+    index('calls_tenant_occurred_on_idx').on(t.tenantId, t.occurredOn),
     index('calls_tenant_contact_idx').on(t.tenantId, t.contactKey),
     index('calls_tenant_lead_idx').on(t.tenantId, t.leadExternalId, t.direction),
     index('calls_tenant_outcome_idx').on(t.tenantId, t.outcome, t.occurredAt),

@@ -25,6 +25,8 @@ export type RampTarget = {
   cpa: number | null;
   approvals: number | null;
   fundedDeals: number | null;
+  /** Contracted funded volume for the month, the model's Funded Amount column. */
+  fundedAmount: number | null;
 };
 
 /** `YYYY-MM`. Months, not days: the ramp is contracted monthly. */
@@ -155,6 +157,7 @@ export const RAMP_METRICS = [
   'budget',
   'approvals',
   'fundedDeals',
+  'fundedAmount',
 ] as const;
 
 export type RampMetricKey = (typeof RAMP_METRICS)[number];

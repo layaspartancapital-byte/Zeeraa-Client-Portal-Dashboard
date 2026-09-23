@@ -19,6 +19,7 @@ const RAMP: RampTarget[] = [
   cpa: null,
   approvals: null,
   fundedDeals: null,
+  fundedAmount: null,
 }));
 
 describe('rampMonthIndex', () => {

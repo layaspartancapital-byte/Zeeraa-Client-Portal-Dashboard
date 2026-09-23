@@ -1,5 +1,13 @@
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
-import { schema, type Database } from '@zeeraa/db';
+import {
+  callsIn,
+  countedStageEvent,
+  leadsCreatedIn,
+  schema,
+  stageEventsIn,
+  submissionsIn,
+  type Database,
+} from '@zeeraa/db';
 import {
   attemptsPerLead,
   callVolume,
@@ -319,8 +327,7 @@ export async function monthlyPerformance(
         .where(
           and(
             eq(schema.leads.tenantId, tenantId),
-            gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
-            lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+            leadsCreatedIn(range),
             ...(stage.source === 'qualified_leads'
               ? [eq(schema.leads.mqlVerdict, 'qualified')]
               : []),
@@ -380,8 +387,7 @@ export async function monthlyPerformance(
       .where(
         and(
           eq(schema.stageEvents.tenantId, tenantId),
-          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
-          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+          stageEventsIn(range),
         ),
       );
 
@@ -400,7 +406,9 @@ export async function monthlyPerformance(
           opportunityExternalId: schema.stageEvents.opportunityExternalId,
         })
         .from(schema.stageEvents)
-        .where(eq(schema.stageEvents.tenantId, tenantId)),
+        // An excluded event did not happen, as far as progression is concerned:
+        // a renewal's Funded must not make its approval look converted.
+        .where(and(eq(schema.stageEvents.tenantId, tenantId), countedStageEvent())),
       tx
         .select({
           opportunityExternalId: schema.stageEvents.opportunityExternalId,
@@ -438,8 +446,7 @@ export async function monthlyPerformance(
       .where(
         and(
           eq(schema.stageEvents.tenantId, tenantId),
-          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
-          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+          stageEventsIn(range),
         ),
       )
       .groupBy(schema.stageEvents.stage, schema.stageEvents.opportunityExternalId);
@@ -522,8 +529,7 @@ export async function monthlyPerformance(
       .where(
         and(
           eq(schema.leads.tenantId, tenantId),
-          gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
-          lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+          leadsCreatedIn(range),
         ),
       )
       .groupBy(schema.leads.mqlVerdict);
@@ -538,8 +544,7 @@ export async function monthlyPerformance(
         and(
           eq(schema.stageEvents.tenantId, tenantId),
           eq(schema.stageEvents.stage, 'declined'),
-          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
-          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+          stageEventsIn(range),
         ),
       );
 
@@ -553,8 +558,7 @@ export async function monthlyPerformance(
         and(
           eq(schema.leads.tenantId, tenantId),
           eq(schema.leads.mqlVerdict, 'undeterminable'),
-          gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
-          lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+          leadsCreatedIn(range),
         ),
       )
       .groupBy(schema.leads.mqlUndeterminableReason)
@@ -816,7 +820,7 @@ export async function monthlySeries(
     const dealRows = valueStage
       ? await tx
           .selectDistinct({
-            month: sql<string>`to_char(${schema.stageEvents.occurredAt}, 'YYYY-MM')`,
+            month: sql<string>`to_char(${schema.stageEvents.occurredOn}, 'YYYY-MM')`,
             platform: schema.attribution.platform,
             opportunityExternalId: schema.stageEvents.opportunityExternalId,
           })
@@ -836,7 +840,8 @@ export async function monthlySeries(
             and(
               eq(schema.stageEvents.tenantId, tenantId),
               eq(schema.stageEvents.stage, valueStage),
-              gte(schema.stageEvents.occurredAt, new Date(`${from}T00:00:00.000Z`)),
+              gte(schema.stageEvents.occurredOn, from),
+              countedStageEvent(),
             ),
           )
       : [];
@@ -952,12 +957,9 @@ export async function submissionReport(
   range: DateRange,
 ): Promise<SubmissionReport> {
   return queryTenant(session, async (tx) => {
-    const from = new Date(`${range.start}T00:00:00.000Z`);
-    const to = new Date(`${range.end}T23:59:59.999Z`);
     const inWindow = and(
       eq(schema.submissions.tenantId, session.tenant.id),
-      gte(schema.submissions.submittedAt, from),
-      lte(schema.submissions.submittedAt, to),
+      submissionsIn(range),
     );
 
     const [byLender, undecidedRows, declineRows, coverageRows, [firstRow], monthlyRows] =
@@ -996,7 +998,7 @@ export async function submissionReport(
       // finding, and a 90-day window would show its tail as if it were a level.
       tx
         .select({
-          month: sql<string>`to_char(${schema.submissions.submittedAt}, 'YYYY-MM')`,
+          month: sql<string>`to_char(${schema.submissions.submittedOn}, 'YYYY-MM')`,
           declined: sql<number>`count(*)::int`,
           withReason: sql<number>`count(${schema.submissions.declineReasons})::int`,
         })
@@ -1012,7 +1014,7 @@ export async function submissionReport(
 
       tx
         .select({
-          day: sql<string | null>`to_char(min(${schema.submissions.submittedAt}), 'YYYY-MM-DD')`,
+          day: sql<string | null>`to_char(min(${schema.submissions.submittedOn}), 'YYYY-MM-DD')`,
         })
         .from(schema.submissions)
         .where(eq(schema.submissions.tenantId, session.tenant.id)),
@@ -1021,7 +1023,7 @@ export async function submissionReport(
       // only covers the window has nothing to be a trend against.
       tx
         .select({
-          month: sql<string>`to_char(${schema.submissions.submittedAt}, 'YYYY-MM')`,
+          month: sql<string>`to_char(${schema.submissions.submittedOn}, 'YYYY-MM')`,
           outcome: schema.submissions.outcome,
           count: sql<number>`count(*)::int`,
         })
@@ -1167,12 +1169,9 @@ export async function callReport(
   connectedMinTalkSeconds = 30,
 ): Promise<CallReport> {
   return queryTenant(session, async (tx) => {
-    const from = new Date(`${range.start}T00:00:00.000Z`);
-    const to = new Date(`${range.end}T23:59:59.999Z`);
     const inWindow = and(
       eq(schema.calls.tenantId, session.tenant.id),
-      gte(schema.calls.occurredAt, from),
-      lte(schema.calls.occurredAt, to),
+      callsIn(range),
     );
 
     const [outcomeRows, matchRows, speedRows, attemptRows, monthlyRows, [firstRow], [leadCount]] =
@@ -1232,8 +1231,7 @@ export async function callReport(
           .where(
             and(
               eq(schema.leads.tenantId, session.tenant.id),
-              gte(schema.leads.createdAt, from),
-              lte(schema.leads.createdAt, to),
+              leadsCreatedIn(range),
             ),
           )
           .groupBy(schema.leads.externalId, schema.leads.createdAt),
@@ -1258,8 +1256,7 @@ export async function callReport(
           .where(
             and(
               eq(schema.leads.tenantId, session.tenant.id),
-              gte(schema.leads.createdAt, from),
-              lte(schema.leads.createdAt, to),
+              leadsCreatedIn(range),
               sql`${schema.calls.outcome} <> 'abandoned'`,
             ),
           )
@@ -1267,7 +1264,7 @@ export async function callReport(
 
         tx
           .select({
-            month: sql<string>`to_char(${schema.calls.occurredAt}, 'YYYY-MM')`,
+            month: sql<string>`to_char(${schema.calls.occurredOn}, 'YYYY-MM')`,
             outcome: schema.calls.outcome,
             count: sql<number>`count(*)::int`,
           })
@@ -1278,7 +1275,7 @@ export async function callReport(
 
         tx
           .select({
-            day: sql<string | null>`to_char(min(${schema.calls.occurredAt}), 'YYYY-MM-DD')`,
+            day: sql<string | null>`to_char(min(${schema.calls.occurredOn}), 'YYYY-MM-DD')`,
           })
           .from(schema.calls)
           .where(eq(schema.calls.tenantId, session.tenant.id)),
@@ -1291,8 +1288,7 @@ export async function callReport(
           .where(
             and(
               eq(schema.leads.tenantId, session.tenant.id),
-              gte(schema.leads.createdAt, from),
-              lte(schema.leads.createdAt, to),
+              leadsCreatedIn(range),
             ),
           ),
       ]);
@@ -1411,13 +1407,11 @@ export async function callSeries(
   const range = { start: spans[0]!.start, end: spans.at(-1)!.end };
 
   return queryTenant(session, async (tx) => {
-    const from = new Date(`${range.start}T00:00:00.000Z`);
-    const to = new Date(`${range.end}T23:59:59.999Z`);
 
     const [callRows, speedRows] = await Promise.all([
       tx
         .select({
-          day: sql<string>`to_char(${schema.calls.occurredAt}, 'YYYY-MM-DD')`,
+          day: sql<string>`to_char(${schema.calls.occurredOn}, 'YYYY-MM-DD')`,
           outcome: schema.calls.outcome,
           count: sql<number>`count(*)::int`,
         })
@@ -1425,8 +1419,7 @@ export async function callSeries(
         .where(
           and(
             eq(schema.calls.tenantId, session.tenant.id),
-            gte(schema.calls.occurredAt, from),
-            lte(schema.calls.occurredAt, to),
+            callsIn(range),
           ),
         )
         .groupBy(sql`1`, schema.calls.outcome),
@@ -1437,7 +1430,7 @@ export async function callSeries(
       // next morning was still answered in fourteen hours.
       tx
         .select({
-          day: sql<string>`to_char(${schema.leads.createdAt}, 'YYYY-MM-DD')`,
+          day: sql<string>`to_char(${schema.leads.createdOn}, 'YYYY-MM-DD')`,
           seconds: sql<number>`extract(epoch from (min(${schema.calls.occurredAt}) - ${schema.leads.createdAt}))::int`,
         })
         .from(schema.leads)
@@ -1454,8 +1447,7 @@ export async function callSeries(
         .where(
           and(
             eq(schema.leads.tenantId, session.tenant.id),
-            gte(schema.leads.createdAt, from),
-            lte(schema.leads.createdAt, to),
+            leadsCreatedIn(range),
           ),
         )
         .groupBy(sql`1`, schema.leads.externalId, schema.leads.createdAt),

@@ -37,6 +37,12 @@ import {
   upsertSubmissions,
   type ClickIdRow,
 } from './writer';
+import {
+  applyStageCorrections,
+  applyStageExclusions,
+  type StageCorrection,
+  type StageExclusionRule,
+} from './stage-rules';
 
 export type SyncContext = {
   tenantId: string;
@@ -52,6 +58,10 @@ export type SyncContext = {
   leadExclusion?: LeadExclusionConfig;
   /** Which funnel stage MQL corresponds to, if any. */
   mqlStageKey?: string;
+  /** Events that are real but not counted — renewals reaching Funded. */
+  stageExclusions?: StageExclusionRule[];
+  /** Stage dates a person has corrected over the CRM's. */
+  stageCorrections?: StageCorrection[];
 };
 
 export type SyncResult = {
@@ -59,6 +69,10 @@ export type SyncResult = {
   leads: number;
   opportunities: number;
   stageEvents: number;
+  /** Stage events excluded from counting, per configured reason. */
+  stageExclusions: Record<string, number>;
+  /** Hand-recorded corrections in force after this run. */
+  stageCorrections: number;
   clickIds: number;
   deleted: number;
   merged: number;
@@ -156,6 +170,8 @@ export async function runSalesforceSync(
       leads: 0,
       opportunities: 0,
       stageEvents: 0,
+      stageExclusions: {},
+      stageCorrections: 0,
       clickIds: 0,
       deleted: 0,
       merged: 0,
@@ -337,6 +353,24 @@ export async function runSalesforceSync(
         context.tenantId,
         stageEvents,
         syncRunId,
+      );
+
+      /*
+       * Corrections, then exclusions, over the whole table.
+       *
+       * After the upsert because the upsert writes the CRM's version back
+       * whenever a corrected deal is modified. Exclusions last, so a corrected
+       * event is judged like any other. Both idempotent; see `stage-rules.ts`.
+       */
+      result.stageCorrections = await applyStageCorrections(
+        tx,
+        context.tenantId,
+        context.stageCorrections ?? [],
+      );
+      result.stageExclusions = await applyStageExclusions(
+        tx,
+        context.tenantId,
+        context.stageExclusions ?? [],
       );
 
       // --- Lender submissions --------------------------------------------------

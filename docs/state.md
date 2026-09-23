@@ -61,6 +61,38 @@ view are removed", and the section below.
   Opportunity-side field mapping existing. This is what makes any attribution
   possible today.
 
+## Funded deals and the data-quality card, audited (23 September 2026)
+
+Investigation only; nothing changed in code or data. Awaiting the client's
+decisions before Part B of the same brief (UI) begins.
+
+**Funded reconciles exactly.** Aug 7, Sep MTD 4, by `csbs__Funded_Date_Time__c`,
+which agrees one-for-one with the `StageName → Funded` field history and with the
+Contract record auto-created at funding. Opportunities are not filtered by the
+cold-outreach exclusion, and the card and funnel count every source, attributed
+or not. The integration user's profile carries View All Data and Opportunity has
+no record types, so nothing is hidden from the sync. Five deals carry a
+`csbs__Funded__c` amount without ever reaching Funded — it holds the offer amount
+— and are correctly excluded.
+
+Three things found beside it, none of which changes Aug or Sep's count:
+
+1. **Funded volume uses `Amount`, because `opportunity.fundedAmount` is not
+   mapped.** September is overstated by $23,300 (`006Vr00000q82TJIAY`: Amount
+   $64,200, funded $40,900). `csbs__Funded__c` is the field.
+2. **`006Vr00000eOpyPIAS` is dated two ways** — `csbs__Funded_Date__c` and
+   `CloseDate` say 13 May, the timestamp and the stage history say 1 September.
+   If May is right, September is 3.
+3. **Stage buckets use the UTC day**, not the tenant's (`to_char(occurred_at)` on
+   a UTC session). A deal funded after 8pm ET on a month's last day lands in the
+   next month. None did in Jul–Sep.
+
+**Data-quality card: production is behind the seed.** It still carries
+`mql_time_in_business_decode` (the MIYB reason, stale since 22 September) where
+the seed has `mql_revenue_coverage`, and `revenue_band_breakdown` quotes 8.8%
+revenue coverage against a measured 87–97% readable band per month. Per-item
+findings are in the session report; no badge was changed.
+
 ## Cost per funded deal — Google Ads, trailing 90 days
 
 Both models agree; no deal has more than one touch yet, so first and last touch

@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
-import { schema, type Database } from '@zeeraa/db';
+import { schema, stageEventsIn, type Database } from '@zeeraa/db';
 import {
   attributionCoverage,
   channelCostPerDeal,
@@ -294,8 +294,7 @@ export async function spendToFunded(
           and(
             eq(schema.stageEvents.tenantId, tenantId),
             eq(schema.stageEvents.stage, stage),
-            gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00Z`)),
-            lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+            stageEventsIn(range),
           ),
         )
     : [];

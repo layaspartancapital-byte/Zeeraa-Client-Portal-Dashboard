@@ -72,6 +72,7 @@ function opportunity(overrides: Partial<OpportunityRow> = {}): OpportunityRow {
     currentStage: 'Underwriting',
     amount: 50_000,
     fundedAmount: null,
+    dealType: null,
     declineReason: null,
     industry: null,
     state: 'NY',

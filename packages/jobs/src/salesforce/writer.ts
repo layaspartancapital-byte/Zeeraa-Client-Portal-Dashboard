@@ -1,7 +1,11 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@zeeraa/db";
 import { schema } from "@zeeraa/db";
-import { normalizeMonthlyRevenue, type QualificationBar } from "@zeeraa/core";
+import {
+  normalizeMonthlyRevenue,
+  tenantDay,
+  type QualificationBar,
+} from "@zeeraa/core";
 import type {
   LeadRow,
   OpportunityRow,
@@ -74,6 +78,23 @@ async function inBatches<T>(
  * timestamp read twice. Last one wins, which matches the upsert's own semantics
  * had the rows arrived in separate statements.
  */
+/**
+ * The tenant's timezone, for the local-date columns.
+ *
+ * Read once per write from the tenant row the job transaction is scoped to
+ * (`job_read_tenant`), rather than threaded through every caller: a writer
+ * that could be handed the wrong zone is a writer that files a day's events
+ * under the wrong day, and there is exactly one right answer.
+ */
+export async function tenantTimeZone(tx: Database, tenantId: string): Promise<string> {
+  const [row] = await tx
+    .select({ timezone: schema.tenants.timezone })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, tenantId));
+  if (!row) throw new Error(`Tenant ${tenantId} is not visible to this transaction.`);
+  return row.timezone;
+}
+
 function byUpsertKey<T>(rows: readonly T[], key: (row: T) => string): T[] {
   const seen = new Map<string, T>();
   for (const row of rows) seen.set(key(row), row);
@@ -90,8 +111,9 @@ export async function upsertLeads(
   if (rows.length === 0) return 0;
 
   const deduped = byUpsertKey(rows, (row) => row.externalId);
+  const timeZone = await tenantTimeZone(tx, tenantId);
 
-  return inBatches(deduped, batchSize(23), async (batch) => {
+  return inBatches(deduped, batchSize(24), async (batch) => {
     const written = await tx
       .insert(schema.leads)
       .values(
@@ -99,6 +121,7 @@ export async function upsertLeads(
           tenantId,
           externalId: row.externalId,
           createdAt: row.createdAt,
+          createdOn: tenantDay(row.createdAt, timeZone),
           clickId: row.clickId,
           clickIdType: row.clickIdType,
           mqlVerdict: row.mqlVerdict,
@@ -136,6 +159,7 @@ export async function upsertLeads(
       .onConflictDoUpdate({
         target: [schema.leads.tenantId, schema.leads.externalId],
         set: {
+          createdOn: sql`excluded.created_on`,
           clickId: sql`excluded.click_id`,
           clickIdType: sql`excluded.click_id_type`,
           utmSource: sql`excluded.utm_source`,
@@ -186,7 +210,7 @@ export async function upsertOpportunities(
 
   const deduped = byUpsertKey(rows, (row) => row.externalId);
 
-  return inBatches(deduped, batchSize(12), async (batch) => {
+  return inBatches(deduped, batchSize(13), async (batch) => {
     const written = await tx
       .insert(schema.opportunities)
       .values(
@@ -198,6 +222,7 @@ export async function upsertOpportunities(
           currentStage: row.currentStage,
           amount: row.amount?.toFixed(2) ?? null,
           fundedAmount: row.fundedAmount?.toFixed(2) ?? null,
+          dealType: row.dealType,
           declineReason: row.declineReason,
           industry: row.industry,
           state: row.state,
@@ -218,6 +243,7 @@ export async function upsertOpportunities(
           currentStage: sql`excluded.current_stage`,
           amount: sql`excluded.amount`,
           fundedAmount: sql`excluded.funded_amount`,
+          dealType: sql`excluded.deal_type`,
           declineReason: sql`excluded.decline_reason`,
           industry: sql`excluded.industry`,
           state: sql`excluded.state`,
@@ -251,7 +277,9 @@ export async function upsertStageEvents(
       `${row.opportunityExternalId}|${row.stage}|${row.occurredAt.toISOString()}`,
   );
 
-  return inBatches(deduped, batchSize(6), async (batch) => {
+  const timeZone = await tenantTimeZone(tx, tenantId);
+
+  return inBatches(deduped, batchSize(7), async (batch) => {
     const written = await tx
       .insert(schema.stageEvents)
       .values(
@@ -260,6 +288,7 @@ export async function upsertStageEvents(
           opportunityExternalId: row.opportunityExternalId,
           stage: row.stage,
           occurredAt: row.occurredAt,
+          occurredOn: tenantDay(row.occurredAt, timeZone),
           origin: row.origin,
           syncRunId,
         })),
@@ -272,6 +301,7 @@ export async function upsertStageEvents(
           schema.stageEvents.occurredAt,
         ],
         set: {
+          occurredOn: sql`excluded.occurred_on`,
           origin: sql`excluded.origin`,
           syncRunId: sql`excluded.sync_run_id`,
         },
@@ -468,7 +498,9 @@ export async function upsertSubmissions(
 
   const deduped = byUpsertKey(rows, (row) => row.externalId);
 
-  return inBatches(deduped, batchSize(13), async (batch) => {
+  const timeZone = await tenantTimeZone(tx, tenantId);
+
+  return inBatches(deduped, batchSize(14), async (batch) => {
     const written = await tx
       .insert(schema.submissions)
       .values(
@@ -483,6 +515,7 @@ export async function upsertSubmissions(
           undecidedReason: row.undecidedReason,
           declineReasons: row.declineReasons,
           submittedAt: row.submittedAt,
+          submittedOn: tenantDay(row.submittedAt, timeZone),
           statusChangedAt: row.statusChangedAt,
           syncRunId,
           updatedAt: new Date(),
@@ -499,6 +532,7 @@ export async function upsertSubmissions(
           undecidedReason: sql`excluded.undecided_reason`,
           declineReasons: sql`excluded.decline_reasons`,
           submittedAt: sql`excluded.submitted_at`,
+          submittedOn: sql`excluded.submitted_on`,
           statusChangedAt: sql`excluded.status_changed_at`,
           syncRunId: sql`excluded.sync_run_id`,
           updatedAt: sql`excluded.updated_at`,

@@ -169,6 +169,13 @@
       "when": 1789920000000,
       "tag": "0023_tenant_accent_not_gold",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789930000000,
+      "tag": "0024_local_dates_renewals_corrections",
+      "breakpoints": true
     }
   ]
 }

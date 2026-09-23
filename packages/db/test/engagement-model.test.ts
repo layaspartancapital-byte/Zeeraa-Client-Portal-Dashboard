@@ -120,6 +120,23 @@ describe('the seeded engagement model', () => {
     expect(sum((t) => t.fundedDeals)).toBeCloseTo(STATED_TOTALS.fundedDeals, 1);
   });
 
+  it("carries the model's funded amount, consistent with its own deal size", () => {
+    // From M2 the model's Funded Amount is funded deals × its $20,000 minimum
+    // deal size, before the deal count was rounded to one place — so the
+    // product may be out by up to half a tenth of a deal, $1,000. M1 is the
+    // model's own figure (its deal-size column reads 0) and is pinned instead.
+    expect(targets.every((t) => t.fundedAmount != null)).toBe(true);
+    expect(targets[0]!.fundedAmount).toBe(80_000);
+    const off = targets
+      .slice(1)
+      .filter((t) => Math.abs(t.fundedDeals! * 20_000 - t.fundedAmount!) > 1_000)
+      .map((t) => `M${t.monthIndex}: ${t.fundedDeals} × 20,000 vs ${t.fundedAmount}`);
+    expect(off).toEqual([]);
+    // The model's TOTAL row reads "~ 7M".
+    const total = targets.reduce((sum, t) => sum + t.fundedAmount!, 0);
+    expect(total).toBe(6_872_119);
+  });
+
   it('keeps the fractional projections that the ratios depend on', () => {
     // The guard on migration 0021. Rounding M1's 7.5 funded deals to 8 gives a
     // cost per funded deal of $3,750 against a contract that says $4,000 — a 6%

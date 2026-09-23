@@ -41,6 +41,7 @@ export type TenantSeed = {
     cpa?: number;
     approvals?: number;
     fundedDeals?: number;
+    fundedAmount?: number;
   }[];
   baselines: {
     key: string;
@@ -64,6 +65,8 @@ export type TenantSeed = {
     label: string;
     question: string;
     claims: { value: string; source: string }[];
+    /** Set once the client has settled it; `resolvedOn` is `YYYY-MM-DD`. */
+    resolution?: { value: string; note: string; resolvedOn: string };
   }[];
   /**
    * Things the UI would otherwise render that have no honest source yet (§9.5).

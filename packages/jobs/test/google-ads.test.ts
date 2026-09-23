@@ -461,6 +461,7 @@ describe('the spend-to-funded join', () => {
         opportunityExternalId: 'OPP-1',
         stage: 'funded',
         occurredAt: new Date('2026-09-14T12:00:00Z'),
+        occurredOn: '2026-09-14',
       });
     });
 
@@ -496,8 +497,8 @@ describe('the spend-to-funded join', () => {
         syncRunId,
       );
       await tx.insert(schema.stageEvents).values([
-        { tenantId, opportunityExternalId: 'OPP-1', stage: 'funded', occurredAt: new Date('2026-09-14T12:00:00Z') },
-        { tenantId, opportunityExternalId: 'OPP-1', stage: 'funded', occurredAt: new Date('2026-09-20T12:00:00Z') },
+        { tenantId, opportunityExternalId: 'OPP-1', stage: 'funded', occurredAt: new Date('2026-09-14T12:00:00Z'), occurredOn: '2026-09-14' },
+        { tenantId, opportunityExternalId: 'OPP-1', stage: 'funded', occurredAt: new Date('2026-09-20T12:00:00Z'), occurredOn: '2026-09-20' },
       ]);
     });
 

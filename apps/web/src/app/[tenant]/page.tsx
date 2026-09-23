@@ -265,6 +265,13 @@ export default async function ExecutiveBriefing({
       if (!bucket || !bucket.crmIngested || !valueKey) return null;
       return bucket.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0;
     },
+    // The model's Funded Amount is the contracted channel's volume, so the
+    // actual is that channel's attributed deals only — never the account total.
+    fundedAmount: (month) => {
+      const bucket = completedBucketFor(month);
+      if (!bucket || !bucket.crmIngested || !valueKey) return null;
+      return bucket.valueVolumeByPlatform[rampPlatform] ?? 0;
+    },
   };
 
   const panelFor = (
@@ -325,6 +332,13 @@ export default async function ExecutiveBriefing({
       `${valueLabel} deals`,
       'stage_count',
       { kind: 'projection' },
+      AWAITING_MODEL,
+    ),
+    panelFor(
+      'fundedAmount',
+      `${valueLabel} volume`,
+      'funded_volume',
+      { kind: 'currency', currency },
       AWAITING_MODEL,
     ),
   ];

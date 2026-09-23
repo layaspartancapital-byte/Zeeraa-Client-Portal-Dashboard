@@ -53,6 +53,7 @@ export type OpportunityRow = {
   currentStage: string;
   amount: number | null;
   fundedAmount: number | null;
+  dealType: string | null;
   declineReason: string | null;
   industry: string | null;
   state: string | null;
@@ -62,7 +63,11 @@ export type StageEventRow = {
   opportunityExternalId: string;
   stage: string;
   occurredAt: Date;
-  origin: 'observed' | 'computed';
+  /**
+   * `corrected` is a date a person recorded over what the CRM holds — see
+   * `stage_corrections`. Neither observed nor computed, and rendered as such.
+   */
+  origin: 'observed' | 'computed' | 'corrected';
 };
 
 function str(record: SalesforceRecord, field?: string): string | null {
@@ -205,6 +210,7 @@ export function normalizeOpportunity(
     currentStage: str(record, 'StageName') ?? 'unknown',
     amount: num(record, mapping.opportunity.amount),
     fundedAmount: num(record, mapping.opportunity.fundedAmount),
+    dealType: str(record, mapping.opportunity.dealType),
     declineReason: str(record, mapping.opportunity.declineReason),
     industry: str(record, mapping.opportunity.industry),
     state: str(record, mapping.opportunity.state),

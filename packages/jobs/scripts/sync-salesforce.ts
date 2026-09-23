@@ -18,7 +18,14 @@
  * backfill is to see what it recovers.
  */
 import { and, eq, gte, isNotNull, lte, sql } from 'drizzle-orm';
-import { getOwnerDb, schema, withJobTenant, withMaintenance, type Database } from '@zeeraa/db';
+import {
+  getOwnerDb,
+  schema,
+  stageEventsIn,
+  withJobTenant,
+  withMaintenance,
+  type Database,
+} from '@zeeraa/db';
 import { tenantDay, trailingWindow } from '@zeeraa/core';
 import { resolveSalesforceContext } from '../src/salesforce/context';
 import { runSalesforceSync } from '../src/salesforce/sync';
@@ -77,6 +84,8 @@ try {
   console.log(`  leads:                 ${sync.leads}`);
   console.log(`  opportunities:         ${sync.opportunities}`);
   console.log(`  stage events:          ${sync.stageEvents}`);
+  console.log(`  corrections in force:  ${sync.stageCorrections}`);
+  console.log(`  excluded events:       ${JSON.stringify(sync.stageExclusions)}`);
   console.log(`  click ids (mapped):    ${sync.clickIds}`);
   console.log(`  deleted / merged:      ${sync.deleted} / ${sync.merged}`);
   console.log(`  revenue disagreements: ${sync.revenueDisagreements}`);
@@ -184,8 +193,7 @@ try {
         and(
           eq(schema.stageEvents.tenantId, tenantId),
           eq(schema.stageEvents.stage, 'funded'),
-          gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00Z`)),
-          lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+          stageEventsIn(range),
         ),
       ),
   );

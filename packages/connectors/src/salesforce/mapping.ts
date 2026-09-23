@@ -99,6 +99,11 @@ export type SalesforceFieldMapping = {
     clickIds: Record<string, string>;
     amount?: string;
     fundedAmount?: string;
+    /**
+     * The CRM's deal-type field. Stored verbatim on the opportunity; which
+     * values are renewals is the `renewal_exclusion` config row's to say.
+     */
+    dealType?: string;
     declineReason?: string;
     industry?: string;
     state?: string;

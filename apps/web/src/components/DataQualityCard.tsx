@@ -20,6 +20,7 @@ const LABELS: Record<DataQualityItem['status'], { text: string; tone: BadgeTone 
   degraded: { text: 'Degraded', tone: 'warn' },
   waiting_on_client: { text: 'Waiting on client', tone: 'neutral' },
   unreconciled: { text: 'Unreconciled', tone: 'neutral' },
+  corrected: { text: 'Corrected', tone: 'neutral' },
   not_configured: { text: 'Not configured', tone: 'neutral' },
 };
 

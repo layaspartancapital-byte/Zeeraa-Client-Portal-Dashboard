@@ -1,6 +1,8 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@zeeraa/db';
 import type { CallRow } from '@zeeraa/connectors';
+import { tenantDay } from '@zeeraa/core';
+import { tenantTimeZone } from '../salesforce/writer';
 
 /**
  * Writing calls into Postgres.
@@ -26,7 +28,8 @@ export async function upsertCalls(
   // Last one wins within a batch, matching what the upsert would do had the
   // rows arrived in separate statements. An export can contain a call twice.
   const deduped = [...new Map(rows.map((row) => [row.externalId, row])).values()];
-  const columns = 16;
+  const columns = 17;
+  const timeZone = await tenantTimeZone(tx, tenantId);
   const size = Math.max(1, Math.floor(PARAMETER_BUDGET / columns));
 
   let written = 0;
@@ -39,6 +42,7 @@ export async function upsertCalls(
           tenantId,
           externalId: row.externalId,
           occurredAt: row.occurredAt,
+          occurredOn: tenantDay(row.occurredAt, timeZone),
           direction: row.direction,
           outcome: row.outcome,
           disposition: row.disposition,
@@ -58,6 +62,7 @@ export async function upsertCalls(
         target: [schema.calls.tenantId, schema.calls.externalId],
         set: {
           occurredAt: sql`excluded.occurred_at`,
+          occurredOn: sql`excluded.occurred_on`,
           direction: sql`excluded.direction`,
           outcome: sql`excluded.outcome`,
           disposition: sql`excluded.disposition`,

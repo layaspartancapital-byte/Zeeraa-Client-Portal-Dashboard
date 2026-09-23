@@ -199,6 +199,8 @@ export const engagementTargets = pgTable(
      */
     approvals: numeric('approvals', { precision: 18, scale: 2 }),
     fundedDeals: numeric('funded_deals', { precision: 18, scale: 2 }),
+    /** The model's Funded Amount column — contracted funded volume for the month. */
+    fundedAmount: numeric('funded_amount', { precision: 18, scale: 2 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

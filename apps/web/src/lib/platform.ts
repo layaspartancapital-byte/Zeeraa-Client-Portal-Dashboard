@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
-import { schema } from '@zeeraa/db';
+import { schema, stageEventsIn } from '@zeeraa/db';
 import {
   channelCostPerDeal,
   monthBucketsIn,
@@ -355,8 +355,7 @@ async function platformOutcomes(
       and(
         eq(schema.stageEvents.tenantId, tenantId),
         eq(schema.stageEvents.stage, valueStage.key),
-        gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00Z`)),
-        lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+        stageEventsIn(range),
       ),
     );
 

@@ -187,6 +187,7 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         cpa: t.cpa != null ? money(t.cpa) : null,
         approvals: t.approvals != null ? projected(t.approvals) : null,
         fundedDeals: t.fundedDeals != null ? projected(t.fundedDeals) : null,
+        fundedAmount: t.fundedAmount != null ? money(t.fundedAmount) : null,
       })
       .onConflictDoUpdate({
         target: [
@@ -203,6 +204,7 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
           cpa: t.cpa != null ? money(t.cpa) : null,
           approvals: t.approvals != null ? projected(t.approvals) : null,
           fundedDeals: t.fundedDeals != null ? projected(t.fundedDeals) : null,
+          fundedAmount: t.fundedAmount != null ? money(t.fundedAmount) : null,
         },
       });
   }
@@ -282,10 +284,11 @@ export async function applyTenantSeed(db: Database, seed: TenantSeed): Promise<s
         label: r.label,
         question: r.question,
         claims: r.claims,
+        ...resolutionOf(r),
       })
       .onConflictDoUpdate({
         target: [schema.reconciliationItems.tenantId, schema.reconciliationItems.key],
-        set: { label: r.label, question: r.question, claims: r.claims },
+        set: { label: r.label, question: r.question, claims: r.claims, ...resolutionOf(r) },
       });
   }
 
@@ -402,4 +405,14 @@ export async function ensureMembership(
       set: { role },
     });
   return user.id;
+}
+
+/** An item's resolution as columns, or all four cleared when it is still open. */
+export function resolutionOf(r: TenantSeed['reconciliation'][number]) {
+  return {
+    resolvedValue: r.resolution?.value ?? null,
+    resolvedNote: r.resolution?.note ?? null,
+    resolvedAt: r.resolution ? new Date(`${r.resolution.resolvedOn}T12:00:00Z`) : null,
+    resolvedByUserId: null,
+  };
 }

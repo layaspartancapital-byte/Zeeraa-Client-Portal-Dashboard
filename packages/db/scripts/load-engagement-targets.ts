@@ -44,7 +44,7 @@ try {
     from information_schema.columns
     where table_schema = 'public'
       and table_name = 'engagement_targets'
-      and column_name in ('approvals', 'funded_deals')
+      and column_name in ('approvals', 'funded_deals', 'funded_amount')
     order by column_name
   `);
 
@@ -56,6 +56,12 @@ try {
         .join(', ')}. The model contracts fractional projections — 7.5 funded ` +
         'deals in M1 — and an integer column would round them, restating the ' +
         'contract. Apply migration 0021 first.',
+    );
+  }
+  if (![...columns].some((c) => c.column_name === 'funded_amount')) {
+    throw new Error(
+      'Refusing to load: engagement_targets.funded_amount does not exist, so the ' +
+        "model's Funded Amount column has nowhere to go. Apply migration 0024 first.",
     );
   }
 
@@ -85,6 +91,7 @@ try {
         cpa: t.cpa != null ? t.cpa.toFixed(2) : null,
         approvals: t.approvals != null ? t.approvals.toFixed(2) : null,
         fundedDeals: t.fundedDeals != null ? t.fundedDeals.toFixed(2) : null,
+        fundedAmount: t.fundedAmount != null ? t.fundedAmount.toFixed(2) : null,
       };
       await tx
         .insert(schema.engagementTargets)
@@ -101,6 +108,7 @@ try {
             cpa: values.cpa,
             approvals: values.approvals,
             fundedDeals: values.fundedDeals,
+            fundedAmount: values.fundedAmount,
           },
         });
     }
@@ -115,7 +123,8 @@ try {
       .orderBy(schema.engagementTargets.platform, schema.engagementTargets.monthIndex);
 
     const filled = after.filter(
-      (r) => r.budget && r.cpa && r.approvals && r.costPerFundedDeal && r.fundedDeals,
+      (r) =>
+        r.budget && r.cpa && r.approvals && r.costPerFundedDeal && r.fundedDeals && r.fundedAmount,
     ).length;
 
     const result = {
@@ -130,6 +139,7 @@ try {
         approvals: r.approvals,
         cpf: r.costPerFundedDeal,
         funded: r.fundedDeals,
+        fundedAmount: r.fundedAmount,
       })),
     };
 

@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
-import { schema } from '@zeeraa/db';
+import { leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
   bucketLabel,
@@ -348,6 +348,11 @@ export type WindowBucket = {
   /** Per channel. A channel's numerator only ever comes from here. */
   stagesByPlatform: Record<string, StageCounts>;
   unattributedStages: StageCounts;
+  /**
+   * Funded amount on the value-stage deals in this bucket, per attributed
+   * channel. A contracted volume is a channel's, so its actual is too.
+   */
+  valueVolumeByPlatform: Record<string, number>;
   /** Funded amount on the value-stage deals in this bucket, every source. */
   valueVolume: number;
 };
@@ -408,7 +413,7 @@ export async function windowBuckets(
       // stage recurs: a deal that funds twice in a bucket is one deal.
       tx
         .selectDistinct({
-          day: sql<string>`to_char(${schema.stageEvents.occurredAt}, 'YYYY-MM-DD')`,
+          day: sql<string>`to_char(${schema.stageEvents.occurredOn}, 'YYYY-MM-DD')`,
           stage: schema.stageEvents.stage,
           opportunityExternalId: schema.stageEvents.opportunityExternalId,
           platform: schema.attribution.platform,
@@ -428,8 +433,7 @@ export async function windowBuckets(
         .where(
           and(
             eq(schema.stageEvents.tenantId, tenantId),
-            gte(schema.stageEvents.occurredAt, new Date(`${range.start}T00:00:00.000Z`)),
-            lte(schema.stageEvents.occurredAt, new Date(`${range.end}T23:59:59.999Z`)),
+            stageEventsIn(range),
           ),
         ),
 
@@ -438,7 +442,7 @@ export async function windowBuckets(
       // (`qualified_leads`), and both are counted from these rows.
       tx
         .select({
-          day: sql<string>`to_char(${schema.leads.createdAt}, 'YYYY-MM-DD')`,
+          day: sql<string>`to_char(${schema.leads.createdOn}, 'YYYY-MM-DD')`,
           clickIdType: schema.leads.clickIdType,
           verdict: schema.leads.mqlVerdict,
           count: sql<number>`count(*)::int`,
@@ -447,8 +451,7 @@ export async function windowBuckets(
         .where(
           and(
             eq(schema.leads.tenantId, tenantId),
-            gte(schema.leads.createdAt, new Date(`${range.start}T00:00:00.000Z`)),
-            lte(schema.leads.createdAt, new Date(`${range.end}T23:59:59.999Z`)),
+            leadsCreatedIn(range),
           ),
         )
         .groupBy(sql`1`, schema.leads.clickIdType, schema.leads.mqlVerdict),
@@ -460,14 +463,14 @@ export async function windowBuckets(
 
       tx
         .select({
-          day: sql<string | null>`to_char(min(${schema.stageEvents.occurredAt}), 'YYYY-MM-DD')`,
+          day: sql<string | null>`to_char(min(${schema.stageEvents.occurredOn}), 'YYYY-MM-DD')`,
         })
         .from(schema.stageEvents)
         .where(eq(schema.stageEvents.tenantId, tenantId)),
 
       tx
         .select({
-          day: sql<string | null>`to_char(min(${schema.leads.createdAt}), 'YYYY-MM-DD')`,
+          day: sql<string | null>`to_char(min(${schema.leads.createdOn}), 'YYYY-MM-DD')`,
         })
         .from(schema.leads)
         .where(eq(schema.leads.tenantId, tenantId)),
@@ -538,6 +541,7 @@ export async function windowBuckets(
         stagesByPlatform: {},
         unattributedStages: {},
         valueVolume: 0,
+        valueVolumeByPlatform: {},
       };
       const counted = new Set<string>();
 
@@ -582,7 +586,12 @@ export async function windowBuckets(
         // bucket.
         if (row.stage === valueStageKey && !counted.has(row.opportunityExternalId)) {
           counted.add(row.opportunityExternalId);
-          bucket.valueVolume += amounts.get(row.opportunityExternalId) ?? 0;
+          const amount = amounts.get(row.opportunityExternalId) ?? 0;
+          bucket.valueVolume += amount;
+          if (row.platform) {
+            bucket.valueVolumeByPlatform[row.platform] =
+              (bucket.valueVolumeByPlatform[row.platform] ?? 0) + amount;
+          }
         }
       }
 
@@ -615,7 +624,13 @@ export async function windowBuckets(
 export type DataQualityItem = {
   key: string;
   name: string;
-  status: 'not_measured' | 'waiting_on_client' | 'degraded' | 'unreconciled' | 'not_configured';
+  status:
+    | 'not_measured'
+    | 'waiting_on_client'
+    | 'degraded'
+    | 'unreconciled'
+    | 'corrected'
+    | 'not_configured';
   /** One line. The full explanation goes in the ⓘ, never inline. */
   summary: string;
   detail: string;
@@ -627,7 +642,8 @@ const STATUS_ORDER: Record<DataQualityItem['status'], number> = {
   degraded: 1,
   waiting_on_client: 2,
   unreconciled: 3,
-  not_configured: 4,
+  corrected: 4,
+  not_configured: 5,
 };
 
 /**
@@ -639,7 +655,7 @@ const STATUS_ORDER: Record<DataQualityItem['status'], number> = {
  * the agency failed.
  */
 export async function dataQuality(session: TenantSession): Promise<DataQualityItem[]> {
-  const [blocked, connections, metrics, runs] = await Promise.all([
+  const [blocked, connections, metrics, runs, corrections] = await Promise.all([
     queryTenant(session, (tx) =>
       tx
         .select()
@@ -698,6 +714,32 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
           ),
         ),
     ),
+
+    /**
+     * Stage dates a person corrected over the CRM's.
+     *
+     * A corrected event is neither observed nor computed, so it is listed here
+     * where a reader can see it and its source, rather than folded silently
+     * into a month's count.
+     */
+    queryTenant(session, (tx) =>
+      tx
+        .select({
+          stage: schema.stageEvents.stage,
+          occurredOn: schema.stageEvents.occurredOn,
+          precision: schema.stageEvents.occurredPrecision,
+          source: schema.stageEvents.correctionSource,
+          opportunity: schema.stageEvents.opportunityExternalId,
+        })
+        .from(schema.stageEvents)
+        .where(
+          and(
+            eq(schema.stageEvents.tenantId, session.tenant.id),
+            eq(schema.stageEvents.origin, 'corrected'),
+          ),
+        )
+        .orderBy(asc(schema.stageEvents.occurredOn)),
+    ),
   ]);
 
   // Every current job outcome that has something to say, per platform.
@@ -755,6 +797,25 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
           since: row.blockedSince ?? null,
         };
       }),
+    ...corrections.map((row): DataQualityItem => {
+      const when = row.occurredOn
+        ? row.precision === 'month'
+          ? `${new Date(`${row.occurredOn}T00:00:00Z`).toLocaleDateString('en-US', {
+              month: 'long',
+              year: 'numeric',
+              timeZone: 'UTC',
+            })}, day unknown`
+          : row.occurredOn
+        : 'an unrecorded date';
+      return {
+        key: `corrected:${row.opportunity}:${row.stage}`,
+        name: `${row.stage.replace(/_/g, ' ')} date corrected`,
+        status: 'corrected',
+        summary: `One deal counted in ${when}, not where the CRM dates it.`,
+        detail: row.source ?? 'Corrected by hand; no source recorded.',
+        since: null,
+      };
+    }),
     ...metrics.map(
       (row): DataQualityItem => ({
         key: `metric:${row.key}`,
@@ -928,6 +989,7 @@ export async function engagementRamp(session: TenantSession): Promise<Engagement
           cpa: schema.engagementTargets.cpa,
           approvals: schema.engagementTargets.approvals,
           fundedDeals: schema.engagementTargets.fundedDeals,
+          fundedAmount: schema.engagementTargets.fundedAmount,
         })
         .from(schema.engagementTargets)
         .where(eq(schema.engagementTargets.tenantId, tenantId))
@@ -954,6 +1016,7 @@ export async function engagementRamp(session: TenantSession): Promise<Engagement
         // need the same coercion the columns above have always had.
         approvals: row.approvals === null ? null : Number(row.approvals),
         fundedDeals: row.fundedDeals === null ? null : Number(row.fundedDeals),
+        fundedAmount: row.fundedAmount === null ? null : Number(row.fundedAmount),
       });
       byPlatform.set(row.platform, list);
     }
@@ -997,13 +1060,13 @@ export async function ingestionStart(session: TenantSession): Promise<Ingestion>
         .where(eq(schema.dailyMetrics.tenantId, tenantId)),
       tx
         .select({
-          day: sql<string | null>`to_char(min(${schema.stageEvents.occurredAt}), 'YYYY-MM-DD')`,
+          day: sql<string | null>`to_char(min(${schema.stageEvents.occurredOn}), 'YYYY-MM-DD')`,
         })
         .from(schema.stageEvents)
         .where(eq(schema.stageEvents.tenantId, tenantId)),
       tx
         .select({
-          day: sql<string | null>`to_char(min(${schema.leads.createdAt}), 'YYYY-MM-DD')`,
+          day: sql<string | null>`to_char(min(${schema.leads.createdOn}), 'YYYY-MM-DD')`,
         })
         .from(schema.leads)
         .where(eq(schema.leads.tenantId, tenantId)),
