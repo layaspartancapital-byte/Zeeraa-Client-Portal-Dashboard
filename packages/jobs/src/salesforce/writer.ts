@@ -439,9 +439,15 @@ export async function applyReconciliation(
         ),
       );
 
+    // Excluded at once, not only on the next recompute: a merged lead is a
+    // duplicate from the moment it is merged (see `applyStageExclusions`).
     await tx
       .update(schema.leads)
-      .set({ mergedInto: survivorId, updatedAt: new Date() })
+      .set({
+        mergedInto: survivorId,
+        excludedReason: sql`coalesce(${schema.leads.excludedReason}, 'merged')`,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(schema.leads.tenantId, tenantId),

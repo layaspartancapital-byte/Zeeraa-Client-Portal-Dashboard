@@ -207,6 +207,32 @@ describe('stage exclusions', () => {
     expect(counted.map((l) => l.externalId)).toEqual(['00QN']);
   });
 
+  it('excludes a lead merged into another, which is the same merchant twice', async () => {
+    // September 2026 counted 45 merged duplicates: marked `merged_into` by the
+    // reconciliation, then counted anyway.
+    await run(async (tx) => {
+      await tx.insert(schema.leads).values([
+        { tenantId, externalId: '00QM', createdAt: new Date('2026-09-18T15:00:00Z'), createdOn: '2026-09-18', mergedInto: '00QS' },
+        { tenantId, externalId: '00QS', createdAt: new Date('2026-09-18T14:00:00Z'), createdOn: '2026-09-18' },
+      ]);
+      await applyStageExclusions(tx, tenantId, RENEWALS);
+    });
+    const counted = await run((tx) =>
+      tx
+        .select()
+        .from(schema.leads)
+        .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn({ start: '2026-09-18', end: '2026-09-18' }))),
+    );
+    expect(counted.map((l) => l.externalId)).toEqual(['00QS']);
+
+    // And a recompute, which clears every reason first, puts it back.
+    await run((tx) => applyStageExclusions(tx, tenantId, []));
+    const [loser] = await run((tx) =>
+      tx.select().from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.externalId, '00QM'))),
+    );
+    expect(loser!.excludedReason).toBe('merged');
+  });
+
   it('matches the deal type case-insensitively and trimmed', async () => {
     await run(async (tx) => {
       await upsertOpportunities(tx, tenantId, [opportunity('006W', '  win back ')], syncRunId);

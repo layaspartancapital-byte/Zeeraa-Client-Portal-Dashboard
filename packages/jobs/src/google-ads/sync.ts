@@ -129,7 +129,12 @@ export async function runGoogleAdsSync(
       },
       range,
     );
-    if (result.clicks.daysFailed > 0 || result.clicks.daysRemaining > 0) {
+    // A spend-only pass (`maxClickDays: 0`) leaves the click backlog to the
+    // click pass by design; outstanding days are not this pass falling short.
+    if (
+      result.clicks.daysFailed > 0 ||
+      (options.maxClickDays !== 0 && result.clicks.daysRemaining > 0)
+    ) {
       result.status = 'partial';
     }
 

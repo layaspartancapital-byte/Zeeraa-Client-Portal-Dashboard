@@ -135,6 +135,28 @@ export async function applyStageExclusions(
       counts[`${rule.reason}:leads`] = (counts[`${rule.reason}:leads`] ?? 0) + leads.length;
     }
   }
+
+  /*
+   * A lead merged into another is the same merchant counted twice. Salesforce
+   * keeps the loser only in the recycle bin; we keep it, marked, so its click
+   * id can move to the survivor — and until 23 September 2026 we also kept
+   * counting it: 45 of September's leads were merged duplicates. Not a config
+   * rule, because a merge is never a lead in its own right for any client.
+   * Applied after the rules and only where no rule claimed the lead, so the
+   * reason a lead is excluded is the most specific one.
+   */
+  const merged = await tx
+    .update(schema.leads)
+    .set({ excludedReason: 'merged' })
+    .where(
+      and(
+        eq(schema.leads.tenantId, tenantId),
+        sql`${schema.leads.mergedInto} is not null`,
+        sql`${schema.leads.excludedReason} is null`,
+      ),
+    )
+    .returning({ id: schema.leads.id });
+  counts['merged:leads'] = merged.length;
   return counts;
 }
 
