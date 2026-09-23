@@ -9,7 +9,7 @@ import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from './salesforce/context';
 import { runSalesforceSync } from './salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from './salesforce/backfill';
-import { lastCompletedWatermark, recordSkippedRun, resumeWindow } from './sync-runs';
+import { lastCompletedWatermark, recordSkippedRun, resumeWindow, salesforceRunInFlight } from './sync-runs';
 
 /**
  * The hourly incremental sync, sized for a 60-second serverless function.
@@ -277,6 +277,21 @@ export async function runIncrementalSync(
     for (const connection of await listSalesforceConnections()) {
       if (!mine(connection.tenantId)) continue;
       await unit(connection.tenantId, 'salesforce', async () => {
+        // Salesforce runs every ten minutes. One still in flight — started
+        // inside the last ten minutes and not closed — means this one would
+        // read the same window and race it for the watermark, so it stands
+        // down. A run that crashed without closing stops blocking after ten
+        // minutes, so a dead row cannot stall the schedule.
+        const inFlight = await withJobTenant(connection.tenantId, (tx) =>
+          salesforceRunInFlight(tx, connection.tenantId, startedAt),
+        );
+        if (inFlight) {
+          return {
+            status: 'skipped' as const,
+            detail: `A Salesforce sync started at ${inFlight.toISOString().slice(11, 19)}Z is still running.`,
+            remedy: 'The next run picks up from where that one finishes.',
+          };
+        }
         const since = await withJobTenant(connection.tenantId, (tx) =>
           lastCompletedWatermark(tx, connection.tenantId),
         );

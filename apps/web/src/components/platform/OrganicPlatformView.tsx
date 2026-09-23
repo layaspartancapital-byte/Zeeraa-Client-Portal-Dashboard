@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { NotMeasuredCard } from '@/components/NotMeasuredCard';
 import { formatCount, formatRate, ctr } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
@@ -103,13 +104,15 @@ export function OrganicPlatformView({
 
       <PageMeta>
         <span className="flex flex-wrap items-center gap-2 text-[12px] text-text-3">
-          <Badge tone={view.connection?.status === 'healthy' ? 'up' : 'warn'}>
+          {/* Neutral when healthy: green means improvement, never a status. */}
+          <Badge tone={view.connection?.status === 'healthy' ? 'neutral' : 'warn'}>
             {view.connection?.status ?? 'not connected'}
           </Badge>
           <span className="truncate tabular">
             {view.connection?.accountIdentifier ?? '—'} · {view.daysReported} days reported
             {view.lastDayWithData ? ` · through ${view.lastDayWithData}` : ''}
           </span>
+          <AutoRefresh />
         </span>
         <MethodDrawer notes={notes} title={`${view.label} · ${view.range.start} to ${view.range.end}`} />
       </PageMeta>

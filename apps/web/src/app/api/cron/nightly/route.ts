@@ -1,5 +1,5 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
+import { refuseUnlessCron } from '@/lib/cron-auth';
 import { runNightlyRepull } from '@zeeraa/jobs';
 
 /**
@@ -14,23 +14,9 @@ import { runNightlyRepull } from '@zeeraa/jobs';
  * Authenticated exactly as `/api/cron/sync` is, and for the same reason: a
  * stranger must not be able to spend the client's API quota.
  */
-function authorised(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const a = Buffer.from(request.headers.get('authorization') ?? '');
-  const b = Buffer.from(`Bearer ${secret}`);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 async function handle(request: NextRequest): Promise<Response> {
-  if (!process.env.CRON_SECRET) {
-    console.error('[cron/nightly] refused: CRON_SECRET is not set on this deployment');
-    return Response.json(
-      { ok: false, error: 'CRON_SECRET is not configured on this deployment.' },
-      { status: 503 },
-    );
-  }
-  if (!authorised(request)) return new Response('Not found', { status: 404 });
+  const refused = refuseUnlessCron(request, 'nightly');
+  if (refused) return refused;
 
   const result = await runNightlyRepull({ trigger: 'cron-nightly', deadlineMs: 240_000 });
   for (const outcome of result.outcomes) {

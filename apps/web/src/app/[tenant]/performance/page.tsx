@@ -1,4 +1,5 @@
 import { Download } from 'lucide-react';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
   addDays,
   canAdministerTenant,
@@ -410,6 +411,7 @@ export default async function Performance({
             active={compare}
             options={segments(base, active, 'compare', COMPARE)}
           />
+          <AutoRefresh />
         </div>
         <MethodDrawer
           notes={notes}

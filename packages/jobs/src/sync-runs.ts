@@ -269,3 +269,34 @@ export async function recordSkippedRun(
     error: detail,
   });
 }
+
+/**
+ * When a Salesforce sync for this tenant started, if one is still running.
+ *
+ * Only runs started in the ten minutes before `now` count: the schedule is
+ * every ten minutes and a run takes seconds, so an older `running` row is a
+ * run that died without closing, not one in progress.
+ */
+export async function salesforceRunInFlight(
+  tx: Database,
+  tenantId: string,
+  now: Date,
+  withinMinutes = 10,
+): Promise<Date | null> {
+  const since = new Date(now.getTime() - withinMinutes * 60_000);
+  const [row] = await tx
+    .select({ startedAt: schema.syncRuns.startedAt })
+    .from(schema.syncRuns)
+    .where(
+      and(
+        eq(schema.syncRuns.tenantId, tenantId),
+        eq(schema.syncRuns.platform, 'salesforce'),
+        eq(schema.syncRuns.status, 'running'),
+        gte(schema.syncRuns.startedAt, since),
+        lte(schema.syncRuns.startedAt, now),
+      ),
+    )
+    .orderBy(desc(schema.syncRuns.startedAt))
+    .limit(1);
+  return row?.startedAt ?? null;
+}

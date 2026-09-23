@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { and, eq } from 'drizzle-orm';
 import { schema } from '@zeeraa/db';
 import {
@@ -307,6 +308,7 @@ export default async function PlatformPage({
             account {view.connection?.accountIdentifier ?? '—'} ·{' '}
             {view.daysReported} of {days} days reported
           </span>
+          <AutoRefresh />
         </span>
         <MethodDrawer notes={notes} title={`${view.label} · ${range.start} to ${range.end}`} />
       </PageMeta>

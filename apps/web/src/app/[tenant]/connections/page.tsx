@@ -13,6 +13,7 @@ import { canAdministerTenant, canManageConnections, formatCount, formatRangeLabe
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import {
@@ -90,6 +91,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
             <Badge tone="neutral">{formatCount(live.length)} reporting</Badge>
             <Badge tone="neutral">{formatCount(waiting.length)} waiting on client</Badge>
             <Badge tone="neutral">{formatCount(unconfigured.length)} not configured</Badge>
+            <AutoRefresh />
           </div>
         </Card>
 

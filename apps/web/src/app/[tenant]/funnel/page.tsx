@@ -1,4 +1,5 @@
 import { Download } from 'lucide-react';
+import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
   canAdministerTenant,
   formatCount,
@@ -257,6 +258,7 @@ export default async function Funnel({
       </TopBar>
 
       <PageMeta>
+        <AutoRefresh />
         <MethodDrawer notes={notes} title={`${population.label} · ${range.start} to ${range.end}`} />
       </PageMeta>
 

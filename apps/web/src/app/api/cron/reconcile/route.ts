@@ -1,5 +1,5 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
+import { refuseUnlessCron } from '@/lib/cron-auth';
 import { autoFreeze, runReconciliation, tenantsWithRamp } from '@zeeraa/jobs';
 
 /**
@@ -11,23 +11,9 @@ import { autoFreeze, runReconciliation, tenantsWithRamp } from '@zeeraa/jobs';
  * the Connections screen. Then any baseline month due to freeze is frozen —
  * only where that reconciliation came back clean (`autoFreeze`).
  */
-function authorised(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const a = Buffer.from(request.headers.get('authorization') ?? '');
-  const b = Buffer.from(`Bearer ${secret}`);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 async function handle(request: NextRequest): Promise<Response> {
-  if (!process.env.CRON_SECRET) {
-    console.error('[cron/reconcile] refused: CRON_SECRET is not set on this deployment');
-    return Response.json(
-      { ok: false, error: 'CRON_SECRET is not configured on this deployment.' },
-      { status: 503 },
-    );
-  }
-  if (!authorised(request)) return new Response('Not found', { status: 404 });
+  const refused = refuseUnlessCron(request, 'reconcile');
+  if (refused) return refused;
 
   const reconciled = await runReconciliation();
   const frozen: Record<string, unknown> = {};

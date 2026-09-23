@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { recordSkippedRun, recordSyncedDays, resumeWindow } from '../src/sync-runs';
+import { recordSkippedRun, recordSyncedDays, resumeWindow, salesforceRunInFlight } from '../src/sync-runs';
 
 const SLUG = `sd-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 let tenantId: string;
@@ -142,5 +142,23 @@ describe('recordSkippedRun', () => {
       tx.select().from(schema.syncRuns).where(eq(schema.syncRuns.tenantId, tenantId)),
     );
     expect(row).toMatchObject({ platform: 'meta', status: 'skipped', error: 'Not started: 46s spent.' });
+  });
+});
+
+describe('salesforceRunInFlight', () => {
+  it('sees a Salesforce run started minutes ago and still open, and not one that died long ago', async () => {
+    const now = new Date('2026-09-23T22:10:00Z');
+    await withJobTenant(tenantId, (tx) =>
+      tx.insert(schema.syncRuns).values([
+        { tenantId, platform: 'salesforce', trigger: 'cron-salesforce', startedAt: new Date('2026-09-23T21:00:00Z'), status: 'running' },
+      ]),
+    );
+    // An hour-old row still marked running is a crash, not a run in progress.
+    expect(await withJobTenant(tenantId, (tx) => salesforceRunInFlight(tx, tenantId, now))).toBeNull();
+
+    await withJobTenant(tenantId, (tx) =>
+      tx.insert(schema.syncRuns).values({ tenantId, platform: 'salesforce', trigger: 'cron-salesforce', startedAt: new Date('2026-09-23T22:05:00Z'), status: 'running' }),
+    );
+    expect((await withJobTenant(tenantId, (tx) => salesforceRunInFlight(tx, tenantId, now)))?.toISOString()).toBe('2026-09-23T22:05:00.000Z');
   });
 });

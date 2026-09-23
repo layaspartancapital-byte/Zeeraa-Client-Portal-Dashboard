@@ -72,15 +72,11 @@ export async function generateMetadata({ params }: { params: Promise<{ tenant: s
 }
 
 /**
- * How long a render may be reused, and how often the page refetches itself.
- *
- * One hour, because that is the sync cadence: `vercel.json` runs
- * `/api/cron/sync` hourly, so between runs there is nothing new to draw and a
- * shorter interval would only cost queries. `AutoRefresh` runs the client half
- * on the same number, so a tab left open all afternoon does not sit on a
- * morning render behind a freshness strip that was also rendered that morning.
+ * How long a render may be reused: ten minutes, the Salesforce sync
+ * (`/api/cron/salesforce`). `AutoRefresh` runs the client half on the same
+ * cadence, so a tab left open all afternoon does not sit on a morning render.
  */
-export const revalidate = 3600;
+export const revalidate = 600;
 
 /**
  * The executive briefing.
@@ -832,7 +828,7 @@ export default async function ExecutiveBriefing({
             timezone={session.tenant.timezone}
             includesToday
           />
-          <AutoRefresh intervalSeconds={revalidate} />
+          <AutoRefresh />
         </span>
         <MethodDrawer
           notes={notes}

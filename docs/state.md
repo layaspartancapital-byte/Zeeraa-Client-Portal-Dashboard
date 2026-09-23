@@ -274,6 +274,17 @@ secret (`67e4309c2482`, which still fails every credential).
   through a Zapier zap ("Call Disposed" → webhook); check it for a pause or a
   task limit.
 
+- **Salesforce every ten minutes; pages refresh themselves (23 September
+  2026).** `/api/cron/salesforce` (`*/10 * * * *`) syncs the CRM; the hourly
+  `/api/cron/sync` is now the ad platforms, GA4 and Search Console only. A
+  Salesforce run takes ~15s; one still running (started within ten minutes,
+  not closed) makes the next skip (`salesforceRunInFlight`). Every dashboard
+  page carries `AutoRefresh`: `router.refresh()` every ten minutes — URL,
+  picked range and scroll kept — paused while the tab is hidden, one refresh
+  on return if due. Verified in a browser with a fake clock: none at 9
+  minutes, one at 10, range and scroll unchanged; none over 25 hidden minutes,
+  one on return. The four cron routes share `lib/cron-auth.ts`.
+
 **Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
 runs on 24 September, and complete the Inngest disconnection steps above.
 

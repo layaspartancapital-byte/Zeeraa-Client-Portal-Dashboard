@@ -1,6 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { runIncrementalSync } from '@zeeraa/jobs';
+import { refuseUnlessCron } from '@/lib/cron-auth';
 
 /**
  * The hourly incremental sync, driven by Vercel Cron.
@@ -16,34 +16,16 @@ import { runIncrementalSync } from '@zeeraa/jobs';
  * 207 when something did: Vercel retries nothing, and the useful record of a
  * failed sync is the `sync_runs` row plus this body, not a 500 with no detail.
  */
-function authorised(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-
-  const offered = request.headers.get('authorization') ?? '';
-  const expected = `Bearer ${secret}`;
-  // Constant-time, and length-guarded because timingSafeEqual throws on a
-  // length mismatch rather than returning false.
-  const a = Buffer.from(offered);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 async function handle(request: NextRequest): Promise<Response> {
-  if (!process.env.CRON_SECRET) {
-    console.error('[cron/sync] refused: CRON_SECRET is not set on this deployment');
-    return Response.json(
-      { ok: false, error: 'CRON_SECRET is not configured on this deployment.' },
-      { status: 503 },
-    );
-  }
-  if (!authorised(request)) {
-    // 404 rather than 401: an endpoint that must not be reachable should not
-    // confirm that it exists.
-    return new Response('Not found', { status: 404 });
-  }
+  const refused = refuseUnlessCron(request, 'sync');
+  if (refused) return refused;
 
-  const result = await runIncrementalSync({ trigger: 'cron-hourly' });
+  // Salesforce has its own ten-minute schedule (`/api/cron/salesforce`); the
+  // hourly run is the ad platforms and the organic sources.
+  const result = await runIncrementalSync({
+    trigger: 'cron-hourly',
+    platforms: ['google_ads', 'meta', 'ga4', 'search_console'],
+  });
 
   for (const outcome of result.outcomes) {
     const line = `[cron/sync] ${outcome.platform} ${outcome.tenantId.slice(0, 8)} ${outcome.status}: ${outcome.detail}`;
