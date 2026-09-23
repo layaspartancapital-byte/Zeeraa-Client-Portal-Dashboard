@@ -213,6 +213,23 @@ export default async function Performance({
    * both the same would be lying about one of them. A metric configuration
    * gives no direction for, like paid media spend, stays blue.
    */
+  /*
+   * Every channel cost on this screen is gated on the deals that channel
+   * actually divided by — the executive screen always was, this one was not,
+   * so a one-day range drew a cost per funded deal over a single deal.
+   */
+  const costGates = Object.fromEntries(
+    data.channels.map((c) => [
+      c.platform,
+      metrics.population('cost_per_funded_deal', c.costPerDeal.attributedDeals),
+    ]),
+  );
+  const leadGate = lead ? costGates[lead.platform] ?? null : null;
+  const leadBaselineComparable =
+    lead && leadPrevious
+      ? metrics.comparable('cost_per_funded_deal', leadPrevious.costPerDeal.attributedDeals).sufficient
+      : false;
+
   const complete = buckets.filter((bucket) => bucket.end < `${today.slice(0, 7)}-01`);
   const thisMonth = complete.at(-1) ?? null;
   const lastMonth = complete.at(-2) ?? null;
@@ -251,23 +268,44 @@ export default async function Performance({
                     key: 'cost_per_funded_deal',
                     label: `Cost per deal · ${lead.label}`,
                     source: 'spend' as const,
-                    of: (b: WindowBucket) => {
+                    // The channel's own deals: the denominator the comparison
+                    // is gated on, and never a zero standing in for "no deals".
+                    denominator: (b: WindowBucket) =>
+                      valueKey ? (b.stagesByPlatform[lead.platform]?.[valueKey] ?? 0) : 0,
+                    of: (b: WindowBucket): number | null => {
                       const deals = valueKey
                         ? (b.stagesByPlatform[lead.platform]?.[valueKey] ?? 0)
                         : 0;
-                      return deals === 0 ? 0 : (b.spendByPlatform[lead.platform] ?? 0) / deals;
+                      return deals === 0 ? null : (b.spendByPlatform[lead.platform] ?? 0) / deals;
                     },
                   },
                 ]
               : []),
           ]
-            .map((row) => {
+            .map((row: {
+              key: string;
+              label: string;
+              source: 'spend' | 'crm';
+              of: (b: WindowBucket) => number | null;
+              denominator?: (b: WindowBucket) => number;
+            }) => {
               const ingested = (b: WindowBucket) =>
                 row.source === 'spend' ? b.spendIngested : b.crmIngested;
               if (!ingested(thisMonth) || !ingested(lastMonth)) return null;
+              // A ratio compares only when both months clear the comparison
+              // floor on the denominator they divided by. A month with no
+              // attributed deal has no cost per deal, and used to plot as 0 —
+              // a green −100% about nothing.
+              if (
+                row.denominator &&
+                (!metrics.comparable(row.key, row.denominator(thisMonth)).sufficient ||
+                  !metrics.comparable(row.key, row.denominator(lastMonth)).sufficient)
+              ) {
+                return null;
+              }
               const current = row.of(thisMonth);
               const base = row.of(lastMonth);
-              if (base === 0) return null;
+              if (current === null || base === null || base === 0) return null;
               const direction = metrics.direction(row.key);
               const d = delta(current, base, direction ?? 'up');
               return {
@@ -432,7 +470,7 @@ export default async function Performance({
           <KpiCard
             label={`Cost per ${valueLabel.toLowerCase()} deal · ${lead.label}`}
             value={
-              spendOut || crmOut || lead.costPerDeal.value === null
+              spendOut || crmOut || lead.costPerDeal.value === null || (leadGate && !leadGate.sufficient)
                 ? null
                 : formatCurrency(lead.costPerDeal.value, currency)
             }
@@ -441,14 +479,18 @@ export default async function Performance({
                 ? crmWhy
                 : spendOut
                   ? spendWhy
-                  : `No ${valueLabel.toLowerCase()} deal is attributed to ${lead.label}`
+                  : lead.costPerDeal.value === null
+                    ? `No ${valueLabel.toLowerCase()} deal is attributed to ${lead.label}`
+                    : (leadGate?.reason ?? undefined)
             }
             delta={
-              !spendOut && !crmOut && lead.costPerDeal.value !== null ? (
+              !spendOut && !crmOut && lead.costPerDeal.value !== null && leadGate?.sufficient !== false ? (
                 <Delta
                   current={lead.costPerDeal.value}
                   baseline={
-                    spendComparable ? (leadPrevious?.costPerDeal.value ?? null) : null
+                    spendComparable && leadBaselineComparable
+                      ? (leadPrevious?.costPerDeal.value ?? null)
+                      : null
                   }
                   direction={metrics.direction('cost_per_funded_deal')}
                   comparison={compare === 'year' ? 'vs last year' : 'vs previous period'}
@@ -470,7 +512,11 @@ export default async function Performance({
             points={mini((b) => {
               if (!valueKey) return null;
               const deals = b.stagesByPlatform[lead.platform]?.[valueKey] ?? 0;
-              return deals === 0 ? null : (b.spendByPlatform[lead.platform] ?? 0) / deals;
+              // Gated per bucket on its own deals: a month with one attributed
+              // deal is a fact about that deal, and a line through it draws a
+              // trajectory that is not in the data.
+              if (deals === 0 || !metrics.population('cost_per_funded_deal', deals).sufficient) return null;
+              return (b.spendByPlatform[lead.platform] ?? 0) / deals;
             }, 'spend')}
             provisional={provisional}
             info="One channel's spend over the deals attributed to that channel. A blended figure across every channel has a different denominator and is not computable until every channel is ingested."
@@ -496,6 +542,7 @@ export default async function Performance({
           report={submissions}
           metric={lenderOfferMetric}
           unsynced={crmOut ? crmWhy : undefined}
+          gate={metrics.population('submission_offer_rate', submissions.overall.decided)}
         />
 
         <Card span={8}>
@@ -566,7 +613,7 @@ export default async function Performance({
               <EmptyLine action={<NotMeasuredBadge />}>{crmOut ? crmWhy : spendWhy}</EmptyLine>
             </CardBody>
           ) : data.channels.length > 0 || dealsIn(data.total.stages) > 0 ? (
-            <PerformanceTable data={data} currency={currency} />
+            <PerformanceTable data={data} currency={currency} gates={costGates} />
           ) : (
             <CardBody>
               <EmptyLine href={`/${slug}/connections`} action="Check connections">
@@ -588,7 +635,7 @@ export default async function Performance({
             <RangeBars
               id="perf-cost-range"
               rows={data.channels
-                .filter((c) => c.costPerDeal.value !== null)
+                .filter((c) => c.costPerDeal.value !== null && costGates[c.platform]?.sufficient !== false)
                 .map((c) => ({
                   label: c.label,
                   platform: c.platform,

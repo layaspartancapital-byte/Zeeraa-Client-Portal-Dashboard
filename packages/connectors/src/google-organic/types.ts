@@ -41,7 +41,12 @@ export type SearchConsoleConfig = {
 /** One row of a GA4 report, already flattened out of the API's column shape. */
 export type Ga4Row = {
   date: string;
-  dimension: 'total' | 'landing_page' | 'source_medium';
+  /**
+   * `month_users` is GA4's own figure for one whole calendar month — users
+   * deduplicated across the month, which no sum of daily rows can give. One
+   * row per month, dated the first, `dimensionValue` the `YYYY-MM`.
+   */
+  dimension: 'total' | 'landing_page' | 'source_medium' | 'month_users';
   dimensionValue: string;
   sessions: number;
   engagedSessions: number;

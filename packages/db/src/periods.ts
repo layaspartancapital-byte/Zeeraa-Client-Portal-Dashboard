@@ -58,5 +58,7 @@ export function submissionsIn(range: DayRange): SQL {
   return and(
     gte(schema.submissions.submittedOn, range.start),
     lte(schema.submissions.submittedOn, range.end),
+    // A renewal's submissions are real and not counted, like its stage events.
+    isNull(schema.submissions.excludedReason),
   )!;
 }

@@ -1,4 +1,4 @@
-import { formatCount, formatRate, stageConversionRate, type StageReach } from '@zeeraa/core';
+import { formatCount, formatRate, stageConversionRate, type PopulationVerdict, type StageReach } from '@zeeraa/core';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { MonthlyPerformance, StageCounts } from '@/lib/reporting';
@@ -44,7 +44,14 @@ export function FunnelStages({
   populationLabel,
   suppressed = [],
   maxLeakage,
+  gateFor,
 }: {
+  /**
+   * The population verdict for a conversion rate over this denominator, from
+   * `metrics.population('stage_conversion_rate', n)`. A rate below its floor
+   * is withheld with the reason, like a rate that is not a conversion rate.
+   */
+  gateFor?: (denominator: number) => PopulationVerdict;
   data: MonthlyPerformance;
   counts: StageCounts;
   populationLabel: string;
@@ -191,7 +198,7 @@ export function FunnelStages({
     from: { key: string; source?: string },
     to: { key: string; source?: string },
     rate: { numerator: number; denominator: number },
-  ): 'suppressed' | 'not-drawn-from' | 'not-nested' | 'over-total' | null => {
+  ): 'suppressed' | 'not-drawn-from' | 'not-nested' | 'over-total' | 'too-few' | null => {
     if (suppressed.some((t) => t.from === from.key && t.to === to.key)) return 'suppressed';
     if (from.source === 'qualified_leads' && to.source !== 'qualified_leads') {
       return 'not-drawn-from';
@@ -202,6 +209,7 @@ export function FunnelStages({
       if (leaked > maxLeakage) return 'not-nested';
     }
     if (rate.denominator !== 0 && rate.numerator > rate.denominator) return 'over-total';
+    if (gateFor && rate.denominator > 0 && !gateFor(rate.denominator).sufficient) return 'too-few';
     return null;
   };
 
@@ -211,6 +219,7 @@ export function FunnelStages({
     'not-drawn-from': 'not a gate',
     'not-nested': 'not nested',
     'over-total': 'over 100%',
+    'too-few': 'too few',
   } as const;
 
   return (
@@ -312,7 +321,9 @@ export function FunnelStages({
                               )} deals reaching ${next.label} never reached ${stage.label} at all. The later population is not drawn from the earlier one, so their ratio is not a conversion rate however plausible it looks.`
                             : withheld === 'not-drawn-from'
                               ? `${stage.label} is computed from what a lead reported, not a gate it passes through — a lead that misses the bar can still reach ${next.label}. So ${next.label} is not drawn from ${stage.label}, and the ratio is not a conversion rate even though it lands under 100%.`
-                              : `${formatCount(adjacent.numerator)} reached ${next.label} against ${formatCount(adjacent.denominator)} at ${stage.label}. A ratio above 100% is the arithmetic reporting that these are not nested populations.`}
+                              : withheld === 'too-few'
+                                ? gateFor!(adjacent.denominator).reason
+                                : `${formatCount(adjacent.numerator)} reached ${next.label} against ${formatCount(adjacent.denominator)} at ${stage.label}. A ratio above 100% is the arithmetic reporting that these are not nested populations.`}
                       </InfoTip>
                     </span>
                   ) : adjacent ? (

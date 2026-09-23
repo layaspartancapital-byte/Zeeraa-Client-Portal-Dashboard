@@ -35,6 +35,7 @@ const STATE: Record<string, { label: string; tone: 'neutral' | 'warn' }> = {
  * missing would lose the measurement to protect the comparison.
  */
 export function SpendPacingCard({
+  title = 'Paid media spend',
   spent,
   pacing,
   currency,
@@ -52,6 +53,8 @@ export function SpendPacingCard({
    * day of this month. A $0 here would say the channels spent nothing.
    */
   notMeasured?: string;
+  /** The channel the budget is for, e.g. "Google Ads spend": pacing is that channel's alone. */
+  title?: string;
   spent: number;
   /** Null where no budget is recorded for this month. */
   pacing: BudgetPacing | null;
@@ -68,7 +71,7 @@ export function SpendPacingCard({
   return (
     <Card span={span} className="justify-between">
       <CardHeader
-        title="Paid media spend"
+        title={title}
         subtitle={periodLabel}
         controls={
           /*

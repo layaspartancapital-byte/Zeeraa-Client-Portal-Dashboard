@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { NotMeasuredCard } from '@/components/NotMeasuredCard';
 import { formatCount, formatRate, ctr } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Segmented, segments } from '@/components/ui/Segmented';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
@@ -133,7 +133,19 @@ export function OrganicPlatformView({
               {isGa4 && g && (
                 <>
                   <Figure label="Sessions" value={formatCount(g.sessions)} />
-                  <Figure label="Users" value={formatCount(g.users)} />
+                  {g.users === null ? (
+                    <div className="min-w-0">
+                      <dt className="text-[12px] font-medium text-text-3">Users</dt>
+                      <dd className="mt-1 flex items-center gap-1.5">
+                        <NotMeasuredBadge />
+                        <InfoTip label="Why users are not shown for this range" align="start">
+                          {g.usersAbsentBecause}
+                        </InfoTip>
+                      </dd>
+                    </div>
+                  ) : (
+                    <Figure label="Users" value={formatCount(g.users)} />
+                  )}
                   <Figure label="Engaged sessions" value={formatCount(g.engagedSessions)} />
                   <Figure
                     label="Engagement rate"

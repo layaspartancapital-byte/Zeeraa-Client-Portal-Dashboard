@@ -5,6 +5,7 @@ import {
   type ImprovementDirection,
   type RampMetricKey,
   type RampSeries,
+  type ChannelCostPerDeal,
   type RampTimeline,
   type TimelinePoint,
 } from '@zeeraa/core';
@@ -239,7 +240,10 @@ function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTim
     <>
       <RampTimelineChart
         id={`ramp-timeline-${panel.metric}`}
-        points={timeline.points.map((p, i) => chartPoint(p, timeline.points[i - 1]))}
+        points={timeline.points.map((p, i) => ({
+          ...chartPoint(p, timeline.points[i - 1]),
+          coverage: p.cost ? costCoverage(p.cost, render) : null,
+        }))}
         format={panel.format}
         channel={panel.channel}
         caption={panel.label}
@@ -281,6 +285,10 @@ function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTim
                   {arrow} {sign}
                   {render(money ? Math.round(Math.abs(gap.absolute)) : Math.abs(gap.absolute))} {word}
                 </span>
+                {/* A cost per deal carries its coverage and range, always. */}
+                {p.cost && (
+                  <span className="block text-[11px] text-text-3">{costCoverage(p.cost, render)}</span>
+                )}
               </li>
             );
           })}
@@ -329,6 +337,22 @@ function chartPoint(p: TimelinePoint, previous: TimelinePoint | undefined): Ramp
     gap: p.gap ? { absolute: p.gap.absolute, assessment: p.gap.assessment } : null,
     assessed: p.assessed,
   };
+}
+
+/**
+ * `3 attributed · 4 to no channel · range $3,678–$8,583`: what a cost per deal
+ * was divided by, what it was not, and how far the uncredited deals could
+ * move it. The line every cost per deal carries.
+ */
+function costCoverage(cost: ChannelCostPerDeal, render: (v: number) => string): string {
+  const parts = [
+    `${formatCount(cost.attributedDeals)} attributed`,
+    `${formatCount(cost.unattributedDeals)} to no channel`,
+  ];
+  if (cost.plausibleRange.low !== null && cost.plausibleRange.high !== null) {
+    parts.push(`range ${render(cost.plausibleRange.low)}–${render(cost.plausibleRange.high)}`);
+  }
+  return parts.join(' · ');
 }
 
 /** Months sharing a reason, so the line says it once. */

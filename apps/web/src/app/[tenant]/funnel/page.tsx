@@ -286,6 +286,7 @@ export default async function Funnel({
               populationLabel={population.label}
               suppressed={suppressed}
               maxLeakage={leakageTolerance}
+              gateFor={(denominator) => metrics.population('stage_conversion_rate', denominator)}
             />
           )}
         </Card>
@@ -353,7 +354,11 @@ export default async function Funnel({
         {crmOut ? (
           <NotMeasuredCard title="Lender outcomes" reason={crmWhy} />
         ) : (
-          <LenderOutcomes report={submissions} span={12} />
+          <LenderOutcomes
+            report={submissions}
+            span={12}
+            gateFor={(decided) => metrics.population('submission_offer_rate', decided)}
+          />
         )}
 
         <Card span={12}>

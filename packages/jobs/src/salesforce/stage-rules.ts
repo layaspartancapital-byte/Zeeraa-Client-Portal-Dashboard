@@ -91,6 +91,12 @@ export async function applyStageExclusions(
     .update(schema.leads)
     .set({ excludedReason: null })
     .where(and(eq(schema.leads.tenantId, tenantId), sql`${schema.leads.excludedReason} is not null`));
+  await tx
+    .update(schema.submissions)
+    .set({ excludedReason: null })
+    .where(
+      and(eq(schema.submissions.tenantId, tenantId), sql`${schema.submissions.excludedReason} is not null`),
+    );
 
   const counts: Record<string, number> = {};
   for (const rule of rules) {
@@ -133,6 +139,26 @@ export async function applyStageExclusions(
         )
         .returning({ id: schema.leads.id });
       counts[`${rule.reason}:leads`] = (counts[`${rule.reason}:leads`] ?? 0) + leads.length;
+
+      // A deal excluded at every stage is excluded from the lenders' view of
+      // it too: its submissions are not in any offer rate.
+      const submissions = await tx
+        .update(schema.submissions)
+        .set({ excludedReason: rule.reason })
+        .where(
+          and(
+            eq(schema.submissions.tenantId, tenantId),
+            sql`exists (
+              select 1 from ${schema.opportunities} o
+              where o.tenant_id = ${schema.submissions.tenantId}
+                and o.external_id = ${schema.submissions.opportunityExternalId}
+                and lower(trim(o.deal_type)) in (${types})
+            )`,
+          ),
+        )
+        .returning({ id: schema.submissions.id });
+      counts[`${rule.reason}:submissions`] =
+        (counts[`${rule.reason}:submissions`] ?? 0) + submissions.length;
     }
   }
 

@@ -3,7 +3,7 @@ import { resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
 import { requireTenant } from '@/lib/tenant';
-import { coverageFor, isUnmeasured, notMeasuredReason, sourceName, sourcesThrough } from '@/lib/coverage';
+import { coverageFor, isUnmeasured, notMeasuredReason, sourceName, sourcesThrough, throughNote } from '@/lib/coverage';
 
 /**
  * CSV export, matching the filters on screen.
@@ -144,6 +144,16 @@ export async function GET(
     if (crmOut) {
       rows.push(['note', 'Stages are not measured', ...Array<CsvCell>(width).fill(null),
         notMeasuredReason(cover.crm, 'Salesforce')]);
+    }
+    // Partly read: the figures above are real but incomplete, and the
+    // spreadsheet says which days are missing, as the screen does.
+    if (!spendOut && cover.spend.state === 'partial') {
+      rows.push(['note', 'Spend is incomplete', ...Array<CsvCell>(width).fill(null),
+        throughNote(cover.spend, sourceName(through.spendPlatforms)).replace(/^ · /, '')]);
+    }
+    if (!crmOut && cover.crm.state === 'partial') {
+      rows.push(['note', 'Stages are incomplete', ...Array<CsvCell>(width).fill(null),
+        throughNote(cover.crm, 'Salesforce').replace(/^ · /, '')]);
     }
 
     for (const stage of data.stages) {

@@ -346,6 +346,11 @@ export const submissions = pgTable(
      * Required since 0026.
      */
     submittedOn: date('submitted_on', { mode: 'string' }).notNull(),
+    /**
+     * Set when the submission is real and not counted — a renewal's, by the
+     * `stage_exclusions` rules (migration 0031). `submissionsIn` filters it.
+     */
+    excludedReason: text('excluded_reason'),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

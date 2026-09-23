@@ -86,7 +86,7 @@ export const revalidate = 3600;
  * `DateRangePicker` every other screen has, and the rules that made a
  * control-free briefing safe carry over unchanged:
  *
- *   * **the ramp** covers the engagement, on an M1–M8 axis, and never reads
+ *   * **the ramp** covers the engagement and its baseline, on the calendar once M1 is set, and never reads
  *     the picked range — a contracted month is a completed calendar month, and
  *     the ramp's actuals come from its own twelve monthly buckets;
  *   * **every measured figure** covers the picked range, with a comparison
@@ -206,7 +206,6 @@ export default async function ExecutiveBriefing({
   // The comparison beside a figure is a figure too, and can be just as unsynced.
   const crmPriorCoverage = cover.of('salesforce', comparison);
   const spendCoverage = cover.spend;
-  const monthSpendCoverage = cover.of(through.spendPlatforms, periods.monthToDate);
   const callCoverage = cover.calls;
 
   const crmUnmeasured = isUnmeasured(crmCoverage);
@@ -386,13 +385,27 @@ export default async function ExecutiveBriefing({
     if (!bucket) return { value: null, reason: 'Nothing is synced for this month.' };
     return compute(bucket);
   };
-  const ratioActual = (spend: number, count: number, formulaKey: string): MonthActual => {
-    const gate = metrics.population(formulaKey, count);
+  /**
+   * The ramp channel's cost per a stage in one bucket, as the whole metric:
+   * its own deals as the denominator, and beside it the deals no channel
+   * claims and the range they could move it across. The chart states both.
+   */
+  const ratioActual = (
+    bucket: (typeof buckets)[number],
+    stage: string,
+    formulaKey: string,
+  ): MonthActual => {
+    const own = bucket.stagesByPlatform[rampPlatform]?.[stage] ?? 0;
+    const gate = metrics.population(formulaKey, own);
     if (!gate.sufficient) return { value: null, reason: gate.reason };
-    return {
-      value: channelCostPerDeal({ channelSpend: spend, attributedDeals: count }).value,
-      reason: null,
-    };
+    const unattributed = bucket.unattributedStages[stage] ?? 0;
+    const cost = channelCostPerDeal({
+      channelSpend: bucket.spendByPlatform[rampPlatform] ?? 0,
+      attributedDeals: own,
+      unattributedDeals: unattributed,
+      dealsAttributedElsewhere: Math.max(0, (bucket.stages[stage] ?? 0) - own - unattributed),
+    });
+    return { value: cost.value, reason: null, cost };
   };
   const noValueStage: MonthActual = {
     value: null,
@@ -401,22 +414,10 @@ export default async function ExecutiveBriefing({
   const monthActualFor: Record<RampMetricKey, (month: string) => MonthActual> = {
     costPerFundedDeal: (month) =>
       monthActual(month, { spend: true, crm: true }, (b) =>
-        valueKey
-          ? ratioActual(
-              b.spendByPlatform[rampPlatform] ?? 0,
-              b.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0,
-              'cost_per_funded_deal',
-            )
-          : noValueStage,
+        valueKey ? ratioActual(b, valueKey, 'cost_per_funded_deal') : noValueStage,
       ),
     cpa: (month) =>
-      monthActual(month, { spend: true, crm: true }, (b) =>
-        ratioActual(
-          b.spendByPlatform[rampPlatform] ?? 0,
-          b.stagesByPlatform[rampPlatform]?.uw_approved ?? 0,
-          'cpa',
-        ),
-      ),
+      monthActual(month, { spend: true, crm: true }, (b) => ratioActual(b, 'uw_approved', 'cpa')),
     budget: (month) =>
       monthActual(month, { spend: true }, (b) => ({
         value: b.spendByPlatform[rampPlatform] ?? 0,
@@ -562,8 +563,12 @@ export default async function ExecutiveBriefing({
         ) ?? null);
 
   // This calendar month's spend, whatever range is picked: a budget is
-  // contracted per month, so pacing is always this month's.
-  const monthSpend = buckets.find((b) => b.start === periods.monthToDate.start)?.spend ?? 0;
+  // contracted per month, so pacing is always this month's. The ramp
+  // channel's own spend: the budget is Google Ads' alone, and pacing it
+  // against every channel's spend would count Meta against Google's budget.
+  const monthSpend =
+    buckets.find((b) => b.start === periods.monthToDate.start)?.spendByPlatform[rampPlatform] ?? 0;
+  const monthSpendCoverage = cover.of(rampPlatform, periods.monthToDate);
 
   const pacing =
     currentRampMonth?.budget == null
@@ -774,7 +779,7 @@ export default async function ExecutiveBriefing({
     {
       heading: 'What period this briefing covers',
       body:
-        'The ramp covers the engagement on an M1–M8 axis and ignores the picked range. Every ' +
+        'The ramp covers the engagement and its six-month baseline, and ignores the picked range. Every ' +
         'measured figure covers the picked range; pacing is always this month. Findings are current state.',
       detail:
         `The range is ${mtdLabel}, compared with ${lastMonthLabel}. A count from one is never ` +
@@ -784,12 +789,13 @@ export default async function ExecutiveBriefing({
     {
       heading: 'The engagement ramp',
       body:
-        'The contract commits a figure for each month of the engagement, so the ramp is drawn ' +
-        'on an M1–M8 axis rather than a calendar one.',
+        ramp.startMonth === null
+          ? 'The contract commits a figure for each month of the engagement; until the start month is recorded the ramp is drawn on an M1–M8 axis.'
+          : `Drawn on the calendar: six baseline months before M1 (${ramp.startMonth}), then each ${rampChannel} target against ${rampChannel}'s own actuals.`,
       detail:
         ramp.startMonth === null
           ? 'The start month is not recorded, so no ramp month maps to a calendar month and no actual is plotted against the curve. The commitment itself is fully specified and is drawn.'
-          : `M1 is ${ramp.startMonth}.`,
+          : 'A month in progress is partial and never compared with its monthly target. A month with too few deals, or with days its source was not read, is Not measured with the reason.',
     },
     {
       heading: 'Cost per stage',
@@ -927,24 +933,29 @@ export default async function ExecutiveBriefing({
           info="The funded amount on every deal reaching the value stage, from any source. Not a channel figure: no spend is divided into it."
         />
         <SpendPacingCard
+          title={`${rampChannel} spend`}
           spent={monthSpend}
           pacing={pacing}
           currency={currency}
           periodLabel={`${formatRangeLabel(periods.monthToDate)} · month to date${throughNote(
             monthSpendCoverage,
-            'paid media',
+            rampChannel,
           )}`}
           notMeasured={
-            isUnmeasured(monthSpendCoverage) ? notMeasuredReason(monthSpendCoverage, 'Paid media') : undefined
+            isUnmeasured(monthSpendCoverage) ? notMeasuredReason(monthSpendCoverage, rampChannel) : undefined
           }
           budgetMissing={budgetMissing}
           elapsedDays={periods.elapsedDays}
           monthDays={periods.monthDays}
-          points={buckets.map((bucket) => ({
-            label: bucket.label,
-            value: bucket.spendIngested ? bucket.spend : null,
-            provisional: bucket.provisional,
-          }))}
+          points={buckets.map((bucket) => {
+            const own = bucket.spendCoverage[rampPlatform];
+            const read = own && (own.state === 'full' || own.state === 'partial') && own.missing.length === 0;
+            return {
+              label: bucket.label,
+              value: read ? (bucket.spendByPlatform[rampPlatform] ?? 0) : null,
+              provisional: bucket.provisional,
+            };
+          })}
           span={6}
         />
 

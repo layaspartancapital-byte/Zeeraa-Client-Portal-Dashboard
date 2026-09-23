@@ -49,6 +49,8 @@ export type RampTimelineChartPoint = {
   gap: { absolute: number; assessment: 'ahead' | 'shortfall' | 'level' } | null;
   /** False where the metric declares no direction: the gap is stated, not judged. */
   assessed: boolean;
+  /** A cost per deal's coverage and range, pre-worded; null for a count. */
+  coverage?: string | null;
 };
 
 type Row = RampTimelineChartPoint & {
@@ -343,6 +345,7 @@ function tooltipRows(row: Row, format: (v: number) => string, channel: string) {
           ? `Not measured${row.inProgress ? ' so far' : ''} — ${row.reason ?? 'no figure for this month'}`
           : 'not yet';
   out.push({ label: 'actual', value: actual, color: PLOT });
+  if (row.coverage) out.push({ label: 'over', value: row.coverage, color: TEXT_3 });
   if (row.gap) {
     out.push({
       label: 'gap',

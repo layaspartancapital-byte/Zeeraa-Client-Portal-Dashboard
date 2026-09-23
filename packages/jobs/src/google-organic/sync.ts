@@ -1,6 +1,6 @@
 import { withJobTenant, type Database } from '@zeeraa/db';
-import { tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
-import { ga4Client, searchConsoleClient } from '@zeeraa/connectors';
+import { eachDay, monthRange, tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
+import { ga4Client, searchConsoleClient, type Ga4Row } from '@zeeraa/connectors';
 import { closeSyncRun, openSyncRun, recordSyncedDays } from '../sync-runs';
 import { upsertGa4Metrics, upsertSearchConsoleMetrics } from './writer';
 import type { OrganicContext } from './context';
@@ -76,6 +76,25 @@ export async function runGa4Sync(
       await recordSyncedDays(tx, context.tenantId, 'ga4', range, { today, settleDays: 1, syncRunId });
       return written;
     });
+    // GA4's own monthly users for every calendar month the range touches,
+    // each asked for over the whole month (to today for this one): users are
+    // deduplicated across the period asked about, so only a whole-month query
+    // gives the month's figure. One request per month.
+    const months = [...new Set(eachDay(range).map((d) => d.slice(0, 7)))];
+    const monthRows: Ga4Row[] = [];
+    for (const month of months) {
+      const whole = monthRange(month);
+      const end = whole.end < today ? whole.end : today;
+      const totals = await ga4.periodTotals({ start: whole.start, end });
+      monthRows.push({
+        date: whole.start,
+        dimension: 'month_users' as const,
+        dimensionValue: month,
+        ...totals,
+      });
+    }
+    await runInTenant((tx) => upsertGa4Metrics(tx, context.tenantId, monthRows, syncRunId));
+
     result.breakdownA = await runInTenant((tx) =>
       upsertGa4Metrics(tx, context.tenantId, landingPages, syncRunId),
     );

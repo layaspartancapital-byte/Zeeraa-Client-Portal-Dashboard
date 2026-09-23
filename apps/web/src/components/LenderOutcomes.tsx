@@ -1,4 +1,4 @@
-import { formatCount, formatRate } from '@zeeraa/core';
+import { formatCount, formatRate, type PopulationVerdict } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
@@ -25,9 +25,16 @@ import type { SubmissionReport } from '@/lib/reporting';
 export function LenderOutcomes({
   report,
   span,
+  gateFor,
 }: {
   report: SubmissionReport;
   span?: 4 | 6 | 8 | 12;
+  /**
+   * The verdict for an offer rate over this many decided submissions, from
+   * `metrics.population('submission_offer_rate', n)`. A lender with two
+   * decisions shows its counts and withholds its rate.
+   */
+  gateFor?: (decided: number) => PopulationVerdict;
 }) {
   const { overall, lenders, undecided } = report;
 
@@ -61,7 +68,7 @@ export function LenderOutcomes({
                   </InfoTip>
                 </p>
                 <p className="mt-1 text-[28px] font-semibold leading-[1.15] tabular text-text">
-                  {overall.rate === null ? '—' : formatRate(overall.rate)}
+                  {overall.rate === null || (gateFor && !gateFor(overall.decided).sufficient) ? '—' : formatRate(overall.rate)}
                 </p>
                 <p className="mt-1 text-[13px] tabular text-text-2">
                   {formatCount(overall.offered)} of {formatCount(overall.decided)} decided
@@ -124,7 +131,14 @@ export function LenderOutcomes({
                       {formatCount(lender.offers.declined)}
                     </td>
                     <td className="px-3 py-2 text-right tabular text-text">
-                      {lender.offers.rate === null ? (
+                      {lender.offers.rate !== null && gateFor && !gateFor(lender.offers.decided).sufficient ? (
+                        <span className="inline-flex items-center gap-1 text-text-3">
+                          —
+                          <InfoTip label="Why this lender's rate is withheld" align="end">
+                            {gateFor(lender.offers.decided).reason}
+                          </InfoTip>
+                        </span>
+                      ) : lender.offers.rate === null ? (
                         <span className="inline-flex items-center gap-1 text-text-3">
                           —
                           <InfoTip label="Why this lender has no rate" align="end">
@@ -159,7 +173,7 @@ export function LenderOutcomes({
                     {formatCount(overall.declined)}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold tabular text-text">
-                    {overall.rate === null ? '—' : formatRate(overall.rate)}
+                    {overall.rate === null || (gateFor && !gateFor(overall.decided).sufficient) ? '—' : formatRate(overall.rate)}
                   </td>
                   <td className="px-5 py-2 text-right font-semibold tabular text-text-2">
                     {formatCount(overall.undecided)}

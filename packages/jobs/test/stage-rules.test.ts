@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { leadsCreatedIn, schema, stageEventsIn, withJobTenant, type Database } from '@zeeraa/db';
+import { leadsCreatedIn, schema, stageEventsIn, submissionsIn, withJobTenant, type Database } from '@zeeraa/db';
 import type { OpportunityRow, StageEventRow } from '@zeeraa/connectors';
 import { upsertOpportunities, upsertStageEvents } from '../src/salesforce/writer';
 import {
@@ -231,6 +231,32 @@ describe('stage exclusions', () => {
       tx.select().from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.externalId, '00QM'))),
     );
     expect(loser!.excludedReason).toBe('merged');
+  });
+
+  it("with '*', also drops the renewal's submissions from every offer rate", async () => {
+    const everywhere = parseStageExclusions({
+      rules: [{ reason: 'renewal', dealTypes: ['Renewal'], stages: ['*'] }],
+    });
+    await run(async (tx) => {
+      await upsertOpportunities(
+        tx,
+        tenantId,
+        [opportunity('006SR', 'Renewal'), opportunity('006SN', 'New Business')],
+        syncRunId,
+      );
+      await tx.insert(schema.submissions).values([
+        { tenantId, externalId: 'a0SR', opportunityExternalId: '006SR', lenderName: 'L', status: 'Declined', outcome: 'declined', submittedAt: new Date('2026-07-10T15:00:00Z'), submittedOn: '2026-07-10' },
+        { tenantId, externalId: 'a0SN', opportunityExternalId: '006SN', lenderName: 'L', status: 'Declined', outcome: 'declined', submittedAt: new Date('2026-07-10T15:00:00Z'), submittedOn: '2026-07-10' },
+      ]);
+      await applyStageExclusions(tx, tenantId, everywhere);
+    });
+    const counted = await run((tx) =>
+      tx
+        .select({ externalId: schema.submissions.externalId })
+        .from(schema.submissions)
+        .where(and(eq(schema.submissions.tenantId, tenantId), submissionsIn({ start: '2026-07-01', end: '2026-07-31' }))),
+    );
+    expect(counted.map((r) => r.externalId)).toEqual(['a0SN']);
   });
 
   it('matches the deal type case-insensitively and trimmed', async () => {

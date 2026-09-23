@@ -1,4 +1,5 @@
 import { delta, type Delta, type ImprovementDirection } from './format';
+import type { ChannelCostPerDeal } from './attribution';
 
 /**
  * The engagement ramp: what a metric is contracted to reach, month by month.
@@ -270,7 +271,16 @@ export function rampSeries(
  * the month, or too few deals for a cost per deal to mean anything. Never a
  * zero: a month nobody measured is not a month that cost nothing.
  */
-export type MonthActual = { value: number | null; reason: string | null };
+export type MonthActual = {
+  value: number | null;
+  reason: string | null;
+  /**
+   * The whole cost-per-deal metric behind `value`, where the metric is one —
+   * attributed deals, deals credited to no channel, and the plausible range.
+   * A cost per deal never renders without them, on a chart or anywhere else.
+   */
+  cost?: ChannelCostPerDeal;
+};
 
 export type TimelinePhase = 'baseline' | 'engagement';
 
@@ -303,6 +313,8 @@ export type TimelinePoint = {
   inProgress: boolean;
   /** Why a month that has happened has no figure. */
   reason: string | null;
+  /** The cost-per-deal metric behind a complete or partial figure, where there is one. */
+  cost: ChannelCostPerDeal | null;
   /** Finished engagement months with both halves, and nowhere else. */
   gap: TargetGap | null;
   /**
@@ -365,9 +377,11 @@ export function rampTimeline(
     let partial: number | null = null;
     let status: TimelineStatus = 'future';
     let reason: string | null = null;
+    let cost: ChannelCostPerDeal | null = null;
 
     if (month <= currentMonth) {
       const read = readActual(month);
+      cost = read.value === null ? null : (read.cost ?? null);
       if (read.value === null) {
         status = 'not_measured';
         reason = read.reason;
@@ -390,6 +404,7 @@ export function rampTimeline(
       status,
       inProgress: month === currentMonth,
       reason,
+      cost,
       gap:
         status === 'complete' && target !== null
           ? direction

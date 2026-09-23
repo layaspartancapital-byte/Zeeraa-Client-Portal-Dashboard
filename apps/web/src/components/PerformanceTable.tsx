@@ -1,4 +1,4 @@
-import { formatCount, formatCurrency, formatRate } from '@zeeraa/core';
+import { formatCount, formatCurrency, formatRate, type PopulationVerdict } from '@zeeraa/core';
 import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
@@ -65,9 +65,16 @@ function stageCells(
 export function PerformanceTable({
   data,
   currency,
+  gates = {},
 }: {
   data: MonthlyPerformance;
   currency: string;
+  /**
+   * Each channel's population verdict for its cost per deal, from
+   * `metrics.population`. A cell below its floor is withheld with the reason,
+   * never drawn over one or two deals.
+   */
+  gates?: Record<string, PopulationVerdict>;
 }) {
   const { stages, channels, unattributed, total } = data;
   const hasUnattributed = stages.some((s) => (unattributed.stages[s.key] ?? 0) > 0);
@@ -199,6 +206,13 @@ export function PerformanceTable({
                     <Dash reason="No deal in this window is attributed to this channel." />
                     <span className="mt-0.5 block text-[12px] text-text-3">
                       no attributed deal
+                    </span>
+                  </>
+                ) : gates[row.platform] && !gates[row.platform]!.sufficient ? (
+                  <>
+                    <Dash reason={gates[row.platform]!.reason ?? 'Too few deals for a cost per deal.'} />
+                    <span className="mt-0.5 block text-[12px] text-text-3">
+                      {coverageLine(row.costPerDeal, currency)}
                     </span>
                   </>
                 ) : (

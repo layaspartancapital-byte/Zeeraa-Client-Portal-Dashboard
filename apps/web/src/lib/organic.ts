@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { schema } from '@zeeraa/db';
-import { weightedPosition, type DateRange } from '@zeeraa/core';
+import { monthRange, weightedPosition, type DateRange } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
 /**
@@ -31,7 +31,15 @@ export type OrganicKind = 'ga4' | 'search_console';
 export type Ga4Totals = {
   sessions: number;
   engagedSessions: number;
-  users: number;
+  /**
+   * GA4's own users for the range, or null where GA4 has no single figure
+   * for it. Users are counted once per period asked about, so a range's users
+   * are not the sum of its days: the figure is GA4's month total, and exists
+   * only for a range that is one calendar month or its month to date.
+   */
+  users: number | null;
+  /** Why `users` is null, in one line. */
+  usersAbsentBecause: string | null;
 };
 
 export type SearchConsoleTotals = {
@@ -153,6 +161,27 @@ export async function organicView(
       .groupBy(table.date)
       .orderBy(asc(table.date));
 
+    // GA4's own month total (`month_users`, written by the sync over the whole
+    // month) where the range is exactly one month or its month to date.
+    const month = range.start.slice(0, 7);
+    const wholeMonth = monthRange(month);
+    const isOneMonth =
+      range.start === wholeMonth.start && range.end.slice(0, 7) === month && range.end <= wholeMonth.end;
+    const monthUsers =
+      isGa4 && isOneMonth
+        ? await tx
+            .select({ users: schema.ga4Metrics.users, updatedAt: schema.ga4Metrics.updatedAt })
+            .from(schema.ga4Metrics)
+            .where(
+              and(
+                eq(schema.ga4Metrics.tenantId, tenantId),
+                eq(schema.ga4Metrics.dimension, 'month_users'),
+                eq(schema.ga4Metrics.dimensionValue, month),
+              ),
+            )
+            .limit(1)
+        : [];
+
     const daily: OrganicDay[] = dayRows.map((r) => ({
       date: r.date,
       primary: n(r.primary),
@@ -241,7 +270,12 @@ export async function organicView(
         ? {
             sessions: daily.reduce((s, d) => s + d.primary, 0),
             engagedSessions: daily.reduce((s, d) => s + d.secondary, 0),
-            users: daily.reduce((s, d) => s + d.tertiary, 0),
+            users: monthUsers[0] ? n(monthUsers[0].users) : null,
+            usersAbsentBecause: monthUsers[0]
+              ? null
+              : isOneMonth
+                ? 'GA4 has not reported this month’s users yet.'
+                : 'GA4 counts each user once per period, so users exist for one calendar month at a time. Pick a single month.',
           }
         : null,
       searchConsole: isGa4

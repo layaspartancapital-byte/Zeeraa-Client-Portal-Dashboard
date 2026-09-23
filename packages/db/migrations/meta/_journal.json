@@ -218,6 +218,13 @@
       "when": 1790070000000,
       "tag": "0030_sync_days",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790080000000,
+      "tag": "0031_submission_exclusion",
+      "breakpoints": true
     }
   ]
 }

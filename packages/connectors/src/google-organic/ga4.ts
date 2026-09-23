@@ -100,9 +100,25 @@ export function ga4Client(client: GoogleOrganicClient, config: Ga4Config) {
     }
   };
 
+  /**
+   * GA4's own totals for a whole range, with no date breakdown: users counted
+   * once across the range, as the GA4 interface counts them. The daily rows
+   * cannot give this — a user who visits on three days is three daily users —
+   * so the monthly figure is asked for, never summed.
+   */
+  const periodTotals = async (range: DateRange) => {
+    const response = await client.post<ApiResponse>(property, {
+      dateRanges: [{ startDate: range.start, endDate: range.end }],
+      metrics: METRICS.map((name) => ({ name })),
+    });
+    const values = response.rows?.[0]?.metricValues.map((m) => num(m.value)) ?? [0, 0, 0];
+    return { sessions: values[0] ?? 0, engagedSessions: values[1] ?? 0, users: values[2] ?? 0 };
+  };
+
   return {
     /** The day's authoritative totals. */
     daily: (range: DateRange) => run(['date'], 'total', range, 100_000),
+    periodTotals,
     /**
      * Landing pages, one row per page per day.
      *

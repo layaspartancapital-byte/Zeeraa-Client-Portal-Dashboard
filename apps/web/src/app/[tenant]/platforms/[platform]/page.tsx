@@ -43,6 +43,7 @@ import { reportingPlatforms } from '@/lib/platforms';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
+import { loadMetrics } from '@/lib/dashboard';
 
 
 
@@ -125,6 +126,7 @@ export default async function PlatformPage({
   // No zeros for a range past a source's last read — see `lib/coverage.ts`.
   // This platform's own figures ask this platform; the outcomes ask Salesforce.
   const cover = coverageFor(await sourcesThrough(session), range);
+  const metrics = await loadMetrics(session);
   const own = cover.of(platform);
   const ownOut = isUnmeasured(own);
   const cutoff = entry.kind === 'organic' ? 'published' : 'synced';
@@ -297,7 +299,8 @@ export default async function PlatformPage({
 
       <PageMeta>
         <span className="flex flex-wrap items-center gap-2 text-[12px] text-text-3">
-          <Badge tone={view.connection?.status === 'healthy' ? 'up' : 'warn'}>
+          {/* Neutral when healthy: green means improvement, never a status. */}
+          <Badge tone={view.connection?.status === 'healthy' ? 'neutral' : 'warn'}>
             {view.connection?.status ?? 'not connected'}
           </Badge>
           <span className="tabular">
@@ -559,6 +562,7 @@ export default async function PlatformPage({
               currency={currency}
               channelLabel={view.label}
               size="hero"
+              gate={metrics.population('cost_per_funded_deal', view.outcomes.cost.attributedDeals)}
             />
             <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border pt-4 sm:grid-cols-4">
               <Figure
