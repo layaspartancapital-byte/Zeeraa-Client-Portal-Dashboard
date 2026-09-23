@@ -170,6 +170,18 @@ export type AlowareWebhookProfile = {
   directions: Record<string, CallRow['direction']>;
   /** Where the call's own status lives. */
   statusColumn: string;
+  /**
+   * The zone `Created At` is written in: **UTC**, unlike the export, which
+   * writes the account's local wall clock.
+   *
+   * Both are bare timestamps with no offset, so nothing in the value says
+   * which. The webhook was first read as the tenant's zone on the assumption
+   * that it matched the export, and production said otherwise: deliveries
+   * received up to 20:06 UTC on 23 September 2026 stored calls dated 00:04
+   * UTC the next day — every webhook call four hours late, which read as a
+   * slow desk in speed to lead.
+   */
+  createdAtZone: string;
 };
 
 export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
@@ -203,10 +215,8 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
       // `ID` is the communication id and the upsert key, the same identity the
       // export calls `Communication ID`.
       externalId: 'ID',
-      // A bare wall clock with no offset — `2026-09-22 19:47:42` — exactly as
-      // the export writes it, so it goes through `parseWallClock` in the
-      // tenant's zone. Reading it as UTC would put every call four hours early
-      // and make speed to lead read as neglect.
+      // A bare timestamp with no offset — `2026-09-22 19:47:42` — in UTC, not
+      // in the account's zone as the export is: see `createdAtZone`.
       startedAt: 'Created At',
       // Present as `1` rather than the word `call`, and it is the channel
       // discriminator — see `callTypes`.
@@ -243,6 +253,7 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
     // complement and is the one part of this not seen directly.
     directions: { '1': 'inbound', '2': 'outbound' },
     statusColumn: 'Current Status',
+    createdAtZone: 'UTC',
   },
   // Every non-completed disposition this export actually contains, plus the
   // obvious neighbours. An unlisted value is reported rather than absorbed.
@@ -499,7 +510,11 @@ export function normalizeWebhookCall(
     if (path.includes('.')) flattened[path] = readField(record, path);
   }
 
-  const result = normalizeCall(flattened, asExport, timeZone);
+  // Parsed in the webhook's own zone. `occurred_on`, the tenant-local day, is
+  // derived from the instant at write time in the tenant's zone, so it is
+  // unaffected by which zone the timestamp arrived in.
+  void timeZone;
+  const result = normalizeCall(flattened, asExport, profile.createdAtZone ?? 'UTC');
   if (!result.row) return result;
 
   // Direction arrives as a code. `readDirection` reads words, so `2` came out

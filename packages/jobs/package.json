@@ -23,7 +23,8 @@
     "import-aloware-calls": "tsx scripts/import-aloware-calls.ts",
     "repull": "tsx scripts/repull.ts",
     "reconcile": "tsx scripts/reconcile.ts",
-    "freeze-baseline": "tsx scripts/freeze-baseline.ts"
+    "freeze-baseline": "tsx scripts/freeze-baseline.ts",
+    "redate-webhook-calls": "tsx scripts/redate-webhook-calls.ts"
   },
   "dependencies": {
     "@zeeraa/connectors": "workspace:*",

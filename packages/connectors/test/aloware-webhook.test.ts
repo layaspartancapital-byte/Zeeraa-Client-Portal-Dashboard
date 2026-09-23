@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ALOWARE_MAPPING,
+  normalizeCall,
   normalizeWebhookCall,
   type AlowareMapping,
 } from '../src/aloware/calls';
@@ -11,7 +12,7 @@ import {
  * Trimmed to the fields the reader touches, with the nesting kept — `User` is
  * an object, and the agent's name is only reachable through it. Every value is
  * as it arrived: `Type` and `Direction` are numbers, `Talk Time` and `Duration`
- * are numbers, `Created At` is a bare wall clock with no offset.
+ * are numbers, `Created At` is a bare UTC timestamp with no offset.
  *
  * **It is a call still ringing, and `Event` says SMS anyway.** That reading is
  * the correction this file exists to pin: Spartan sends no text messages, and
@@ -244,11 +245,33 @@ describe('a finished call reads every field the export used to supply', () => {
     ).toBe('inbound');
   });
 
-  it('reads the bare wall clock in the tenant zone, not as UTC', () => {
-    // 19:47:42 in New York is 23:47:42Z. Read as UTC it would be four hours
-    // early, which is the error that made speed to lead look like neglect.
+  it('reads Created At as UTC, unlike the export', () => {
+    // The webhook's bare timestamp is UTC. Read in the tenant's zone — as it
+    // was until 23 September 2026 — every webhook call landed four hours late:
+    // deliveries that stopped at 20:06Z had stored calls dated 00:04Z the
+    // next day.
     const r = normalizeWebhookCall(completed(), DEFAULT_ALOWARE_MAPPING, TZ);
+    expect(r.row!.occurredAt.toISOString()).toBe('2026-09-22T19:47:42.000Z');
+  });
+
+  it('still reads the export in the tenant zone', () => {
+    // The export writes the account's local wall clock: 19:47:42 in New York
+    // is 23:47:42Z. The two routes differ, and each is pinned.
+    const r = normalizeCall(
+      { 'Communication ID': 'x1', 'Started At': '2026-09-22 19:47:42', Type: 'call', Direction: 'outbound', 'Disposition Status': 'completed' },
+      DEFAULT_ALOWARE_MAPPING,
+      TZ,
+    );
     expect(r.row!.occurredAt.toISOString()).toBe('2026-09-22T23:47:42.000Z');
+  });
+
+  it('falls back to UTC when a tenant override omits the zone', () => {
+    const override: AlowareMapping = {
+      ...DEFAULT_ALOWARE_MAPPING,
+      webhook: { ...DEFAULT_ALOWARE_MAPPING.webhook!, createdAtZone: undefined as unknown as string },
+    };
+    const r = normalizeWebhookCall(completed(), override, TZ);
+    expect(r.row!.occurredAt.toISOString()).toBe('2026-09-22T19:47:42.000Z');
   });
 });
 
