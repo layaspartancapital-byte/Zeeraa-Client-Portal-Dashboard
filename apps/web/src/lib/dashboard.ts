@@ -3,6 +3,8 @@ import { leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
   eachDay,
+  previousMonth as previousMonthKey,
+  tenantDay,
   rangeCoverage,
   type RangeCoverage,
   bucketLabel,
@@ -1448,11 +1450,21 @@ export type ReconciliationRow = {
  * days, not a status light.
  */
 export async function reconciliationBySource(session: TenantSession): Promise<Map<string, ReconciliationRow[]>> {
+  // Only the windows the daily job checks now — last month and this month —
+  // not every window ever checked: a by-hand check of June stays in the table
+  // as evidence, but it is not the state of the connection today.
+  const today = tenantDay(new Date(), session.tenant.timezone);
+  const lastMonthStart = `${previousMonthKey(today.slice(0, 7))}-01`;
   const rows = await queryTenant(session, (tx) =>
     tx
       .select()
       .from(schema.reconciliationChecks)
-      .where(eq(schema.reconciliationChecks.tenantId, session.tenant.id))
+      .where(
+        and(
+          eq(schema.reconciliationChecks.tenantId, session.tenant.id),
+          gte(schema.reconciliationChecks.windowStart, lastMonthStart),
+        ),
+      )
       .orderBy(asc(schema.reconciliationChecks.windowStart)),
   );
   const out = new Map<string, ReconciliationRow[]>();

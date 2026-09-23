@@ -6,6 +6,7 @@ import {
   eachDay,
   formatRangeLabel,
   monthRange,
+  parseBusinessHours,
   parseWallClock,
   previousMonth,
   tenantDay,
@@ -342,7 +343,9 @@ export async function runReconciliation(
                   eq(schema.leads.tenantId, tenantId),
                   gte(schema.leads.createdOn, w.range.start),
                   lte(schema.leads.createdOn, w.range.end),
-                  sql`${schema.leads.excludedReason} is null or ${schema.leads.excludedReason} = 'renewal'`,
+                  // Parenthesised: a bare OR here escapes the tenant and date
+                  // filters and counts every renewal lead the org ever had.
+                  sql`(${schema.leads.excludedReason} is null or ${schema.leads.excludedReason} = 'renewal')`,
                 ),
               ),
           );
@@ -433,7 +436,7 @@ export async function runReconciliation(
 
     // --- Calls ----------------------------------------------------------------
     await guard('call_tracking', async () => {
-      const [stored, deliveries] = await withJobTenant(tenantId, async (tx) => [
+      const [stored, deliveries, hoursRow] = await withJobTenant(tenantId, async (tx) => [
         await tx
           .select({
             day: sql<string>`to_char(${schema.calls.occurredOn}, 'YYYY-MM-DD')`,
@@ -447,15 +450,27 @@ export async function runReconciliation(
           .select({ day: sql<string>`to_char(${schema.webhookDeliveries.day}, 'YYYY-MM-DD')`, accepted: schema.webhookDeliveries.accepted })
           .from(schema.webhookDeliveries)
           .where(and(eq(schema.webhookDeliveries.tenantId, tenantId), gte(schema.webhookDeliveries.day, span.start), lte(schema.webhookDeliveries.day, span.end))),
+        (
+          await tx
+            .select({ value: schema.tenantConfig.value })
+            .from(schema.tenantConfig)
+            .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'lead_response_hours')))
+        )[0]?.value,
       ] as const);
+      // The desk's own days and holidays where they are configured: a day the
+      // desk is closed is a quiet phone, not a feed that was down.
+      const hours = parseBusinessHours(hoursRow);
+      const WEEK = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+      const isOpen = (d: string) => {
+        const dow = WEEK[new Date(`${d}T12:00:00Z`).getUTCDay()]!;
+        if (hours) return hours.days.includes(dow) && !hours.holidays.includes(d);
+        return dow !== 'sun' && dow !== 'sat';
+      };
       if (stored.length === 0 && deliveries.length === 0) return;
       const perDay = new Map(stored.map((r) => [r.day, r]));
       for (const w of windows) {
         const days = eachDay(w.range);
-        const weekdays = days.filter((d) => {
-          const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
-          return dow !== 0 && dow !== 6;
-        });
+        const weekdays = days.filter(isOpen);
         const silent = weekdays.filter((d) => !perDay.get(d)?.all);
         const accepted = deliveries.filter((d) => d.day >= w.range.start && d.day <= w.range.end).reduce((s, d) => s + d.accepted, 0);
         const viaWebhook = days.reduce((s, d) => s + (perDay.get(d)?.webhook ?? 0), 0);
