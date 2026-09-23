@@ -183,12 +183,28 @@ export function Sidebar({
           line through the logo.
         */}
         <div className="flex items-start gap-2.5 border-y border-chrome-border px-4 py-3">
-          <TenantMark tenant={tenant} logo={logo} onChrome />
+          {/*
+            A logo is a wordmark, shown on the rail as the tenant drew it — the
+            one live logo is white type for dark grounds, and at 5:1 it cannot
+            live in a square. Collapsed to 64px it does not fit, so the initials
+            stand in. The name stays readable to a screen reader as its alt.
+          */}
+          {logo && !collapsed ? null : <TenantMark tenant={tenant} onChrome />}
           {!collapsed && (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14px] font-semibold leading-tight text-on-chrome">
-                {tenant.name}
-              </p>
+              {logo ? (
+                /* A data URL from the tenant row; next/image has nothing to optimise. */
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={logo}
+                  alt={tenant.name}
+                  className="mb-1 block h-8 w-auto max-w-full object-contain object-left"
+                />
+              ) : (
+                <p className="truncate text-[14px] font-semibold leading-tight text-on-chrome">
+                  {tenant.name}
+                </p>
+              )}
               {/*
                 The role alone. It used to carry a ` · Zeeraa` suffix, which
                 said which side of the engagement the reader is on — and the
@@ -280,14 +296,8 @@ export function Sidebar({
 }
 
 /**
- * The tenant's mark: its own logo where one is stored, otherwise its initials
- * on its own accent colour.
- *
- * A logo sits on a white tile with a little padding, whatever the rail's
- * colour. A tenant's logo is designed for its own letterhead, usually dark on
- * light, and on near-black it would vanish — the tile is the one ground every
- * logo was drawn for. `object-contain`, so a wide wordmark is shown whole
- * rather than cropped to a square.
+ * The tenant's initials on its own accent colour — the fallback where no logo
+ * is stored, and the collapsed rail's mark where one is.
  *
  * `onChrome` adds a hairline ring, and it is not decoration. A tenant's accent
  * is arbitrary and some of them are dark: Spartan's `#2F5D8C` is 2.64:1 against
@@ -298,28 +308,13 @@ export function Sidebar({
  */
 export function TenantMark({
   tenant,
-  logo = null,
   size = 32,
   onChrome = false,
 }: {
   tenant: TenantSummary;
-  logo?: string | null;
   size?: number;
   onChrome?: boolean;
 }) {
-  if (logo) {
-    return (
-      <span
-        aria-hidden="true"
-        className="flex shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-white p-[3px]"
-        style={{ width: size, height: size }}
-      >
-        {/* A data URL from the tenant row; next/image has nothing to optimise. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={logo} alt="" className="h-full w-full object-contain" />
-      </span>
-    );
-  }
 
   const initials = tenant.name
     .split(/\s+/)
