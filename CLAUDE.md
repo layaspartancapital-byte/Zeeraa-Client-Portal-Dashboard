@@ -41,6 +41,13 @@
   admin could once reset the password of a Zeeraa admin who shared their
   tenant, and be handed it; `apps/web/test/people-guard.test.ts` and
   `packages/db/test/account-admin.test.ts` keep that shut.
+- **Nobody edits their own account row directly.** `users_change_own_password`
+  admits a self-update only inside the change-password flow
+  (`app.password_change`, transaction-local, set by `changeOwnPassword` after it
+  verifies the current password), and `users_guard_own_account_row` holds it to
+  a new hash with the forced-change flag cleared. An email, a name, or clearing
+  a forced change without a new password are refused — including for a Zeeraa
+  admin through the admin policy.
 - **A tenant always keeps one Zeeraa admin.** `memberships_protect_last_zeeraa_admin`
   refuses removing the last one — by membership, by account deletion, or in a
   single statement removing several — for every role, maintenance included.
@@ -162,8 +169,10 @@ commit history and get it wrong.
   every tenant-scoped table is FORCE RLS'd, so a write by a role holding no
   policy matches nothing, raises nothing and exits 0.
 - A new tenant-scoped table must, in its own migration, grant to `zeeraa_app`,
-  `enable` and `force` row level security, and create both its
-  `tenant_isolation` and `maintenance_access` policies.
+  `enable` and `force` row level security, and create its `tenant_isolation`
+  (**FOR SELECT** — membership reads, it does not write), `tenant_admin_write`
+  (FOR ALL, `effective_role() = 'zeeraa_admin'`), `job_tenant_isolation` if a
+  sync writes it, and `maintenance_access` policies. See migration 0028.
 - Functions that answer authorisation from inside a policy must be SECURITY
   DEFINER with a pinned `search_path`, and must read `app.membership_index`
   rather than `public.memberships`. As invoker-rights functions they would be

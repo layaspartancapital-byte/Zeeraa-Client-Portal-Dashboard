@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { schema, withUserOnly } from '@zeeraa/db';
 import {
   assignableRoles,
@@ -267,6 +267,11 @@ export async function resetPassword(
   userId: string,
 ): Promise<{ email: string; initialPassword: string }> {
   assertMayManage(session);
+  // Your own password changes through the change-password flow, which asks for
+  // the current one; the database refuses a self-reset anyway (0028).
+  if (userId === session.viewer.userId) {
+    throw new UserAdminError('Change your own password from the change-password screen.', 400);
+  }
 
   const initialPassword = newInitialPassword();
   const passwordHash = await hashPassword(initialPassword);
@@ -342,9 +347,12 @@ export async function revokeMembership(
 /**
  * The signed-in person replacing their own password.
  *
- * Runs on the application role under `users_update_self`, with only a user in
- * context — there is no tenant here, because somebody with no membership at all
- * still has to be able to clear a forced change.
+ * Runs on the application role under `users_change_own_password` (0028), with
+ * only a user in context — there is no tenant here, because somebody with no
+ * membership at all still has to be able to clear a forced change. That policy
+ * admits the update only while this transaction is marked
+ * `app.password_change`, and `users_guard_own_account_row` holds it to a new
+ * hash and nothing else: this is the one way anybody's own row changes.
  *
  * The current password is required even on a forced first change. They have it,
  * it costs one field, and without it an unattended open tab is enough for
@@ -373,12 +381,19 @@ export async function changeOwnPassword(input: {
   if (problem) throw new UserAdminError(problem.message, 400);
 
   const passwordHash = await hashPassword(input.newPassword);
-  await withUserOnly(input.userId, (tx) =>
-    tx
+  const updated = await withUserOnly(input.userId, async (tx) => {
+    // Transaction-local, so it ends with this update and cannot leak across
+    // pooled requests. Set only here, after the current password is verified.
+    await tx.execute(sql`select set_config('app.password_change', 'on', true)`);
+    return tx
       .update(schema.users)
       .set({ passwordHash, mustChangePassword: false, passwordUpdatedAt: new Date() })
-      .where(eq(schema.users.id, input.userId)),
-  );
+      .where(eq(schema.users.id, input.userId))
+      .returning({ id: schema.users.id });
+  });
+  // Under FORCE a refused update matches nothing and raises nothing; a password
+  // change that silently did not happen is the worst outcome here.
+  if (updated.length !== 1) throw new UserAdminError('Your password could not be changed.', 500);
 
   // Every other session, and this one too — the caller signs them back in, so
   // a stolen session cannot outlive the password it was obtained under.

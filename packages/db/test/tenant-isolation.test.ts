@@ -214,9 +214,24 @@ describe('a client admin in tenant A', () => {
   });
 
   it('cannot move an existing row into tenant B', async () => {
+    // Since 0028 a client admin cannot update tenant rows at all, so the move
+    // matches nothing. A Zeeraa admin can update rows in A, and the WITH CHECK
+    // is what refuses the move — both halves asserted.
+    const updated = await withTenant(
+      { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+      (tx) =>
+        tx
+          .update(schema.opportunities)
+          .set({ tenantId: fx.tenantB })
+          .where(eq(schema.opportunities.externalId, 'A-OPP-1'))
+          .returning(),
+      app.db,
+    );
+    expect(updated).toHaveLength(0);
+
     const error = await failure(() =>
       withTenant(
-        { tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' },
+        { tenantId: fx.tenantA, userId: fx.zeeraaAdmin, role: 'zeeraa_admin' },
         (tx) =>
           tx
             .update(schema.opportunities)

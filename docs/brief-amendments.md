@@ -3014,3 +3014,12 @@ This reverses the 21 September decision that let client admins add their own
 people ("a client waiting on Zeeraa to add their own new hire is a support
 ticket"). The cost is exactly that support ticket.
 
+## §5 — membership reads; only ingestion and Zeeraa admins write
+
+Decided 23 September 2026, closing both database-level findings of the People
+audit (migration 0028). `tenant_isolation` on the 29 tenant data tables is now
+FOR SELECT; writing needs `tenant_admin_write` (Zeeraa admin in the tenant) or
+the ingestion role's own policies. A user's own account row changes only
+through the change-password flow, and only its password. Client admin and
+client viewer remain separate roles with identical access.
+

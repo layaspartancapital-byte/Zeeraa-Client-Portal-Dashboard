@@ -274,6 +274,48 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger memberships_protect_last_zeeraa_admin on public.memberships',
   },
   {
+    // 0028: membership reads, it does not write. Restoring the FOR ALL policy
+    // on one table is the edit that "fixes" a denied write in a hurry.
+    name: 'tenant-config-writable-by-members',
+    description: 'Make tenant_isolation on tenant_config FOR ALL again',
+    sql: `drop policy tenant_isolation on public.tenant_config;
+          create policy tenant_isolation on public.tenant_config
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
+            with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'opportunities-writable-by-members',
+    description: 'Make tenant_isolation on opportunities FOR ALL again',
+    sql: `drop policy tenant_isolation on public.opportunities;
+          create policy tenant_isolation on public.opportunities
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
+            with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'tenant-admin-write-any-role',
+    description: 'Drop the Zeeraa-admin test from tenant_admin_write on tenant_config',
+    sql: `drop policy tenant_admin_write on public.tenant_config;
+          create policy tenant_admin_write on public.tenant_config
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
+            with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    // The pre-0028 policy: any column of your own row, email included.
+    name: 'self-update-policy-restored',
+    description: 'Restore users_update_self, letting anyone edit their own row',
+    sql: `create policy users_update_self on public.users
+            as permissive for update to zeeraa_app
+            using (id = app.current_user_id()) with check (id = app.current_user_id())`,
+  },
+  {
+    name: 'own-row-guard-dropped',
+    description: 'Drop the trigger that holds a self-update to a password change',
+    sql: 'drop trigger users_guard_own_account_row on public.users',
+  },
+  {
     name: 'membership-write-unscoped',
     description: 'Let an admin grant access to a tenant other than their own',
     sql: `drop policy memberships_admin_write on public.memberships;

@@ -160,15 +160,22 @@ secret (`67e4309c2482`, which still fails every credential).
   of a tenant cannot be removed (trigger, with `app.tenant_index` so deleting a
   tenant still works). 0027 mutations: client-admin grant, remove, reset,
   create, and the dropped last-admin trigger.
-- **Audit, reported and not acted on:** every tenant data table's
-  `tenant_isolation` policy is FOR ALL with the tenant check only, so at the
-  database any member — client viewer included — may write that tenant's
-  connections, config, targets, reconciliation items and CRM rows. No
-  application path exposes it. Also `users_update_self` lets a user write their
-  own email and clear `must_change_password` directly. Awaiting the client's
-  decision.
+- **Members are read-only; own rows change only by password** (migration
+  0028, both audit findings closed). `tenant_isolation` is FOR SELECT on 29
+  tables, writes need `tenant_admin_write` (Zeeraa admin) or the ingestion
+  role; `users_update_self` is replaced by `users_change_own_password` plus a
+  guard trigger. Deploy order was code first (it sets `app.password_change`),
+  then the migration. Mutations 46/46.
+- **No Zeeraa account was reset or removed by a non-Zeeraa user.** There is no
+  audit log; from state: `hello@zeeraa.com`'s password was last changed 21 Sep
+  15:13 UTC, 35 minutes *before* the only client admin was granted access
+  (15:48), and it still holds sessions from 15:15 and 15:41 — a reset destroys
+  every session and sets the forced-change flag. Its membership is the
+  original of 18 Sep. Name, title and email have no history to check, but no
+  application path ever edited them.
 
-**Next:** the client's decision on the audit findings above.
+**Next:** nothing outstanding.
+
 
 
 ## Cost per funded deal — Google Ads, trailing 90 days
