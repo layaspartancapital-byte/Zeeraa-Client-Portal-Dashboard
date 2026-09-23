@@ -1,5 +1,6 @@
 import {
   addDays,
+  eachDay,
   monthRange,
   previousMonth,
   trailingWindow,
@@ -271,30 +272,66 @@ export function briefingPeriods(today: string): BriefingPeriods {
 }
 
 /**
- * How much of a range a source has actually been synced for.
+ * How much of a range a source has actually been read for.
  *
- * `through` is the tenant-local day of the source's last successful read, or
- * null when it has never delivered. The range is:
+ * `through` is the tenant-local day of the source's last read, or null when it
+ * has never delivered. `unread` is the days *inside* the record that were never
+ * read — the ledger's gaps (migration 0030). The range is:
  *
- *   * `full` — every day of it is at or before that day;
- *   * `partial` — it starts in the synced record and runs past it, so its
- *     figures are real but stop early and must say where;
- *   * `none` — it starts after the last sync, so there is nothing to count and
- *     a figure would be a zero standing in for "not measured";
+ *   * `full` — every day of it has been read;
+ *   * `partial` — some of it has: it runs past the last read, or has unread
+ *     days inside it, so its figures are real but incomplete and must say
+ *     which days are missing;
+ *   * `none` — none of it has: it starts after the last read, or every day in
+ *     it is unread, so a figure would be a zero standing in for "not measured";
  *   * `never` — the source has never delivered.
  *
- * Today counts as synced when the last run was today: the freshness strip
+ * Unread days used to be invisible here: coverage was decided from the last
+ * read alone, so Meta's unread 19–20 September 2026 rendered as two quiet days
+ * inside a "fully synced" month.
+ *
+ * Today counts as read when the last read was today: the freshness strip
  * already says "as of" the hour, and treating every month-to-date range as
  * partial would put a caveat on every screen for a gap of minutes.
  */
 export type RangeCoverage = {
   state: 'full' | 'partial' | 'none' | 'never';
   through: string | null;
+  /** Unread days inside the range and the record, ascending. */
+  missing: string[];
+  /** Whether the range runs past the last read, as distinct from a hole inside it. */
+  pastThrough: boolean;
 };
 
-export function rangeCoverage(range: DateRange, through: string | null): RangeCoverage {
-  if (through === null) return { state: 'never', through };
-  if (range.start > through) return { state: 'none', through };
-  if (range.end > through) return { state: 'partial', through };
-  return { state: 'full', through };
+export function rangeCoverage(
+  range: DateRange,
+  through: string | null,
+  unread: readonly string[] = [],
+): RangeCoverage {
+  if (through === null) return { state: 'never', through, missing: [], pastThrough: true };
+  if (range.start > through) return { state: 'none', through, missing: [], pastThrough: true };
+  const pastThrough = range.end > through;
+  const lastRead = range.end < through ? range.end : through;
+  const missing = [...new Set(unread)]
+    .filter((d) => d >= range.start && d <= lastRead)
+    .sort();
+  const readable = eachDay({ start: range.start, end: lastRead }).length;
+  if (missing.length >= readable) return { state: 'none', through, missing, pastThrough };
+  if (missing.length > 0 || pastThrough) return { state: 'partial', through, missing, pastThrough };
+  return { state: 'full', through, missing, pastThrough };
+}
+
+/**
+ * Unread days as a person reads them: consecutive days as one span.
+ * `['2026-09-19', '2026-09-20', '2026-09-23']` → `[{19–20 Sep}, {23 Sep}]`.
+ */
+export function daySpans(days: readonly string[]): DateRange[] {
+  const sorted = [...new Set(days)].sort();
+  const spans: DateRange[] = [];
+  for (const day of sorted) {
+    const last = spans.at(-1);
+    if (last && addDays(last.end, 1) === day) last.end = day;
+    else spans.push({ start: day, end: day });
+  }
+  return spans;
 }

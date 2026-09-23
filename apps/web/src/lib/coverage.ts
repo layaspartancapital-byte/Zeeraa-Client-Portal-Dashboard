@@ -2,6 +2,8 @@ import 'server-only';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { schema } from '@zeeraa/db';
 import {
+  daySpans,
+  eachDay,
   formatRangeLabel,
   rangeCoverage,
   tenantDay,
@@ -32,19 +34,34 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  *     ago — so the last sync would overstate how far the data reaches.
  *   * **Calls**: the newest call received. They are pushed, not pulled; past the
  *     newest one there is nothing to have read.
+ *
+ * **Where the day ledger exists, it decides** (`sync_days`, migration 0030):
+ * the ad platforms, GA4, Search Console and calls record each day a pull or an
+ * import actually covered. Their `through` is the newest day read, and the
+ * days inside the record that were never read are `unread` — so a range with
+ * a hole in it says which days are missing instead of drawing them as quiet.
+ * Salesforce reads by change watermark, which is continuous by construction,
+ * and keeps the last-successful-sync rule.
  */
 export type SourcesThrough = {
   /** Keyed by platform: `salesforce`, `google_ads`, `ga4`, `call_tracking`, … */
   byPlatform: Record<string, string | null>;
   /** The connected ad platforms that report spend, for the spend total. */
   spendPlatforms: string[];
+  /** Days inside each ledgered source's record that were never read, ascending. */
+  unread: Record<string, string[]>;
+  /** The first day each ledgered source's record covers. */
+  from: Record<string, string | null>;
 };
+
+/** Sources whose coverage comes from the day ledger rather than the last run. */
+const LEDGERED = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ads', 'ga4', 'search_console', 'call_tracking'];
 
 export async function sourcesThrough(session: TenantSession): Promise<SourcesThrough> {
   const tz = session.tenant.timezone;
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
-    const [connections, runs, [calls], [ga4], [gsc], spending] = await Promise.all([
+    const [connections, runs, [calls], [ga4], [gsc], spending, ledger] = await Promise.all([
       tx
         .select({ platform: schema.connections.platform, status: schema.connections.status })
         .from(schema.connections)
@@ -78,6 +95,13 @@ export async function sourcesThrough(session: TenantSession): Promise<SourcesThr
         .selectDistinct({ platform: schema.dailyMetrics.platform })
         .from(schema.dailyMetrics)
         .where(eq(schema.dailyMetrics.tenantId, tenantId)),
+      tx
+        .select({
+          platform: schema.syncDays.platform,
+          day: sql<string>`to_char(${schema.syncDays.day}, 'YYYY-MM-DD')`,
+        })
+        .from(schema.syncDays)
+        .where(eq(schema.syncDays.tenantId, tenantId)),
     ]);
 
     // `max()` over a timestamptz arrives as text; coerce before `tenantDay`.
@@ -93,6 +117,26 @@ export async function sourcesThrough(session: TenantSession): Promise<SourcesThr
     byPlatform.ga4 = ga4?.day ?? null;
     byPlatform.search_console = gsc?.day ?? null;
 
+    // The ledger overrides wherever it has rows: newest day read, and the
+    // days inside the record nobody read. A source with no ledger rows yet
+    // keeps the rule above, so the change cannot blank a screen on deploy.
+    const unread: Record<string, string[]> = {};
+    const from: Record<string, string | null> = {};
+    const readDays = new Map<string, Set<string>>();
+    for (const row of ledger) {
+      if (!LEDGERED.includes(row.platform)) continue;
+      const set = readDays.get(row.platform) ?? readDays.set(row.platform, new Set()).get(row.platform)!;
+      set.add(row.day);
+    }
+    for (const [platform, days] of readDays) {
+      const sorted = [...days].sort();
+      const first = sorted[0]!;
+      const last = sorted.at(-1)!;
+      from[platform] = first;
+      byPlatform[platform] = last;
+      unread[platform] = eachDay({ start: first, end: last }).filter((d) => !days.has(d));
+    }
+
     const connected = new Set(
       connections.filter((c) => c.status !== 'not_configured').map((c) => c.platform),
     );
@@ -101,7 +145,7 @@ export async function sourcesThrough(session: TenantSession): Promise<SourcesThr
       .filter((p) => connected.has(p) && (AD_PLATFORMS as readonly string[]).includes(p));
     for (const p of spendPlatforms) byPlatform[p] ??= null;
 
-    return { byPlatform, spendPlatforms };
+    return { byPlatform, spendPlatforms, unread, from };
   });
 }
 
@@ -122,8 +166,10 @@ export function stalest(through: SourcesThrough, platforms: readonly string[]): 
  * way.
  */
 export function coverageFor(through: SourcesThrough, range: DateRange) {
-  const of = (platforms: string | readonly string[], r: DateRange = range): RangeCoverage =>
-    rangeCoverage(r, stalest(through, typeof platforms === 'string' ? [platforms] : platforms));
+  const of = (platforms: string | readonly string[], r: DateRange = range): RangeCoverage => {
+    const list = typeof platforms === 'string' ? [platforms] : platforms;
+    return rangeCoverage(r, stalest(through, list), unreadIn(through, list));
+  };
   return {
     of,
     crm: of('salesforce'),
@@ -133,9 +179,21 @@ export function coverageFor(through: SourcesThrough, range: DateRange) {
   };
 }
 
+/** Every unread day across several sources: a total is missing a day if any part is. */
+export function unreadIn(through: SourcesThrough, platforms: readonly string[]): string[] {
+  return [...new Set(platforms.flatMap((p) => through.unread?.[p] ?? []))].sort();
+}
+
 export const isUnmeasured = (c: RangeCoverage) => c.state === 'none' || c.state === 'never';
 
 const dayLabel = (day: string) => formatRangeLabel({ start: day, end: day });
+
+/** `19–20 Sep, 23 Sep`: unread days as spans. */
+export function unreadLabel(days: readonly string[]): string {
+  return daySpans(days)
+    .map((span) => formatRangeLabel(span))
+    .join(', ');
+}
 
 /**
  * How a source's cutoff is worded. GA4 and Search Console are bounded by what
@@ -153,6 +211,7 @@ export function notMeasuredReason(
   if (c.state === 'never') {
     return kind === 'published' ? `${source} has published nothing yet.` : `${source} has never synced.`;
   }
+  if (c.missing.length > 0) return `${source} was not read for ${unreadLabel(c.missing)}.`;
   return kind === 'published'
     ? `${source} has published data through ${dayLabel(c.through!)}; nothing in this range yet.`
     : `${source} last synced ${dayLabel(c.through!)}; nothing in this range has been read.`;
@@ -161,11 +220,45 @@ export function notMeasuredReason(
 /** A suffix for a period label where the range runs past the last read. */
 export function throughNote(c: RangeCoverage, source: string, kind: CutoffKind = 'synced'): string {
   if (c.state !== 'partial') return '';
-  return ` · ${source} ${kind === 'published' ? 'published' : 'synced'} through ${dayLabel(c.through!)}`;
+  const parts: string[] = [];
+  if (c.missing.length > 0) parts.push(`${source} not read ${unreadLabel(c.missing)}`);
+  if (c.through && c.pastThrough) {
+    parts.push(`${source} ${kind === 'published' ? 'published' : 'synced'} through ${dayLabel(c.through)}`);
+  }
+  return parts.length ? ` · ${parts.join(' · ')}` : '';
 }
+
 
 /** The display name for a platform key, or "Paid media" for the spend total. */
 export function sourceName(platforms: string | readonly string[]): string {
   if (typeof platforms === 'string') return platformLabel(platforms);
   return platforms.length === 1 ? platformLabel(platforms[0]!) : 'Paid media';
+}
+
+/**
+ * One point per day for a daily chart, from the rows a source returned.
+ *
+ * An unread day is `null`, which the chart leaves blank; a day that was read
+ * and returned nothing is a measured `0` (Meta with no delivery). The rows
+ * alone could not say which is which — a hole and a quiet day both have no
+ * row — so the coverage decides. Days past the last read are not drawn.
+ */
+export function dailyPoints<T extends { date: string }>(
+  range: DateRange,
+  cover: RangeCoverage,
+  rows: readonly T[],
+  value: (row: T) => number | null,
+): { label: string; value: number | null }[] {
+  if (!cover.through || cover.state === 'never') return [];
+  const end = range.end < cover.through ? range.end : cover.through;
+  if (range.start > end) return [];
+  const byDay = new Map(rows.map((r) => [r.date, r]));
+  const missing = new Set(cover.missing);
+  return eachDay({ start: range.start, end }).map((day) => {
+    const row = byDay.get(day);
+    return {
+      label: day.slice(5),
+      value: missing.has(day) ? null : row ? value(row) : 0,
+    };
+  });
 }

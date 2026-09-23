@@ -24,9 +24,9 @@ import {
   type AlowareMapping,
 } from '@zeeraa/connectors';
 import { getOwnerDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { formatDuration } from '@zeeraa/core';
+import { addDays, formatDuration, tenantDay } from '@zeeraa/core';
 import { upsertCalls, resolveCallLeads } from '../src/aloware/writer';
-import { closeSyncRun, openSyncRun, recordSourceWindow } from '../src/sync-runs';
+import { closeSyncRun, openSyncRun, recordSourceWindow, recordSyncedDays } from '../src/sync-runs';
 
 const args = process.argv.slice(2);
 const slug = args[0];
@@ -129,6 +129,16 @@ try {
           result.span.earliest,
           syncRunId,
         );
+      }
+      // Every day the export spans was read, including the ones with no
+      // calls: the file is the source's own record of those days.
+      if (result.span.earliest && result.span.latest) {
+        const first = tenantDay(result.span.earliest, timezone);
+        const last = tenantDay(result.span.latest, timezone);
+        await recordSyncedDays(tx, tenantId, 'call_tracking', { start: first, end: last }, {
+          today: addDays(last, 1),
+          syncRunId,
+        });
       }
       await closeSyncRun(tx, syncRunId, 'succeeded', n, null);
       return n;

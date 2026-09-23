@@ -31,7 +31,16 @@ describe('every screen asks how far its sources have been read', () => {
 
   it('marks a bucket past the last read as not ingested, for every chart', () => {
     const code = src('lib/dashboard.ts');
-    expect(code).toMatch(/spendIngested:[\s\S]{0,160}span\.start <= spendThrough/);
     expect(code).toMatch(/crmIngested:[\s\S]{0,160}span\.start <= crmThrough/);
+  });
+
+  it('marks a bucket with an unread day as not ingested, per platform, from the ledger', () => {
+    // Meta and GA4 lost 19–20 September 2026 and every chart drew them as
+    // quiet days. Spend is ingested only where each platform read every day
+    // of the bucket, which the day ledger decides.
+    const code = src('lib/dashboard.ts');
+    expect(code).toMatch(/spendIngested:[\s\S]{0,300}coverageOf\(p, span\)[\s\S]{0,200}missing\.length === 0/);
+    expect(code).toMatch(/rangeCoverage\(clipped, lastRead, \[\.\.\.beforeRecord, \.\.\.\(through\.unread/);
+    expect(src('lib/coverage.ts')).toMatch(/from\(schema\.syncDays\)/);
   });
 });

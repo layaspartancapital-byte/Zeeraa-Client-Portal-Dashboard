@@ -2,6 +2,9 @@ import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import { leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
+  eachDay,
+  rangeCoverage,
+  type RangeCoverage,
   bucketLabel,
   assessPopulation,
   improvementDirectionFor,
@@ -17,7 +20,7 @@ import {
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
-import { sourcesThrough, stalest } from '@/lib/coverage';
+import { sourcesThrough } from '@/lib/coverage';
 
 /**
  * The queries behind the dashboard furniture that spec v2 added: a mini chart
@@ -336,6 +339,13 @@ export type WindowBucket = {
    * at the axis is a measurement.
    */
   spendIngested: boolean;
+  /**
+   * Each spend platform's coverage of this bucket, from the day ledger: the
+   * days before its record, the unread days inside it, and whether the bucket
+   * runs past its last read. A per-channel figure asks its own channel's —
+   * a Meta hole must not withhold a Google Ads month.
+   */
+  spendCoverage: Record<string, RangeCoverage>;
   /** Whether CRM history covers this bucket: leads, stages, attribution. */
   crmIngested: boolean;
   /** Overlaps the trailing seven days, which platforms are still restating. */
@@ -382,7 +392,6 @@ export async function windowBuckets(
       : evenBucketsIn(range, granularity === 'week' ? 7 : 1);
 
   const through = await sourcesThrough(session);
-  const spendThrough = stalest(through, through.spendPlatforms);
   const crmThrough = through.byPlatform.salesforce ?? null;
 
   return queryTenant(session, async (tx) => {
@@ -518,8 +527,20 @@ export async function windowBuckets(
     }
 
     // The first day each source covers, across all time. Everything before it
-    // is absent from the record rather than zero in it.
+    // is absent from the record rather than zero in it. Per platform where the
+    // ledger knows; the earliest spend row otherwise.
     const spendFrom = firstDaily[0]?.day ?? null;
+    const coverageOf = (platform: string, span: DayBucket): RangeCoverage => {
+      const clipped = { start: span.start, end: span.end < range.end ? span.end : range.end };
+      const first = through.from?.[platform] ?? spendFrom;
+      const lastRead = through.byPlatform[platform] ?? null;
+      if (first === null || lastRead === null) return rangeCoverage(clipped, null);
+      // Days before the record are unread for this bucket, not zero.
+      const beforeRecord = clipped.start < first
+        ? eachDay({ start: clipped.start, end: clipped.end < first ? clipped.end : addDays(first, -1) })
+        : [];
+      return rangeCoverage(clipped, lastRead, [...beforeRecord, ...(through.unread?.[platform] ?? [])]);
+    };
     const crmFrom =
       [firstStage[0]?.day, firstLead[0]?.day].filter((d): d is string => Boolean(d)).sort()[0] ??
       null;
@@ -538,8 +559,20 @@ export async function windowBuckets(
         // Ingested means inside the record at both ends: after the first
         // day the source covers, and not starting after its last read. A
         // bucket past the last sync is unmeasured, not a bucket of zeros.
+        // Ingested means every spend platform read every day of the bucket up
+        // to its last read: no hole, no day before its record. Running past
+        // the last read is still ingested — the figure stops early and the
+        // screen says where — but a hole is not, because a total over a hole
+        // is a smaller number that looks like a quiet day.
+        spendCoverage: Object.fromEntries(
+          through.spendPlatforms.map((p) => [p, coverageOf(p, span)]),
+        ),
         spendIngested:
-          spendFrom !== null && span.end >= spendFrom && spendThrough !== null && span.start <= spendThrough,
+          through.spendPlatforms.length > 0 &&
+          through.spendPlatforms.every((p) => {
+            const c = coverageOf(p, span);
+            return (c.state === 'full' || c.state === 'partial') && c.missing.length === 0;
+          }),
         crmIngested:
           crmFrom !== null && span.end >= crmFrom && crmThrough !== null && span.start <= crmThrough,
         provisional: span.end >= settledBefore,

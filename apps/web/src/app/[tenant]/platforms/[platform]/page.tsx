@@ -28,6 +28,7 @@ import {
   notMeasuredReason,
   sourcesThrough,
   throughNote,
+  dailyPoints,
 } from '@/lib/coverage';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
@@ -171,6 +172,9 @@ export default async function PlatformPage({
         seriesOptions={seriesOptions}
         notMeasured={ownOut ? ownWhy : undefined}
         coverageNote={ownNote}
+        dailySeries={dailyPoints(range, own, view.daily, (d) =>
+          seriesKey === 'secondary' ? d.secondary : seriesKey === 'tertiary' ? d.tertiary : d.primary,
+        )}
       />
     );
   }
@@ -395,10 +399,7 @@ export default async function PlatformPage({
               <div className="px-2 pb-3">
                 <AreaSeries
                   id={`platform-${platform}-${seriesKey}`}
-                  points={view.daily.map((d) => ({
-                    label: d.date.slice(5),
-                    value: seriesValue(d, seriesKey),
-                  }))}
+                  points={dailyPoints(range, own, view.daily, (d) => seriesValue(d, seriesKey))}
                   format={
                     seriesKey === 'spend' ? { kind: 'currency', currency } : { kind: 'count' }
                   }

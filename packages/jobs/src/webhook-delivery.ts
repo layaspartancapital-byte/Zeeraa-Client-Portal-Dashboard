@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { tenantDay } from '@zeeraa/core';
 import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
+import { recordSyncedDays } from './sync-runs';
 
 /**
  * Recording that a webhook endpoint was reached.
@@ -119,6 +120,15 @@ export async function recordWebhookDelivery(
       outcome.kind === 'read' ? outcome.rejected.reduce((n, r) => n + r.count, 0) : 0;
 
     await withJobTenant(tenant.id, async (tx) => {
+      // A day the endpoint accepted calls on is a day calls were read: the
+      // coverage ledger's evidence that the pushed source was live, so a day
+      // it was not reads as `Not measured` rather than as a quiet phone.
+      if (accepted > 0) {
+        await recordSyncedDays(tx, tenant.id, 'call_tracking', { start: day, end: day }, {
+          today: day,
+          syncRunId: null,
+        });
+      }
       /*
        * Read-then-write inside one transaction, and the unique index is what
        * makes it safe: two concurrent deliveries cannot both insert, so the

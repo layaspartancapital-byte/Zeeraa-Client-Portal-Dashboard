@@ -31,6 +31,7 @@ export function OrganicPlatformView({
   seriesOptions,
   notMeasured,
   coverageNote = '',
+  dailySeries,
 }: {
   /**
    * Why nothing in the range can be shown: the source has published nothing
@@ -40,6 +41,11 @@ export function OrganicPlatformView({
   notMeasured?: string;
   /** "· GA4 synced through …" where the range runs past what is published. */
   coverageNote?: string;
+  /**
+   * The daily chart's points with unread days as gaps, from `dailyPoints`.
+   * Without it the chart would join straight across a day nobody read.
+   */
+  dailySeries?: { label: string; value: number | null }[];
   session: TenantSession;
   view: OrganicView;
   slug: string;
@@ -185,10 +191,10 @@ export function OrganicPlatformView({
               <div className="px-2 pb-3">
                 <AreaSeries
                   id={`organic-${view.kind}-${seriesKey}`}
-                  points={view.daily.map((d) => ({
-                    label: d.date.slice(5),
-                    value: seriesValue(d, seriesKey),
-                  }))}
+                  points={
+                    dailySeries ??
+                    view.daily.map((d) => ({ label: d.date.slice(5), value: seriesValue(d, seriesKey) }))
+                  }
                   format={{ kind: 'count' }}
                   height={240}
                 />

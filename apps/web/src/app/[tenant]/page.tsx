@@ -55,6 +55,7 @@ import {
   notMeasuredReason,
   sourcesThrough,
   throughNote,
+  unreadLabel,
 } from '@/lib/coverage';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange, type RangeQuery } from '@/lib/range';
@@ -358,8 +359,26 @@ export default async function ExecutiveBriefing({
     compute: (bucket: (typeof buckets)[number]) => MonthActual,
   ): MonthActual => {
     const bucket = buckets.find((b) => monthKeyOf(b.start) === month);
-    if (needs.spend && (!bucket || !bucket.spendIngested)) {
-      return { value: null, reason: `${rampChannel} spend is not synced for this month.` };
+    if (needs.spend) {
+      // The ramp channel's own days, not every platform's: a Meta hole must
+      // not withhold a Google Ads month. A finished month has to have been
+      // read to its last day; the month in progress only has to have no hole.
+      const cover = bucket?.spendCoverage[rampPlatform];
+      if (!bucket || !cover || cover.state === 'never' || cover.state === 'none') {
+        return { value: null, reason: `${rampChannel} spend is not synced for this month.` };
+      }
+      if (cover.missing.length > 0) {
+        return {
+          value: null,
+          reason: `${rampChannel} spend was not read for ${unreadLabel(cover.missing)}.`,
+        };
+      }
+      if (month < periods.currentMonth && cover.pastThrough) {
+        return {
+          value: null,
+          reason: `${rampChannel} spend was read only through ${formatRangeLabel({ start: cover.through!, end: cover.through! })}.`,
+        };
+      }
     }
     if (needs.crm && (!bucket || !bucket.crmIngested)) {
       return { value: null, reason: 'Salesforce is not synced for this month.' };
