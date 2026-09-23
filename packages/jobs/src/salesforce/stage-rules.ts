@@ -32,9 +32,19 @@ export type StageExclusionRule = {
   reason: string;
   /** `opportunities.deal_type` values that trigger the rule. */
   dealTypes: string[];
-  /** Stage keys the rule applies to. Other stages of the same deal still count. */
+  /**
+   * Stage keys the rule applies to, or `['*']` for every stage — which also
+   * excludes any lead that converted into a matching deal, because Lead and
+   * MQL are counted from `leads`, not from stage events. Renewals use `*`:
+   * they are not marketing's at any stage.
+   */
   stages: string[];
 };
+
+/** A rule that reaches every stage, including the lead-grain ones. */
+export function coversEveryStage(rule: StageExclusionRule): boolean {
+  return rule.stages.includes('*');
+}
 
 export function parseStageExclusions(value: unknown): StageExclusionRule[] {
   if (value == null) return [];
@@ -77,30 +87,53 @@ export async function applyStageExclusions(
         sql`${schema.stageEvents.excludedReason} is not null`,
       ),
     );
+  await tx
+    .update(schema.leads)
+    .set({ excludedReason: null })
+    .where(and(eq(schema.leads.tenantId, tenantId), sql`${schema.leads.excludedReason} is not null`));
 
   const counts: Record<string, number> = {};
   for (const rule of rules) {
-    const types = rule.dealTypes.map((t) => t.trim().toLowerCase());
+    const types = sql.join(
+      rule.dealTypes.map((t) => sql`${t.trim().toLowerCase()}`),
+      sql`, `,
+    );
     const updated = await tx
       .update(schema.stageEvents)
       .set({ excludedReason: rule.reason })
       .where(
         and(
           eq(schema.stageEvents.tenantId, tenantId),
-          inArray(schema.stageEvents.stage, rule.stages),
+          ...(coversEveryStage(rule) ? [] : [inArray(schema.stageEvents.stage, rule.stages)]),
           sql`exists (
             select 1 from ${schema.opportunities} o
             where o.tenant_id = ${schema.stageEvents.tenantId}
               and o.external_id = ${schema.stageEvents.opportunityExternalId}
-              and lower(trim(o.deal_type)) in (${sql.join(
-                types.map((t) => sql`${t}`),
-                sql`, `,
-              )})
+              and lower(trim(o.deal_type)) in (${types})
           )`,
         ),
       )
       .returning({ id: schema.stageEvents.id });
     counts[rule.reason] = (counts[rule.reason] ?? 0) + updated.length;
+
+    if (coversEveryStage(rule)) {
+      const leads = await tx
+        .update(schema.leads)
+        .set({ excludedReason: rule.reason })
+        .where(
+          and(
+            eq(schema.leads.tenantId, tenantId),
+            sql`exists (
+              select 1 from ${schema.opportunities} o
+              where o.tenant_id = ${schema.leads.tenantId}
+                and o.external_id = ${schema.leads.convertedOpportunityId}
+                and lower(trim(o.deal_type)) in (${types})
+            )`,
+          ),
+        )
+        .returning({ id: schema.leads.id });
+      counts[`${rule.reason}:leads`] = (counts[`${rule.reason}:leads`] ?? 0) + leads.length;
+    }
   }
   return counts;
 }

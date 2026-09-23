@@ -34,10 +34,16 @@ export function countedStageEvent(): SQL {
   return isNull(schema.stageEvents.excludedReason);
 }
 
+/**
+ * Leads created in the period that count. A lead that converted into a
+ * renewal-type deal carries `excluded_reason` and is in no stage and no rate —
+ * renewals are not marketing's at any stage.
+ */
 export function leadsCreatedIn(range: DayRange): SQL {
   return and(
     gte(schema.leads.createdOn, range.start),
     lte(schema.leads.createdOn, range.end),
+    isNull(schema.leads.excludedReason),
   )!;
 }
 

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { schema, stageEventsIn, withJobTenant, type Database } from '@zeeraa/db';
+import { leadsCreatedIn, schema, stageEventsIn, withJobTenant, type Database } from '@zeeraa/db';
 import type { OpportunityRow, StageEventRow } from '@zeeraa/connectors';
 import { upsertOpportunities, upsertStageEvents } from '../src/salesforce/writer';
 import {
@@ -86,6 +86,7 @@ beforeEach(async () => {
   await ownerSql.begin(async (tx) => {
     await tx`select set_config('app.maintenance','on',true)`;
     await tx`delete from stage_events where tenant_id = ${tenantId}`;
+    await tx`delete from leads where tenant_id = ${tenantId}`;
     await tx`delete from opportunities where tenant_id = ${tenantId}`;
   });
 });
@@ -151,6 +152,59 @@ describe('stage exclusions', () => {
     expect(reason('006R', 'funded')).toBe('renewal');
     expect(reason('006R', 'uw_approved')).toBeNull();
     expect(reason('006N', 'funded')).toBeNull();
+  });
+
+  it("with '*', excludes the deal at every stage and the lead that became it", async () => {
+    const everywhere = parseStageExclusions({
+      rules: [{ reason: 'renewal', dealTypes: ['Renewal'], stages: ['*'] }],
+    });
+    await run(async (tx) => {
+      await upsertOpportunities(
+        tx,
+        tenantId,
+        [opportunity('006R', 'Renewal'), opportunity('006N', 'New Business')],
+        syncRunId,
+      );
+      await tx.insert(schema.leads).values([
+        { tenantId, externalId: '00QR', createdAt: new Date('2026-08-01T15:00:00Z'), createdOn: '2026-08-01', convertedOpportunityId: '006R' },
+        { tenantId, externalId: '00QN', createdAt: new Date('2026-08-01T15:00:00Z'), createdOn: '2026-08-01', convertedOpportunityId: '006N' },
+      ]);
+      await upsertStageEvents(
+        tx,
+        tenantId,
+        [
+          event('006R', 'application', '2026-08-01T16:00:00Z'),
+          event('006R', 'uw_approved', '2026-08-11T15:00:00Z'),
+          event('006R', 'funded', '2026-08-12T15:00:00Z'),
+          event('006N', 'application', '2026-08-01T16:00:00Z'),
+        ],
+        syncRunId,
+      );
+      await applyStageExclusions(tx, tenantId, everywhere);
+    });
+
+    const events = await readEvents();
+    expect(events.filter((e) => e.opportunityExternalId === '006R').map((e) => e.excludedReason)).toEqual([
+      'renewal',
+      'renewal',
+      'renewal',
+    ]);
+    expect(events.find((e) => e.opportunityExternalId === '006N')!.excludedReason).toBeNull();
+
+    const leads = await run((tx) =>
+      tx.select().from(schema.leads).where(eq(schema.leads.tenantId, tenantId)),
+    );
+    expect(leads.find((l) => l.externalId === '00QR')!.excludedReason).toBe('renewal');
+    expect(leads.find((l) => l.externalId === '00QN')!.excludedReason).toBeNull();
+
+    // And the period predicate is what drops it.
+    const counted = await run((tx) =>
+      tx
+        .select()
+        .from(schema.leads)
+        .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn({ start: '2026-08-01', end: '2026-08-31' }))),
+    );
+    expect(counted.map((l) => l.externalId)).toEqual(['00QN']);
   });
 
   it('matches the deal type case-insensitively and trimmed', async () => {

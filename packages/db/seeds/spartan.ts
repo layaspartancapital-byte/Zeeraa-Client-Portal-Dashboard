@@ -315,9 +315,10 @@ export const spartan: TenantSeed = {
       description:
         'Stage events that are real but are not counted. Renewal-type deals ' +
         '(Renewal, Renewals, Addon, Win Back, Winback, Existing Business) ' +
-        'reaching Funded are existing merchants, not deals marketing produced, ' +
-        'so they are excluded from funded counts, funded volume and every cost ' +
-        'per funded deal. The client decided the list on 23 September 2026. ' +
+        'are existing merchants, not deals marketing produced, so they are ' +
+        'excluded from every funnel stage, every rate and every cost — and a ' +
+        'lead that converted into one is excluded from Lead and MQL. The client ' +
+        'decided the list and the scope on 23 September 2026. ' +
         'Matched case-insensitively on the opportunity Type field; the event is ' +
         'kept with its reason so the exclusion can be audited.',
       value: {
@@ -332,7 +333,9 @@ export const spartan: TenantSeed = {
               'Winback',
               'Existing Business',
             ],
-            stages: ['funded'],
+            // Every stage, lead-grain included: renewals are not marketing's
+            // anywhere (client decision, 23 September 2026).
+            stages: ['*'],
           },
         ],
       },

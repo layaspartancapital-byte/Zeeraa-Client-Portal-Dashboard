@@ -269,3 +269,32 @@ export function briefingPeriods(today: string): BriefingPeriods {
     elapsed: monthDays === 0 ? 0 : elapsedDays / monthDays,
   };
 }
+
+/**
+ * How much of a range a source has actually been synced for.
+ *
+ * `through` is the tenant-local day of the source's last successful read, or
+ * null when it has never delivered. The range is:
+ *
+ *   * `full` — every day of it is at or before that day;
+ *   * `partial` — it starts in the synced record and runs past it, so its
+ *     figures are real but stop early and must say where;
+ *   * `none` — it starts after the last sync, so there is nothing to count and
+ *     a figure would be a zero standing in for "not measured";
+ *   * `never` — the source has never delivered.
+ *
+ * Today counts as synced when the last run was today: the freshness strip
+ * already says "as of" the hour, and treating every month-to-date range as
+ * partial would put a caveat on every screen for a gap of minutes.
+ */
+export type RangeCoverage = {
+  state: 'full' | 'partial' | 'none' | 'never';
+  through: string | null;
+};
+
+export function rangeCoverage(range: DateRange, through: string | null): RangeCoverage {
+  if (through === null) return { state: 'never', through };
+  if (range.start > through) return { state: 'none', through };
+  if (range.end > through) return { state: 'partial', through };
+  return { state: 'full', through };
+}

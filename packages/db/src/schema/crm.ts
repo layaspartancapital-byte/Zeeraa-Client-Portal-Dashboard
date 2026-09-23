@@ -36,9 +36,9 @@ export const leads = pgTable(
      * The tenant-local calendar day of `created_at`, written at ingest from
      * `tenants.timezone`. Reports bucket and filter on this, never on the
      * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
-     * Nullable only until the deploy that writes it has shipped (see 0024).
+     * Required since 0026.
      */
-    createdOn: date('created_on', { mode: 'string' }),
+    createdOn: date('created_on', { mode: 'string' }).notNull(),
     /**
      * The whole product depends on this surviving Lead → Opportunity
      * conversion. If it is absent the connector must raise a blocked state
@@ -78,6 +78,12 @@ export const leads = pgTable(
      * distinct from `undeterminable` — that is an answer.
      */
     mqlVerdict: mqlVerdictEnum('mql_verdict'),
+    /**
+     * Why this lead is not counted, or null when it is — the lead-grain half
+     * of `stage_events.excluded_reason`. Set by the `stage_exclusions` rule for
+     * a lead that converted into a renewal-type deal. See 0026.
+     */
+    excludedReason: text('excluded_reason'),
     /**
      * Why the verdict is `undeterminable`, in the interface's voice.
      *
@@ -182,9 +188,9 @@ export const stageEvents = pgTable(
      * The tenant-local calendar day of `occurred_at`, written at ingest from
      * `tenants.timezone`. Reports bucket and filter on this, never on the
      * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
-     * Nullable only until the deploy that writes it has shipped (see 0024).
+     * Required since 0026.
      */
-    occurredOn: date('occurred_on', { mode: 'string' }),
+    occurredOn: date('occurred_on', { mode: 'string' }).notNull(),
     /**
      * `month` when only the month is known — a hand-recorded correction whose
      * day nobody can establish. `occurred_at` is then the first instant of
@@ -337,9 +343,9 @@ export const submissions = pgTable(
      * The tenant-local calendar day of `submitted_at`, written at ingest from
      * `tenants.timezone`. Reports bucket and filter on this, never on the
      * instant — `to_char` on a UTC session files 9pm Eastern under tomorrow.
-     * Nullable only until the deploy that writes it has shipped (see 0024).
+     * Required since 0026.
      */
-    submittedOn: date('submitted_on', { mode: 'string' }),
+    submittedOn: date('submitted_on', { mode: 'string' }).notNull(),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -389,9 +395,9 @@ export const calls = pgTable(
     /**
      * The tenant-local calendar day of `occurred_at`, written at ingest from
      * `tenants.timezone`. A call at 9pm Eastern is that day's call; `to_char`
-     * on a UTC session filed it under tomorrow. Nullable until after 0024.
+     * on a UTC session filed it under tomorrow. Required since 0026.
      */
-    occurredOn: date('occurred_on', { mode: 'string' }),
+    occurredOn: date('occurred_on', { mode: 'string' }).notNull(),
     direction: callDirectionEnum('direction').notNull(),
     outcome: callOutcomeEnum('outcome').notNull(),
     /** The vendor's own status, verbatim, so a reclassification is a query. */

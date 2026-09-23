@@ -11,14 +11,18 @@ import {
   improvementDirectionFor,
   monthKeyOf,
   previousRange,
+  rangeCoverage,
   rangeLengthDays,
+  tenantDay,
+  type RangeCoverage,
   rampMonthKey,
   rampSeries,
   trailingMonths,
   type AttributionModel,
   type RampMetricKey,
 } from '@zeeraa/core';
-import { Card, CardHeader, Grid } from '@/components/ui/Card';
+import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
+import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { ButtonLink } from '@/components/ui/Button';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
@@ -173,6 +177,54 @@ export default async function ExecutiveBriefing({
   const dealsIn = (stages: Record<string, number>) => (valueKey ? (stages[valueKey] ?? 0) : 0);
   const attributedDeals = (source: typeof current) =>
     source.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0);
+
+  /* ----------------------------------------------------------------------- */
+  /* Coverage: how much of the range each source has actually been synced for */
+  /* ----------------------------------------------------------------------- */
+
+  /**
+   * A range past the last sync is not a quiet period.
+   *
+   * Picked for a day Salesforce has not been read since, every CRM figure
+   * here came back 0 — no deals, no leads, no funnel — which is a measurement
+   * claiming nothing happened. Each source's coverage of the range is worked
+   * out from its last successful read: nothing synced renders the named
+   * `Not measured` state, and a range that runs past the last sync says where
+   * its figures stop.
+   */
+  const dayOf = (at: Date | null | undefined) =>
+    at ? tenantDay(at, session.tenant.timezone) : null;
+  const dayLabel = (day: string) => formatRangeLabel({ start: day, end: day });
+  const crmSource = freshness.find((f) => f.platform === 'salesforce');
+  const spendPlatforms = new Set(buckets.flatMap((b) => Object.keys(b.spendByPlatform)));
+  const spendDays = freshness
+    .filter((f) => spendPlatforms.has(f.platform))
+    .map((f) => dayOf(f.at));
+  // The stalest paid platform decides: a total is only as far along as its
+  // least-current part.
+  const spendThrough =
+    spendDays.length === 0 || spendDays.some((d) => d === null)
+      ? null
+      : [...(spendDays as string[])].sort()[0]!;
+  const callSource = freshness.find((f) => f.arrival === 'webhook');
+
+  const crmCoverage = rangeCoverage(range, dayOf(crmSource?.at));
+  // The comparison beside a figure is a figure too, and can be just as unsynced.
+  const crmPriorCoverage = rangeCoverage(comparison, dayOf(crmSource?.at));
+  const spendCoverage = rangeCoverage(range, spendThrough);
+  const monthSpendCoverage = rangeCoverage(periods.monthToDate, spendThrough);
+  const callCoverage = rangeCoverage(range, dayOf(callSource?.at));
+
+  const unmeasured = (c: RangeCoverage) => c.state === 'none' || c.state === 'never';
+  const why = (c: RangeCoverage, source: string) =>
+    c.state === 'never'
+      ? `${source} has never synced.`
+      : `${source} last synced ${dayLabel(c.through!)}; nothing in this range has been read.`;
+  const throughNote = (c: RangeCoverage, source: string) =>
+    c.state === 'partial' ? ` · ${source} synced through ${dayLabel(c.through!)}` : '';
+  const crmUnmeasured = unmeasured(crmCoverage);
+  const crmNote = throughNote(crmCoverage, 'Salesforce');
+  const spendNote = throughNote(spendCoverage, 'paid media');
 
   const mtdLabel = isMonthToDate
     ? `${formatRangeLabel(range)} · month to date`
@@ -469,7 +521,8 @@ export default async function ExecutiveBriefing({
 
   const findings: Finding[] = [];
 
-  if (speedGate.sufficient && calls.speed.medianSeconds !== null) {
+  const callsMeasured = !unmeasured(callCoverage) && !crmUnmeasured;
+  if (callsMeasured && speedGate.sufficient && calls.speed.medianSeconds !== null) {
     findings.push({
       key: 'speed-to-lead',
       // The five-minute bar is the industry's own, not one this product sets,
@@ -492,7 +545,7 @@ export default async function ExecutiveBriefing({
     });
   }
 
-  if (!calls.empty) {
+  if (callsMeasured && !calls.empty) {
     findings.push({
       key: 'call-volume',
       level: 'watch',
@@ -572,7 +625,7 @@ export default async function ExecutiveBriefing({
     });
   }
 
-  if (unattributedDeals > 0) {
+  if (!crmUnmeasured && unattributedDeals > 0) {
     findings.push({
       key: 'unattributed',
       level: 'watch',
@@ -715,19 +768,33 @@ export default async function ExecutiveBriefing({
         <TwoPeriodKpi
           label={`${valueLabel} deals`}
           value={formatCount(totalDeals)}
-          priorValue={formatCount(dealsIn(previous.total.stages))}
-          valueLabel={mtdLabel}
+          notMeasured={crmUnmeasured ? why(crmCoverage, 'Salesforce') : undefined}
+          priorValue={
+            unmeasured(crmPriorCoverage)
+              ? NOT_MEASURED
+              : formatCount(dealsIn(previous.total.stages))
+          }
+          valueLabel={`${mtdLabel}${crmNote}`}
           priorLabel={lastMonthLabel}
-          context={`${formatCount(attributedDeals(current))} attributed · ${formatCount(
-            unattributedDeals,
-          )} to no channel`}
+          context={
+            crmUnmeasured
+              ? undefined
+              : `${formatCount(attributedDeals(current))} attributed · ${formatCount(
+                  unattributedDeals,
+                )} to no channel`
+          }
           info="Deals reaching the value stage, renewals excluded. Shown for both periods and never subtracted: a count's difference is mostly the calendar."
         />
         <TwoPeriodKpi
           label={`${valueLabel} volume`}
           value={formatCurrency(current.total.valueVolume, currency)}
-          priorValue={formatCurrency(previous.total.valueVolume, currency)}
-          valueLabel={mtdLabel}
+          notMeasured={crmUnmeasured ? why(crmCoverage, 'Salesforce') : undefined}
+          priorValue={
+            unmeasured(crmPriorCoverage)
+              ? NOT_MEASURED
+              : formatCurrency(previous.total.valueVolume, currency)
+          }
+          valueLabel={`${mtdLabel}${crmNote}`}
           priorLabel={lastMonthLabel}
           context="Every source, attributed or not"
           info="The funded amount on every deal reaching the value stage, from any source. Not a channel figure: no spend is divided into it."
@@ -736,7 +803,13 @@ export default async function ExecutiveBriefing({
           spent={monthSpend}
           pacing={pacing}
           currency={currency}
-          periodLabel={`${formatRangeLabel(periods.monthToDate)} · month to date`}
+          periodLabel={`${formatRangeLabel(periods.monthToDate)} · month to date${throughNote(
+            monthSpendCoverage,
+            'paid media',
+          )}`}
+          notMeasured={
+            unmeasured(monthSpendCoverage) ? why(monthSpendCoverage, 'Paid media') : undefined
+          }
           budgetMissing={budgetMissing}
           elapsedDays={periods.elapsedDays}
           monthDays={periods.monthDays}
@@ -752,28 +825,48 @@ export default async function ExecutiveBriefing({
         <Card span={12}>
           <CardHeader
             title="Funnel"
-            subtitle={`Every stage and the conversion between them · ${mtdLabel}`}
+            subtitle={`Every stage and the conversion between them · ${mtdLabel}${crmNote}`}
           />
-          <FunnelStages
-            data={current}
-            counts={current.total.stages}
-            populationLabel="every source"
-            maxLeakage={leakage}
-          />
+          {crmUnmeasured ? (
+            <CardBody>
+              <EmptyLine action={<NotMeasuredBadge />}>{why(crmCoverage, 'Salesforce')}</EmptyLine>
+            </CardBody>
+          ) : (
+            <FunnelStages
+              data={current}
+              counts={current.total.stages}
+              populationLabel="every source"
+              maxLeakage={leakage}
+            />
+          )}
         </Card>
 
         {/* 4. What each stage costs, per channel. */}
-        <EfficiencyTable
-          rows={efficiencyRows}
-          columns={efficiencyColumns}
-          unattributed={{
-            label: current.unattributed.label,
-            reason: current.unattributed.reason,
-            counts: current.unattributed.stages,
-          }}
-          currency={currency}
-          periodLabel={mtdLabel}
-        />
+        {crmUnmeasured || unmeasured(spendCoverage) ? (
+          <Card span={12}>
+            <CardHeader
+              title="Efficiency"
+              subtitle={`What each stage costs, per channel · ${mtdLabel}`}
+            />
+            <CardBody>
+              <EmptyLine action={<NotMeasuredBadge />}>
+                {crmUnmeasured ? why(crmCoverage, 'Salesforce') : why(spendCoverage, 'Paid media')}
+              </EmptyLine>
+            </CardBody>
+          </Card>
+        ) : (
+          <EfficiencyTable
+            rows={efficiencyRows}
+            columns={efficiencyColumns}
+            unattributed={{
+              label: current.unattributed.label,
+              reason: current.unattributed.reason,
+              counts: current.unattributed.stages,
+            }}
+            currency={currency}
+            periodLabel={`${mtdLabel}${crmNote}${spendNote}`}
+          />
+        )}
 
         {/* 5. What to do about it, and what the platform cannot say. */}
         <NeedsAttention findings={findings} span={8} />
@@ -799,6 +892,9 @@ export default async function ExecutiveBriefing({
  * sparkline under two periods invites a reader to compare three things at
  * different grains at once.
  */
+/** The comparison's named state; a sentinel so it can never be formatted as a number. */
+const NOT_MEASURED = 'Not measured';
+
 function TwoPeriodKpi({
   label,
   value,
@@ -807,10 +903,13 @@ function TwoPeriodKpi({
   priorLabel,
   context,
   info,
+  notMeasured,
   span = 3,
 }: {
   label: string;
   value: string;
+  /** Why this period cannot be counted. Rendered as the named state, never 0. */
+  notMeasured?: string;
   priorValue: string;
   valueLabel: string;
   priorLabel: string;
@@ -826,11 +925,22 @@ function TwoPeriodKpi({
           {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
         </p>
 
-        <p className="mt-1.5 text-[28px] font-semibold leading-[1.15] tabular text-text">{value}</p>
+        {notMeasured ? (
+          <div className="mt-2">
+            <NotMeasuredBadge />
+            <p className="mt-1.5 text-[12px] leading-snug text-text-3">{notMeasured}</p>
+          </div>
+        ) : (
+          <p className="mt-1.5 text-[28px] font-semibold leading-[1.15] tabular text-text">{value}</p>
+        )}
         <p className="mt-0.5 text-[12px] text-text-3">{valueLabel}</p>
 
         <div className="mt-3 border-t border-border/60 pt-2">
-          <p className="text-[15px] font-semibold leading-tight tabular text-text-2">{priorValue}</p>
+          {priorValue === NOT_MEASURED ? (
+            <NotMeasuredBadge />
+          ) : (
+            <p className="text-[15px] font-semibold leading-tight tabular text-text-2">{priorValue}</p>
+          )}
           <p className="mt-0.5 text-[12px] text-text-3">{priorLabel}</p>
         </div>
 

@@ -196,6 +196,7 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
       outcome: 'declined',
       declineReasons: ['Bankruptcy'],
       submittedAt: new Date('2026-08-01T12:00:00Z'),
+      submittedOn: '2026-08-01',
     },
     {
       tenantId: b.id,
@@ -205,6 +206,7 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
       status: 'Offer(s) Received',
       outcome: 'offered',
       submittedAt: new Date('2026-08-01T12:00:00Z'),
+      submittedOn: '2026-08-01',
     },
   ]);
 
@@ -216,6 +218,7 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
       tenantId: a.id,
       externalId: 'A-CALL-1',
       occurredAt: new Date('2026-08-01T12:00:00Z'),
+      occurredOn: '2026-08-01',
       direction: 'outbound',
       outcome: 'connected',
       contactNumber: '(312) 555-0111',
@@ -227,6 +230,7 @@ async function seedTwoTenantsInner(db: Database): Promise<Fixture> {
       tenantId: b.id,
       externalId: 'B-CALL-1',
       occurredAt: new Date('2026-08-01T12:00:00Z'),
+      occurredOn: '2026-08-01',
       direction: 'outbound',
       outcome: 'connected',
       contactNumber: '(415) 555-0222',

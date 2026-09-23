@@ -183,6 +183,13 @@
       "when": 1789940000000,
       "tag": "0025_tenant_logo",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789950000000,
+      "tag": "0026_local_dates_required",
+      "breakpoints": true
     }
   ]
 }

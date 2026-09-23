@@ -414,6 +414,7 @@ describe('the spend-to-funded join', () => {
         tenantId,
         externalId: 'LEAD-1',
         createdAt: new Date('2026-09-09T00:00:00Z'),
+        createdOn: '2026-09-08',
         clickId: 'g1',
         clickIdType: 'google_ads',
         convertedOpportunityId: 'OPP-1',

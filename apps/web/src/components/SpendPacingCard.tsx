@@ -6,7 +6,7 @@ import {
   type BudgetPacing,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
 import { MiniChart, type MiniPoint } from '@/components/charts/MiniChart';
@@ -44,8 +44,14 @@ export function SpendPacingCard({
   budgetMissing,
   elapsedDays,
   monthDays,
+  notMeasured,
   span = 6,
 }: {
+  /**
+   * Why there is no spend figure at all — paid media has not synced for any
+   * day of this month. A $0 here would say the channels spent nothing.
+   */
+  notMeasured?: string;
   spent: number;
   /** Null where no budget is recorded for this month. */
   pacing: BudgetPacing | null;
@@ -87,11 +93,18 @@ export function SpendPacingCard({
       />
 
       <CardBody className="flex-1 pb-0">
-        <p className="text-[28px] font-semibold leading-[1.15] tabular text-text">
-          {formatCurrency(spent, currency)}
-        </p>
+        {notMeasured ? (
+          <p className="flex flex-wrap items-center gap-2 text-[13px] text-text-3">
+            <NotMeasuredBadge />
+            {notMeasured}
+          </p>
+        ) : (
+          <p className="text-[28px] font-semibold leading-[1.15] tabular text-text">
+            {formatCurrency(spent, currency)}
+          </p>
+        )}
 
-        {!pacing ? (
+        {notMeasured ? null : !pacing ? (
           <p className="mt-1 text-[13px] leading-snug text-text-3">{budgetMissing}</p>
         ) : (
           <>

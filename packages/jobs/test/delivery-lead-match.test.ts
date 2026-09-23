@@ -15,6 +15,7 @@ import { and, eq } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
 import { resolveCallLeads, resolveLeadsForDelivery, upsertCalls } from '../src/aloware/writer';
 import type { CallRow } from '@zeeraa/connectors';
+import { tenantDay } from '@zeeraa/core';
 
 const SLUG = `match-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 let tenantId: string;
@@ -52,10 +53,10 @@ beforeAll(async () => {
     const id = row!.id;
     await tx.insert(schema.leads).values([
       // One lead, one number: matchable.
-      { tenantId: id, externalId: 'LEAD-SOLE', phoneKey: '5034625891', createdAt: LEAD_AT },
+      { tenantId: id, externalId: 'LEAD-SOLE', phoneKey: '5034625891', createdAt: LEAD_AT, createdOn: tenantDay(LEAD_AT, 'America/New_York') },
       // Two leads sharing a switchboard: matchable by nobody.
-      { tenantId: id, externalId: 'LEAD-SHARED-A', phoneKey: '2125550000', createdAt: LEAD_AT },
-      { tenantId: id, externalId: 'LEAD-SHARED-B', phoneKey: '2125550000', createdAt: LEAD_AT },
+      { tenantId: id, externalId: 'LEAD-SHARED-A', phoneKey: '2125550000', createdAt: LEAD_AT, createdOn: tenantDay(LEAD_AT, 'America/New_York') },
+      { tenantId: id, externalId: 'LEAD-SHARED-B', phoneKey: '2125550000', createdAt: LEAD_AT, createdOn: tenantDay(LEAD_AT, 'America/New_York') },
     ]);
     return id;
   });
@@ -124,6 +125,7 @@ describe('resolveLeadsForDelivery', () => {
           externalId: 'LEAD-LATE',
           phoneKey: '4155558888',
           createdAt: LEAD_AT,
+          createdOn: tenantDay(LEAD_AT, 'America/New_York'),
         }),
     );
     await withJobTenant(tenantId, (tx) =>
