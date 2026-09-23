@@ -174,7 +174,8 @@ secret (`67e4309c2482`, which still fails every credential).
   original of 18 Sep. Name, title and email have no history to check, but no
   application path ever edited them.
 
-- **Speed to lead runs on the desk's hours** (not yet deployed). The
+- **Speed to lead runs on the desk's hours** (deployed bde176c, row loaded in
+  production 23 September 2026; 0029 applied to production the same day). The
   `lead_response_hours` row (9–6 ET, Mon–Fri, no holidays) drives the median,
   p90 and within-five-minutes share on the funnel card and the executive
   finding; the 24/7 median stays beside it. Production before and after is in
