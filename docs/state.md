@@ -257,6 +257,23 @@ secret (`67e4309c2482`, which still fails every credential).
 **Vercel Cron confirmed firing:** the first `cron-hourly` run landed at
 20:00:28 UTC on 23 September 2026, every platform `succeeded`, clicks last.
 
+- **Aloware webhook times were four hours late — fixed 23 September 2026.**
+  The webhook's `Created At` is a bare UTC timestamp; the export's is Eastern
+  wall clock. Both were read as Eastern, so every webhook call was stored four
+  hours after it happened (deliveries that stopped at 20:06Z held calls dated
+  00:04Z the next day). The webhook profile now carries `createdAtZone: 'UTC'`
+  (deployed 20:24:49Z), and `redate-webhook-calls` re-dated the 245 webhook
+  calls written before that — dry run, then committed; a second run finds
+  none. Speed to lead for 22–23 September, business hours: median 4h 27m →
+  46m 21s, p90 7h 43m → 3h 43m, within five minutes 0 of 22 either way; the
+  24/7 median moved exactly four hours (9h 47m → 5h 47m).
+- **Webhook deliveries stopped at 20:06:43Z (16:06 ET), 23 September.** Not
+  the deploy: the route is reachable (no Deployment Protection), every path
+  records a delivery before answering, and nothing — not even a refusal — has
+  arrived since, so the requests stopped reaching the project. Deliveries come
+  through a Zapier zap ("Call Disposed" → webhook); check it for a pause or a
+  task limit.
+
 **Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
 runs on 24 September, and complete the Inngest disconnection steps above.
 
