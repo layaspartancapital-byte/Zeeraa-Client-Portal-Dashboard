@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { AppShell } from '@/components/shell/AppShell';
 import { reportingPlatforms } from '@/lib/platforms';
-import { requireTenant } from '@/lib/tenant';
+import { requireTenant, tenantLogo } from '@/lib/tenant';
 
 /**
  * The browser tab title leads with the tenant name. Two tabs open on two
@@ -28,12 +28,13 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const platforms = await reportingPlatforms(session);
+  const [platforms, logo] = await Promise.all([reportingPlatforms(session), tenantLogo(session)]);
 
   return (
     <AppShell
       viewer={session.viewer}
       tenant={session.tenant}
+      logo={logo}
       platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
     >

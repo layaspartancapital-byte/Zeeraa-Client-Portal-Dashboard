@@ -176,6 +176,13 @@
       "when": 1789930000000,
       "tag": "0024_local_dates_renewals_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789940000000,
+      "tag": "0025_tenant_logo",
+      "breakpoints": true
     }
   ]
 }

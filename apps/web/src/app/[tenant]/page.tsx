@@ -10,9 +10,10 @@ import {
   formatRate,
   improvementDirectionFor,
   monthKeyOf,
+  previousRange,
+  rangeLengthDays,
   rampMonthKey,
   rampSeries,
-  tenantDay,
   trailingMonths,
   type AttributionModel,
   type RampMetricKey,
@@ -32,6 +33,7 @@ import { RampCard, type RampPanel } from '@/components/RampCard';
 import { SourceFreshness } from '@/components/SourceFreshness';
 import { SpendPacingCard } from '@/components/SpendPacingCard';
 import { callReport, monthlyPerformance } from '@/lib/reporting';
+import { platformLabel as platformName } from '@/lib/platform-labels';
 import {
   alowareConnectedThreshold,
   connectionHealth,
@@ -44,6 +46,8 @@ import {
   windowBuckets,
 } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { rangeLinks, rangeParams, resolvePageRange, type RangeQuery } from '@/lib/range';
 import { Download } from 'lucide-react';
 
 export async function generateMetadata({ params }: { params: Promise<{ tenant: string }> }) {
@@ -66,25 +70,26 @@ export const revalidate = 3600;
 /**
  * The executive briefing.
  *
- * **A standing report, not a windowed metrics page**, and the difference is
- * structural rather than cosmetic.
+ * **Month to date by default, and any range on request** (23 September 2026).
+ * It had no date control at all; the client asked for the same
+ * `DateRangePicker` every other screen has, and the rules that made a
+ * control-free briefing safe carry over unchanged:
  *
- * There is no date control. A briefing that can be rescoped is a screen two
- * readers quote different numbers from, and the question leadership brings to
- * it — is the engagement on track — is not a question about an arbitrary
- * window. So each block states its own period in words and none of them can
- * disagree:
- *
- *   * **the ramp** covers the engagement, on an M1–M8 axis;
- *   * **every measured figure** covers this month to date, with the last whole
- *     month beside it;
+ *   * **the ramp** covers the engagement, on an M1–M8 axis, and never reads
+ *     the picked range — a contracted month is a completed calendar month, and
+ *     the ramp's actuals come from its own twelve monthly buckets;
+ *   * **every measured figure** covers the picked range, with a comparison
+ *     beside it: the last whole month while the range is month to date, and
+ *     otherwise the period of the same length immediately before;
+ *   * **pacing** is this calendar month's, whatever is picked, because a budget
+ *     is contracted per month;
  *   * **the findings** are current state, and not a period at all.
  *
- * Month to date against a whole month is deliberately two different lengths.
- * That is how a business talks about its own month, and the mismatch is handled
- * by never subtracting a *count* in one from a count in the other — those sit
- * as two figures. Rates and costs do compare, because neither scales with the
- * number of days.
+ * A *count* in one period is never subtracted from a count in the other —
+ * month to date against a whole month is mostly a difference in calendar days
+ * — so those sit as two figures. Rates and costs do compare. Every ratio is
+ * gated on its own denominator, so a one-day range withholds a cost per funded
+ * deal rather than dividing by one.
  *
  * It serves two readers at once, which is what decides the contents. Spartan's
  * leadership get the commitment, the funnel and what needs doing. Zeeraa's team
@@ -94,10 +99,13 @@ export const revalidate = 3600;
  */
 export default async function ExecutiveBriefing({
   params,
+  searchParams,
 }: {
   params: Promise<{ tenant: string }>;
+  searchParams: Promise<RangeQuery>;
 }) {
   const { tenant: slug } = await params;
+  const query = await searchParams;
   const session = await requireTenant(slug);
   const currency = session.tenant.currency;
 
@@ -112,9 +120,20 @@ export default async function ExecutiveBriefing({
    */
   const model: AttributionModel = 'last_touch';
 
-  const today = tenantDay(new Date(), session.tenant.timezone);
+  /*
+   * Month to date unless a range is asked for. The resolver's own default is
+   * the last 90 days, which is right for the analysis screens and wrong for a
+   * briefing, so an unscoped visit asks for `mtd` explicitly.
+   */
+  const scoped = Boolean(query.from || query.to || query.preset || query.days);
+  const page = await resolvePageRange(session, scoped ? query : { preset: 'mtd' });
+  const { today, range, preset, problem, earliest } = page;
   const periods = briefingPeriods(today);
-  const { monthToDate, lastFullMonth } = periods;
+  const { lastFullMonth } = periods;
+  const isMonthToDate =
+    range.start === periods.monthToDate.start && range.end === periods.monthToDate.end;
+  const comparison = isMonthToDate ? lastFullMonth : previousRange(range);
+  const { preserve, presetHref } = rangeLinks(`/${slug}`, {});
 
   const connectedThreshold = await alowareConnectedThreshold(session);
 
@@ -131,8 +150,8 @@ export default async function ExecutiveBriefing({
     freshness,
     leakage,
   ] = await Promise.all([
-    monthlyPerformance(session, monthToDate, model),
-    monthlyPerformance(session, lastFullMonth, model),
+    monthlyPerformance(session, range, model),
+    monthlyPerformance(session, comparison, model),
     // Twelve monthly buckets, which serve both the mini charts and the ramp's
     // actuals: the ramp needs one figure per calendar month, and this is
     // already one figure per calendar month, per channel.
@@ -140,7 +159,7 @@ export default async function ExecutiveBriefing({
     loadMetrics(session),
     dataQuality(session),
     engagementRamp(session),
-    callReport(session, monthToDate, connectedThreshold),
+    callReport(session, range, connectedThreshold),
     connectionHealth(session),
     pausedCampaigns(session, lastFullMonth.start),
     sourceFreshness(session),
@@ -155,8 +174,14 @@ export default async function ExecutiveBriefing({
   const attributedDeals = (source: typeof current) =>
     source.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0);
 
-  const mtdLabel = `${formatRangeLabel(monthToDate)} · month to date`;
-  const lastMonthLabel = formatRangeLabel(lastFullMonth);
+  const mtdLabel = isMonthToDate
+    ? `${formatRangeLabel(range)} · month to date`
+    : formatRangeLabel(range);
+  const lastMonthLabel = isMonthToDate
+    ? formatRangeLabel(lastFullMonth)
+    : rangeLengthDays(comparison) === 1
+      ? `${formatRangeLabel(comparison)} · the day before`
+      : `${formatRangeLabel(comparison)} · the ${formatCount(rangeLengthDays(comparison))} days before`;
 
   /* ----------------------------------------------------------------------- */
   /* The ramp                                                                */
@@ -362,11 +387,15 @@ export default async function ExecutiveBriefing({
           (t) => rampMonthKey(ramp.startMonth!, t.monthIndex) === periods.currentMonth,
         ) ?? null);
 
+  // This calendar month's spend, whatever range is picked: a budget is
+  // contracted per month, so pacing is always this month's.
+  const monthSpend = buckets.find((b) => b.start === periods.monthToDate.start)?.spend ?? 0;
+
   const pacing =
     currentRampMonth?.budget == null
       ? null
       : budgetPacing({
-          spent: current.total.spend,
+          spent: monthSpend,
           budget: currentRampMonth.budget,
           elapsed: periods.elapsed,
         });
@@ -467,7 +496,7 @@ export default async function ExecutiveBriefing({
     findings.push({
       key: 'call-volume',
       level: 'watch',
-      headline: 'Calls this month',
+      headline: isMonthToDate ? 'Calls this month' : 'Calls in this range',
       figure: formatCount(calls.volume.handled),
       detail:
         `${
@@ -565,13 +594,12 @@ export default async function ExecutiveBriefing({
     {
       heading: 'What period this briefing covers',
       body:
-        'The ramp covers the engagement on an M1–M8 axis. Every measured figure covers this ' +
-        'month to date, with the last whole month beside it. The findings are current state.',
+        'The ramp covers the engagement on an M1–M8 axis and ignores the picked range. Every ' +
+        'measured figure covers the picked range; pacing is always this month. Findings are current state.',
       detail:
-        `Month to date is ${formatRangeLabel(monthToDate)}; the last whole month is ` +
-        `${lastMonthLabel}. A count from one is never subtracted from a count in the other — ` +
-        'they are different lengths — so those sit as two figures. Rates and costs do compare, ' +
-        'because neither scales with the number of days.',
+        `The range is ${mtdLabel}, compared with ${lastMonthLabel}. A count from one is never ` +
+        'subtracted from a count in the other, so those sit as two figures. Rates and costs do ' +
+        'compare, and each is withheld below its own minimum population.',
     },
     {
       heading: 'The engagement ramp',
@@ -618,7 +646,7 @@ export default async function ExecutiveBriefing({
       body: current.unattributed.reason,
       detail: `${formatCount(unattributedDeals)} of ${formatCount(
         totalDeals,
-      )} ${valueLabel.toLowerCase()} deals this month.`,
+      )} ${valueLabel.toLowerCase()} deals in ${mtdLabel}.`,
     },
     ...quality.map((item) => ({
       heading: item.name,
@@ -627,11 +655,20 @@ export default async function ExecutiveBriefing({
     })),
   ];
 
-  const exportParams = new URLSearchParams({ from: monthToDate.start, to: monthToDate.end, model });
+  const exportParams = new URLSearchParams({ ...rangeParams(range), model });
 
   return (
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive briefing">
+        <DateRangePicker
+          range={range}
+          preset={preset}
+          presetHref={presetHref}
+          preserve={preserve}
+          problem={problem}
+          earliest={earliest}
+          today={today}
+        />
         <ButtonLink href={`/api/export/${slug}/performance?${exportParams.toString()}`}>
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
@@ -660,16 +697,14 @@ export default async function ExecutiveBriefing({
         </span>
         <MethodDrawer
           notes={notes}
-          title={`Executive briefing · ${formatRangeLabel(monthToDate)}`}
+          title={`Executive briefing · ${mtdLabel}`}
         />
       </PageMeta>
 
       <Grid>
         {/* 1. The commitment — the only thing here that is not a measurement. */}
         <RampCard
-          platformLabel={
-            current.channels.find((c) => c.platform === rampPlatform)?.label ?? rampPlatform
-          }
+          platformLabel={platformName(rampPlatform)}
           primary={rampPrimary}
           secondary={rampSecondary}
           compact={rampCompact}
@@ -686,7 +721,7 @@ export default async function ExecutiveBriefing({
           context={`${formatCount(attributedDeals(current))} attributed · ${formatCount(
             unattributedDeals,
           )} to no channel`}
-          info="Deals reaching the value stage. Shown for both periods and never subtracted: a partial month against a whole one is mostly a difference in calendar days."
+          info="Deals reaching the value stage, renewals excluded. Shown for both periods and never subtracted: a count's difference is mostly the calendar."
         />
         <TwoPeriodKpi
           label={`${valueLabel} volume`}
@@ -698,10 +733,10 @@ export default async function ExecutiveBriefing({
           info="The funded amount on every deal reaching the value stage, from any source. Not a channel figure: no spend is divided into it."
         />
         <SpendPacingCard
-          spent={current.total.spend}
+          spent={monthSpend}
           pacing={pacing}
           currency={currency}
-          periodLabel={mtdLabel}
+          periodLabel={`${formatRangeLabel(periods.monthToDate)} · month to date`}
           budgetMissing={budgetMissing}
           elapsedDays={periods.elapsedDays}
           monthDays={periods.monthDays}

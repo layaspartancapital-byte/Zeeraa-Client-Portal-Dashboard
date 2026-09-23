@@ -60,3 +60,24 @@ export function campaignTypeLabel(platform: string, key: string | null): string 
   if (key === null) return 'Account level — no campaign reported';
   return VOCABULARY[platform]?.labels[key] ?? key;
 }
+
+/**
+ * Display names for every platform key. Here, in a module with no imports, so a
+ * client component — the Sync now toast — names a connector exactly as the
+ * server does without pulling the database client into the browser bundle.
+ */
+export const PLATFORM_LABELS: Record<string, string> = {
+  salesforce: 'Salesforce',
+  google_ads: 'Google Ads',
+  microsoft_ads: 'Microsoft Ads',
+  meta: 'Meta Ads',
+  linkedin_ads: 'LinkedIn Ads',
+  ga4: 'GA4',
+  search_console: 'Search Console',
+  semrush: 'Semrush',
+  call_tracking: 'Call tracking',
+};
+
+export function platformLabel(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? platform;
+}

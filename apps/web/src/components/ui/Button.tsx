@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 /**
- * Buttons (spec v2 §6). Primary is a blue fill, secondary is a white surface
+ * Buttons (spec v2 §6). Primary is a chrome-ink fill, secondary is a white surface
  * with the border token, both 36px tall on an 8px radius.
  *
  * Rendered as a link where the action is a navigation — an export, a print

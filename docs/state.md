@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 22 September 2026, end of session.**
+**Last updated: 23 September 2026, end of session.**
 
 ---
 
@@ -61,37 +61,79 @@ view are removed", and the section below.
   Opportunity-side field mapping existing. This is what makes any attribution
   possible today.
 
-## Funded deals and the data-quality card, audited (23 September 2026)
+## Funded deals audited and fixed; UI brief applied (23 September 2026)
 
-Investigation only; nothing changed in code or data. Awaiting the client's
-decisions before Part B of the same brief (UI) begins.
+**Production is migrated to 0025 and loaded; the code is committed locally and
+not yet deployed.** Until the deploy, the running app ignores `excluded_reason`
+and the new columns, so July still shows the two renewals.
 
-**Funded reconciles exactly.** Aug 7, Sep MTD 4, by `csbs__Funded_Date_Time__c`,
-which agrees one-for-one with the `StageName → Funded` field history and with the
-Contract record auto-created at funding. Opportunities are not filtered by the
-cold-outreach exclusion, and the card and funnel count every source, attributed
-or not. The integration user's profile carries View All Data and Opportunity has
-no record types, so nothing is hidden from the sync. Five deals carry a
-`csbs__Funded__c` amount without ever reaching Funded — it holds the offer amount
-— and are correctly excluded.
+**Funded reconciled one for one** against Salesforce (Aug 7, Sep 4 by
+`csbs__Funded_Date_Time__c`, agreeing with the stage history and the Contract).
+Then, on the client's decisions, and all live in production:
 
-Three things found beside it, none of which changes Aug or Sep's count:
+| | Before | After |
+| --- | ---: | ---: |
+| May | 0 | 1 · Onu Ventures, `corrected`, day unknown |
+| July | 7 | 5 · two renewals excluded |
+| September MTD | 4 · $84,800 | 3 · $51,500 |
 
-1. **Funded volume uses `Amount`, because `opportunity.fundedAmount` is not
-   mapped.** September is overstated by $23,300 (`006Vr00000q82TJIAY`: Amount
-   $64,200, funded $40,900). `csbs__Funded__c` is the field.
-2. **`006Vr00000eOpyPIAS` is dated two ways** — `csbs__Funded_Date__c` and
-   `CloseDate` say 13 May, the timestamp and the stage history say 1 September.
-   If May is right, September is 3.
-3. **Stage buckets use the UTC day**, not the tenant's (`to_char(occurred_at)` on
-   a UTC session). A deal funded after 8pm ET on a month's last day lands in the
-   next month. None did in Jul–Sep.
+- **Tenant-local dates** (migration 0024): `occurred_on` / `created_on` /
+  `submitted_on` beside every instant a report reads, written at ingest and
+  backfilled inside a NO FORCE bracket that includes `tenants`. 45 stage events
+  moved day. Reports filter through `@zeeraa/db`'s `periods.ts`.
+- **Renewals excluded** via `stage_exclusions` on `opportunities.deal_type`
+  (`Type`): Renewal, Renewals, Addon, Win Back, Winback, Existing Business —
+  from funded counts, volume and cost per funded deal. Only the Funded stage;
+  a renewal's earlier stages still count in the funnel.
+- **Volume is `csbs__Funded__c`**, not `Amount`.
+- **Onu Ventures** (`006Vr00000eOpyPIAS`) is corrected to May via
+  `stage_corrections`, origin `corrected`, precision `month`, listed on the
+  data-quality card with its source. Four more deals show backfilled paperwork
+  but land in the right month; no correction for them.
+- **The engagement model governs every target.** CPF, funded volume and CPA
+  settled, CPA is cost per UW approval, `cpa_definition` and `funded_targets`
+  resolved, the model's Funded Amount loaded (M1 $80,000 → M8 $2,338,073), and a
+  funded-volume curve added to the ramp.
+- **Data-quality card**: the stale MIYB item is gone; `mql_revenue_coverage`
+  (79.8% judged, 91.6% in September) and a re-measured `revenue_band_breakdown`
+  (87–97% readable, partially measurable) replace it.
 
-**Data-quality card: production is behind the seed.** It still carries
-`mql_time_in_business_decode` (the MIYB reason, stale since 22 September) where
-the seed has `mql_revenue_coverage`, and `revenue_band_breakdown` quotes 8.8%
-revenue coverage against a measured 87–97% readable band per month. Per-item
-findings are in the session report; no badge was changed.
+Loaded with `load-funded-audit.ts` and `load-engagement-targets.ts` (both dry
+run first), then a full `sync-salesforce spartan --since 2024-01-01`.
+**`ENCRYPTION_KEY` for production is the one in `.env`**, not the Codespaces
+secret (`67e4309c2482`, which still fails every credential).
+
+**UI (Part B), verified at 1440 and 390, no horizontal scroll:**
+
+- Controls in chrome ink (`--color-primary: #14161a`), links underlined via
+  `.link`, a `--color-selection`, focus ring switching to `--color-on-chrome`
+  inside the rail. Asserted in `chrome-contrast.test.ts`.
+- The black title band is gone; the breadcrumb carries the title (h1 kept
+  `sr-only`), the avatar sits on the light bar.
+- The avatar menu is right-anchored in the top bar: 102–374px at 390, inside.
+- Sync now reports in a portalled toast, one line per connector by name,
+  failures marked by icon, word and a tinted row — never green/red.
+- Tenant logo: `tenants.logo_data_url` (0025), set only by
+  `set-tenant-logo.ts <slug> <file>` (sniffs bytes, refuses script-bearing SVG,
+  dry run). Initials when null. **Spartan's file has not arrived.**
+- Executive takes the `DateRangePicker`, MTD by default. Ramp independent of
+  the range, pacing always this month, ratios still population-gated (a one-day
+  range withholds CPF).
+
+**Next:**
+
+1. **Deploy** — push `main`. Migrations 0024 and 0025 are already applied.
+2. **After the deploy**, a migration that re-runs 0024's backfill for rows the
+   old code wrote without a date (webhook calls, any hourly sync) and then sets
+   the four date columns NOT NULL. Keep that file out of the repo until the
+   deploy is live — `db:migrate` applies everything pending.
+3. Spartan's logo: `DATABASE_URL_OWNER="$NEON_DIRECT_URL" npx tsx
+   packages/db/scripts/set-tenant-logo.ts spartan <file> --dry-run`, then again
+   without it. The tile is 32px square with `object-contain`; revisit the size
+   if the file is a wide wordmark.
+4. A range reaching past the last sync renders zeros on the executive screen
+   (seen locally for a day nobody ingested) — pre-existing, worth an ingested-
+   through gate.
 
 ## Cost per funded deal — Google Ads, trailing 90 days
 

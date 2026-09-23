@@ -126,7 +126,7 @@ export function EmptyLine({
     >
       <span>{children}</span>
       {href ? (
-        <a className="font-medium text-primary hover:text-primary-600" href={href}>
+        <a className="link" href={href}>
           {action}
         </a>
       ) : (

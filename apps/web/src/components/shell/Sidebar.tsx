@@ -103,9 +103,12 @@ export function Sidebar({
   viewer,
   tenant,
   platforms = [],
+  logo = null,
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
+  /** The tenant's own logo; null falls back to its initials. */
+  logo?: string | null;
   /**
    * Channels this client has actually connected, in a stable order.
    *
@@ -180,7 +183,7 @@ export function Sidebar({
           line through the logo.
         */}
         <div className="flex items-start gap-2.5 border-y border-chrome-border px-4 py-3">
-          <TenantMark tenant={tenant} onChrome />
+          <TenantMark tenant={tenant} logo={logo} onChrome />
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-[14px] font-semibold leading-tight text-on-chrome">
@@ -277,7 +280,14 @@ export function Sidebar({
 }
 
 /**
- * The tenant's mark: its initials on its own accent colour.
+ * The tenant's mark: its own logo where one is stored, otherwise its initials
+ * on its own accent colour.
+ *
+ * A logo sits on a white tile with a little padding, whatever the rail's
+ * colour. A tenant's logo is designed for its own letterhead, usually dark on
+ * light, and on near-black it would vanish — the tile is the one ground every
+ * logo was drawn for. `object-contain`, so a wide wordmark is shown whole
+ * rather than cropped to a square.
  *
  * `onChrome` adds a hairline ring, and it is not decoration. A tenant's accent
  * is arbitrary and some of them are dark: Spartan's `#2F5D8C` is 2.64:1 against
@@ -288,13 +298,29 @@ export function Sidebar({
  */
 export function TenantMark({
   tenant,
+  logo = null,
   size = 32,
   onChrome = false,
 }: {
   tenant: TenantSummary;
+  logo?: string | null;
   size?: number;
   onChrome?: boolean;
 }) {
+  if (logo) {
+    return (
+      <span
+        aria-hidden="true"
+        className="flex shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-white p-[3px]"
+        style={{ width: size, height: size }}
+      >
+        {/* A data URL from the tenant row; next/image has nothing to optimise. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logo} alt="" className="h-full w-full object-contain" />
+      </span>
+    );
+  }
+
   const initials = tenant.name
     .split(/\s+/)
     .slice(0, 2)
@@ -327,21 +353,29 @@ export function TenantMark({
  * shortcut: nothing that can move you to another client's numbers without you
  * having decided to.
  *
- * The trigger sits on chrome in both places it is used; the panel stays light.
- * A list of client names is content, and it is read at the moment somebody is
- * deciding which client they are about to look at.
+ * Two placements. In the rail the trigger sits on chrome and the panel opens
+ * upward from its left edge. In the top bar the trigger is on the light canvas
+ * at the right-hand end of the screen, so the panel opens downward and is
+ * anchored to the trigger's *right* edge: anchored left, as it once was, a
+ * 17rem panel from an avatar 16px from the edge runs off the screen at every
+ * width. Its width is capped at the viewport less both gutters, so it stays
+ * inside the screen at 390px too.
+ *
+ * The panel stays light either way. A list of client names is content, and it
+ * is read at the moment somebody is deciding which client to look at.
  */
 export function UserMenu({
   viewer,
   tenant,
   collapsed = false,
-  align = 'up',
+  placement = 'rail',
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
   collapsed?: boolean;
-  align?: 'up' | 'down';
+  placement?: 'rail' | 'topbar';
 }) {
+  const inTopbar = placement === 'topbar';
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -372,17 +406,26 @@ export function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`flex w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-chrome-raised ${
-          collapsed ? 'lg:justify-center' : ''
-        }`}
+        aria-label={inTopbar ? `Account: ${viewer.name ?? viewer.email}` : undefined}
+        className={
+          inTopbar
+            ? 'flex items-center rounded-full p-0.5 transition-colors hover:bg-surface'
+            : `flex w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-chrome-raised ${
+                collapsed ? 'lg:justify-center' : ''
+              }`
+        }
       >
         <span
           aria-hidden="true"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-[12px] font-semibold text-primary-600"
+          className={`flex shrink-0 items-center justify-center rounded-full font-semibold ${
+            inTopbar
+              ? 'h-8 w-8 bg-primary text-[13px] text-white'
+              : 'h-7 w-7 bg-primary-100 text-[12px] text-primary'
+          }`}
         >
           {initial}
         </span>
-        {!collapsed && (
+        {!collapsed && !inTopbar && (
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium text-on-chrome">
               {viewer.name ?? viewer.email}
@@ -395,10 +438,18 @@ export function UserMenu({
       {open && (
         <div
           role="menu"
-          className={`absolute left-0 z-50 w-[min(17rem,calc(100vw-2rem))] overflow-hidden rounded-[8px] border border-border bg-surface shadow-[var(--shadow-pop)] ${
-            align === 'up' ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]'
+          className={`absolute z-50 w-[min(17rem,calc(100vw-2rem))] overflow-hidden rounded-[8px] border border-border bg-surface shadow-[var(--shadow-pop)] ${
+            inTopbar ? 'right-0 top-[calc(100%+6px)]' : 'left-0 bottom-[calc(100%+6px)]'
           }`}
         >
+          {inTopbar && (
+            <div className="border-b border-border px-3 py-2">
+              <p className="truncate text-[13px] font-medium text-text">
+                {viewer.name ?? viewer.email}
+              </p>
+              <p className="truncate text-[12px] text-text-3">{viewer.email}</p>
+            </div>
+          )}
           {showSwitcher && (
             <>
               <p className="flex items-center gap-1.5 border-b border-border px-3 py-2 text-[12px] font-semibold text-text-3">

@@ -126,3 +126,43 @@ describe('the tenant mark stays legible on chrome', () => {
     expect(ratio(token('on-chrome-3'), token('chrome'))).toBeGreaterThanOrEqual(AA_OBJECT);
   });
 });
+
+/**
+ * Controls, in chrome ink (23 September 2026).
+ *
+ * The control palette moved off blue onto the chrome's own near-black. These
+ * are the promises that move makes, checked against the stylesheet so a token
+ * edit that breaks one fails here rather than in a screenshot.
+ */
+describe('controls in chrome ink', () => {
+  const white = '#ffffff';
+
+  it('fills a button that white type clears AA on, at rest and on hover', () => {
+    expect(ratio(white, token('primary'))).toBeGreaterThanOrEqual(AA_TEXT);
+    expect(ratio(white, token('primary-600'))).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('rings focus visibly on every light ground', () => {
+    for (const ground of [white, token('canvas'), token('surface')]) {
+      expect(ratio(token('primary'), ground)).toBeGreaterThanOrEqual(AA_OBJECT);
+    }
+  });
+
+  it('rings focus visibly on the rail, where the ring changes colour', () => {
+    expect(css).toMatch(/\[data-sidebar\] :focus-visible[\s\S]*?outline-color:\s*var\(--color-on-chrome\)/);
+    expect(ratio(token('on-chrome'), token('chrome'))).toBeGreaterThanOrEqual(AA_OBJECT);
+  });
+
+  it('keeps text readable inside a selection', () => {
+    expect(ratio(token('text'), token('selection'))).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  it('underlines links, because ink cannot tell a link from body text', () => {
+    expect(ratio(token('primary'), token('text'))).toBeLessThan(AA_OBJECT);
+    expect(css).toMatch(/\.link\s*\{[^}]*text-decoration-line:\s*underline/);
+  });
+
+  it('is not gold, which belongs to the active nav item alone', () => {
+    expect(token('primary').toLowerCase()).not.toBe(token('gold').toLowerCase());
+  });
+});

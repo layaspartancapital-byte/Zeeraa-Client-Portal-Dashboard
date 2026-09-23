@@ -20,7 +20,7 @@ export default async function NoAccess() {
         attached to a client engagement. Invitations are issued per address; if yours went to a
         different one, sign in with that address instead.
       </p>
-      <a href="/signout" className="mt-6 inline-block text-[13px] font-medium text-primary hover:text-primary-600">
+      <a href="/signout" className="link mt-6 inline-block text-[13px]">
         Sign out
       </a>
       </div>

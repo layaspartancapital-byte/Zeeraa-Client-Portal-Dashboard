@@ -18,7 +18,7 @@ const TONES: Record<BadgeTone, string> = {
   up: 'bg-up-soft text-[#027A48] border-[#A6F4C5]',
   down: 'bg-down-soft text-[#B42318] border-[#FECDCA]',
   neutral: 'bg-canvas text-text-2 border-border',
-  primary: 'bg-primary-100 text-primary-600 border-[#C7D2F7]',
+  primary: 'bg-primary-100 text-primary border-primary-soft',
 };
 
 export function Badge({

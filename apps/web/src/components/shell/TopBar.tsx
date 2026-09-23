@@ -7,23 +7,22 @@ import { useShell } from '@/components/shell/shell-state';
 import { UserMenu } from '@/components/shell/Sidebar';
 
 /**
- * The top bar (spec v2 §3, as amended by the rebrand).
+ * The top bar (spec v2 §3, as amended 23 September 2026).
  *
  * Rendered by each page rather than by the layout, because it carries that
  * page's title and that page's controls. It sticks to the top of the content
- * column, which is what makes it read as chrome while staying page-aware.
+ * column.
  *
- * **Two bands, and the seam between them is the point.** The title band is
- * near-black and continues the rail, so the chrome reads as one L around the
- * content. The controls sit below it on the light canvas, because a date field
- * and a select are things people operate rather than read, and the light
- * versions of them are the ones this product has already got right. Putting
- * them on near-black would have bought cohesion with a rebuild of every form
- * control in the shell.
+ * **Light, and the breadcrumb is the title.** It was a near-black band that
+ * continued the rail, holding a breadcrumb and an h1 that said the same word
+ * twice. The client asked for the band to go: the rail alone now carries the
+ * chrome, and this bar sits on the canvas with everything else a person reads.
+ * The page name is the breadcrumb's last item, set a size up; the h1 survives
+ * for screen readers only, so the page still has a heading to land on.
  *
  * It wraps below `md`: at 390px the controls cannot share a line with the
- * title, and the alternative is a horizontal scroll, which no screen in this
- * product is allowed to have.
+ * breadcrumb, and the alternative is a horizontal scroll, which no screen in
+ * this product is allowed to have.
  */
 export function TopBar({
   tenant,
@@ -40,64 +39,60 @@ export function TopBar({
   const { setDrawerOpen } = useShell();
 
   return (
-    <div data-topbar className="sticky top-0 z-30 -mx-4 mb-6 sm:-mx-6">
-      {/*
-        Full-bleed to the right of the rail, so the chrome reads as one L.
-        The content column is `max-w-[1440px] mx-auto`, so on anything wider the
-        band would otherwise stop mid-air with canvas either side of it. The
-        overhang is clipped by `overflow-x: clip` on `html` — which is there for
-        exactly this and does not make the page scrollable — and the rail is
-        `fixed` at a higher layer, so the left overhang never shows.
-      */}
-      <div className="relative bg-chrome px-4 before:absolute before:inset-y-0 before:-left-[50vw] before:-right-[50vw] before:bg-chrome before:content-[''] sm:px-6">
-        <div className="relative flex min-h-16 items-center gap-x-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open navigation"
-            className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] text-on-chrome-2 hover:bg-chrome-raised hover:text-on-chrome lg:hidden"
-          >
-            <Menu aria-hidden="true" className="h-5 w-5" />
-          </button>
+    <div
+      data-topbar
+      className="sticky top-0 z-30 -mx-4 mb-6 border-b border-border bg-canvas/95 backdrop-blur-sm sm:-mx-6"
+    >
+      <h1 className="sr-only">{title}</h1>
+      <div className="flex min-h-14 items-center gap-x-3 px-4 py-2 sm:px-6">
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open navigation"
+          className="-ml-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] text-text-2 hover:bg-surface hover:text-text lg:hidden print-hidden"
+        >
+          <Menu aria-hidden="true" className="h-5 w-5" />
+        </button>
 
-          <div className="min-w-0 flex-1">
-            <nav aria-label="Breadcrumb">
-              <ol className="flex items-center gap-1 text-[12px] text-on-chrome-3">
-                <li className="min-w-0">
-                  <Link href={`/${tenant.slug}`} className="truncate hover:text-on-chrome-2">
-                    {tenant.name}
-                  </Link>
-                </li>
-                <li aria-hidden="true">
-                  <ChevronRight className="h-3 w-3" />
-                </li>
-                <li aria-current="page" className="truncate text-on-chrome-2">
-                  {title}
-                </li>
-              </ol>
-            </nav>
-            <h1 className="truncate text-[22px] font-semibold leading-tight text-on-chrome">
+        <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+          <ol className="flex min-w-0 items-center gap-1.5">
+            {/* The tenant gives way before the page name does: the name is the
+                page's title now, and the rail carries the tenant in full. */}
+            <li className="min-w-[3.5rem] shrink">
+              <Link
+                href={`/${tenant.slug}`}
+                className="block truncate text-[13px] text-text-3 hover:text-text"
+              >
+                {tenant.name}
+              </Link>
+            </li>
+            <li aria-hidden="true" className="shrink-0 text-text-3">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </li>
+            <li
+              aria-current="page"
+              className="min-w-0 shrink-0 basis-auto truncate text-[16px] font-semibold leading-tight text-text [max-width:calc(100%-5rem)]"
+            >
               {title}
-            </h1>
-          </div>
+            </li>
+          </ol>
+        </nav>
 
-          <div className="w-9 shrink-0 print-hidden">
-            <UserMenu viewer={viewer} tenant={tenant} collapsed align="down" />
-          </div>
+        <div className="shrink-0 print-hidden">
+          <UserMenu viewer={viewer} tenant={tenant} collapsed placement="topbar" />
         </div>
       </div>
 
       {/*
         Shrinkable and wrapping, deliberately. A `shrink-0` row of controls
         takes its max-content width and pushes the page sideways; this one gives
-        way and wraps onto its own line instead. No screen in this product
-        scrolls horizontally.
+        way and wraps onto its own line instead.
 
-        Absent entirely when a page has no controls — the briefing is one — so
-        an empty strip never appears under the seam.
+        Absent entirely when a page has no controls, so an empty strip never
+        appears under the breadcrumb.
       */}
       {children && (
-        <div className="border-b border-border bg-canvas px-4 py-2.5 sm:px-6">
+        <div className="border-t border-border px-4 py-2.5 sm:px-6">
           <div className="flex min-w-0 flex-wrap items-center gap-2 print-hidden md:justify-end">
             {children}
           </div>

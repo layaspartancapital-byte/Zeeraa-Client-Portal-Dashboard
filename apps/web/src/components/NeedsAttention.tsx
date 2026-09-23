@@ -106,7 +106,7 @@ export function NeedsAttention({
                 {finding.action && (
                   <Link
                     href={finding.action.href}
-                    className="mt-[2px] inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-primary-600 hover:underline print-hidden"
+                    className="mt-[2px] link inline-flex shrink-0 items-center gap-1 text-[13px] print-hidden"
                   >
                     {finding.action.label}
                     <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />

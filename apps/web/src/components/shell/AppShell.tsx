@@ -19,10 +19,13 @@ export function AppShell({
   tenant,
   generatedAt,
   platforms,
+  logo = null,
   children,
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
+  /** The tenant's own logo as a `data:` URL; null shows its initials. */
+  logo?: string | null;
   /** Serialised by the server component that renders this. */
   generatedAt: string;
   /** Connected ad platforms, resolved server-side in the tenant layout. */
@@ -32,7 +35,7 @@ export function AppShell({
   return (
     <ShellProvider>
       <div className="min-h-dvh bg-canvas">
-        <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} />
+        <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} />
         <Content tenant={tenant} generatedAt={generatedAt}>
           {children}
         </Content>

@@ -22,6 +22,12 @@ export const tenants = pgTable(
     currency: text('currency').notNull().default('USD'),
     /** Drives the persistent 3px stripe that distinguishes adjacent tabs (§12). */
     accentColor: text('accent_color').notNull().default('#2F5D8C'),
+    /**
+     * The tenant's logo as a `data:` URL, or null for the initials fallback.
+     * On the row rather than in storage so it is read under the tenants policy
+     * and never has a public URL. See migration 0025 and `set-tenant-logo.ts`.
+     */
+    logoDataUrl: text('logo_data_url'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('tenants_slug_key').on(t.slug)],

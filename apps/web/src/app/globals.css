@@ -7,7 +7,7 @@
    and carry the Zeeraa mark; everything a person reads for an hour — cards,
    tables, charts — stays on the soft grey-blue canvas it was designed for.
 
-   Elevated white cards, one confident blue, green and red reserved for
+   Elevated white cards, controls in the chrome's own ink, green and red reserved for
    improvement and regression as each metric's `improvement_direction` defines
    them. Tokens are the whole palette: a colour that is not here does not appear
    in a component.
@@ -39,8 +39,8 @@
   /*
     The plot's own colour, which is not the interface's.
 
-    `--color-primary` dresses buttons, links and focus rings; those are controls
-    and they stay blue. A chart is data, and it leads with ink — the chrome's
+    `--color-primary` dresses buttons, links and focus rings; those are controls.
+    A chart is data, and it leads with ink too — the chrome's
     own value, at plot weight. Keeping them apart means restyling a control can
     never silently repaint a series, and it is why the rebrand could change
     every chart without touching a single button.
@@ -54,10 +54,24 @@
   /* The unfilled part of an inline bar. Neutral, so the fill carries the read. */
   --color-plot-track: #e3e6ec;
 
-  --color-primary: #3b5bdb;
-  --color-primary-600: #2f4ac7;
-  --color-primary-100: #e7ecfb;
-  --color-primary-soft: #a9b8f2;
+  /*
+    Controls, in chrome ink (23 September 2026). The blue was the one colour on
+    screen that belonged to no brand; controls now take the rail's own
+    near-black, and gold stays on the active nav item alone.
+
+    Ink on white is 18.1:1 and white on ink the same; the hover is 13.6:1. **A
+    link cannot be told from body text by colour** — ink against `--color-text`
+    is 1.02:1 — so every link carries a permanent underline (`.link`), which is
+    WCAG 1.4.1's requirement rather than a style. The wash is 1.16:1 on white
+    and never the only sign of state: it is always paired with a border or a
+    weight. `--color-selection` is separate because a selection has to be
+    visible against white, which the wash is not.
+  */
+  --color-primary: #14161a;
+  --color-primary-600: #2a2e37;
+  --color-primary-100: #eceef2;
+  --color-primary-soft: #c4c9d3;
+  --color-selection: #dde1e8;
 
   /* Improvement and regression only. Never decoration, never status. */
   --color-up: #12b76a;
@@ -182,7 +196,17 @@
   }
 
   ::selection {
-    background: var(--color-primary-100);
+    background: var(--color-selection);
+    color: var(--color-text);
+  }
+
+  /*
+    An ink ring on the rail is ink on ink. Inside the chrome the ring takes the
+    chrome's own type colour, 14.9:1 on the rail.
+  */
+  [data-sidebar] :focus-visible,
+  [data-chrome] :focus-visible {
+    outline-color: var(--color-on-chrome);
   }
 
   /* Recharts puts a focusable wrapper around every surface; it has no content
@@ -195,6 +219,22 @@
 }
 
 @layer components {
+  /*
+    A link in running content. Ink, like body text, so the underline is what
+    says it is a link — never colour alone (WCAG 1.4.1). Thicker on hover.
+  */
+  .link {
+    color: var(--color-primary);
+    font-weight: 500;
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition: text-decoration-thickness 120ms ease-out;
+  }
+  .link:hover {
+    text-decoration-thickness: 2px;
+  }
+
   /* Every card has surface, radius and shadow. A hairline-only panel is not a
      card in this system. */
   .card {

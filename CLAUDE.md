@@ -129,7 +129,15 @@ commit history and get it wrong.
   Blended-across-channels is a separate metric with a different denominator, and
   it does not mean anything until every channel is ingested.
 - Dates are normalised into the tenant timezone **at ingest**, never at query
-  time.
+  time. Every instant a report reads has a tenant-local `date` beside it
+  (`occurred_on`, `created_on`, `submitted_on`); filter through
+  `stageEventsIn` / `leadsCreatedIn` / `callsIn` / `submissionsIn` from
+  `@zeeraa/db`, never `occurred_at` against `${day}T00:00:00Z`.
+- **A stage event can be real and not counted.** `stage_events.excluded_reason`
+  is set at ingest by the `stage_exclusions` config row (renewals reaching
+  Funded); `stageEventsIn` and `countedStageEvent()` filter it. A hand-recorded
+  date is `origin = 'corrected'`, from `stage_corrections`, and renders as
+  corrected.
 - Money is `numeric` in the database and never a float.
 - Workspace packages ship TypeScript source. Relative imports are extensionless
   (Turbopack does not map `.js` specifiers onto `.ts` sources).
@@ -185,9 +193,12 @@ replacement and for every place the implementation states an exception to it.
 The short version:
 
 - A modern SaaS analytics dashboard. Fixed left sidebar, elevated white cards on
-  a soft grey-blue canvas, one confident blue, Inter throughout.
-- **Dark chrome, light content.** The rail and the title band are
-  `--color-chrome`; everything a person reads for an hour is unchanged. **Gold
+  a soft grey-blue canvas, controls in chrome ink, Inter throughout.
+- **Dark rail, light content.** The rail is `--color-chrome`; the top bar is
+  light, and its breadcrumb's last item is the page title (the h1 is
+  screen-reader only). **Controls are chrome ink** — `--color-primary` is the
+  rail's near-black — so a link is told from body text by its underline, never
+  by colour: use `.link`. Green and red never mark a sync or a status. **Gold
   marks the active nav item and nothing else** — never body text, a border, a
   chart line, a delta or a badge, because the accent is 2.26:1 on the canvas and
   there is no gold that is both gold and legible on white.
@@ -215,13 +226,12 @@ The short version:
   plot zero for a bucket nobody ingested.
 - A blocked or unmeasured figure is an amber `Not measured` badge with the reason
   in its tooltip. Never a zero.
-- **The executive screen is a briefing and has no date control at all.** Zero is
-  not two: each block states its own period in words — the ramp covers the
-  engagement, measured figures cover this month to date with the last whole
-  month beside them, findings are current state — and monthly performance is
-  where a range is scrubbed. **A count from one period is never subtracted from
-  a count in the other**, because month-to-date against a whole month is mostly
-  a difference in calendar days; `TwoPeriodKpi` renders both figures and no
+- **The executive screen defaults to month to date and takes the same
+  `DateRangePicker`** (reversed 23 September 2026). Measured figures follow the
+  range, beside the last whole month (on MTD) or the equal-length period
+  before. The ramp covers the engagement and never reads the range; pacing is
+  always this calendar month. **A count from one period is never subtracted
+  from a count in the other**; `TwoPeriodKpi` renders both figures and no
   delta. Rates and costs do compare.
 - **One date control per page, and it is `DateRangePicker`.** Two date fields
   plus the presets, resolved by `resolveDateRange` in `packages/core` so five

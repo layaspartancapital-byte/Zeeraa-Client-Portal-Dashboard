@@ -54,7 +54,7 @@ export function InfoTip({
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-3 transition-colors hover:text-primary"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-3 transition-colors hover:text-text"
       >
         <Info aria-hidden="true" className="h-[14px] w-[14px]" strokeWidth={2} />
       </button>

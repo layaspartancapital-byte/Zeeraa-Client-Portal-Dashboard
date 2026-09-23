@@ -145,7 +145,7 @@ export default async function ChangePassword({
         {!forced && (
           <a
             href="/"
-            className="mt-4 inline-block text-[13px] font-medium text-primary hover:text-primary-600"
+            className="link mt-4 inline-block text-[13px]"
           >
             Back to the dashboard
           </a>

@@ -95,7 +95,7 @@ export function RampCard({
 
       {compact.length > 0 && (
         <CardBody className="border-t border-border pt-4">
-          <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+          <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
             {compact.map((panel) => (
               <div key={panel.metric} className="min-w-0">
                 <dt className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">

@@ -2907,3 +2907,72 @@ without it.
 Verified by measurement at 1440, 1280, 1024, 768 and 390px: every card exactly
 124px, no chip overflowing its column, no clipped text, no label colliding with
 its ⓘ, and no horizontal page scroll.
+
+## §8 — funded deals: the tenant's month, no renewals, the funded amount
+
+Decided 23 September 2026, after an audit reconciled every funded Opportunity
+in August and September against Salesforce one by one. The count was right —
+Aug 7 and Sep 4 by `csbs__Funded_Date_Time__c`, agreeing with the stage history
+and the auto-created Contract — and four things around it were not.
+
+- **Months are the tenant's.** Reports bucketed instants by the UTC day, so
+  anything after 8pm Eastern on the last of a month counted in the next.
+  Migration 0024 stores a tenant-local date beside every instant a report
+  reads, written at ingest, which is what the convention always said.
+  `@zeeraa/db`'s period predicates are the only comparison of a range with a
+  date.
+- **Renewals are not funded deals.** Renewal, Renewals, Addon, Win Back,
+  Winback and Existing Business on the Opportunity `Type` field are excluded
+  from funded counts, funded volume and every cost per funded deal — the
+  client's list, in the `stage_exclusions` config row. The event is kept with
+  `excluded_reason` so the exclusion is auditable. `Type` is blank on 562 of 734
+  opportunities, so an unlabelled renewal still counts; "Renewal Prospecting"
+  is **not** a marker — reps click through it on new deals.
+- **Volume is `csbs__Funded__c`**, the selected offer's funded amount, not
+  `Amount`, which is what was asked for.
+- **A corrected date is a third origin.** Onu Ventures funded in May; the rep
+  could move it to Funded only by backfilling a submission, an offer and a
+  contract on 1 September, and the dated fields are either that backfill or a
+  copy of `CloseDate`. `stage_corrections` records it as `origin = 'corrected'`
+  with month precision and a source, and the data-quality card lists it. A
+  corrected event is neither observed nor computed and must never be presented
+  as either.
+
+Four other deals show backfilled lender paperwork (Turn Clean Pros, E&D
+Transform, OHS Contracting, Challenger Telecom) but land in the month they were
+worked, so no correction was recorded for them.
+
+## §12 — the engagement model governs every target
+
+The M1–M8 engagement model is Zeeraa's committed target sheet (client decision,
+23 September 2026). Cost per funded deal, funded volume and CPA are no longer
+awaiting reconciliation: each month's target is that ramp month's row in
+`engagement_targets`, which now carries the model's Funded Amount. CPA is cost
+per UW approval, as the model computes it. The proposal's figures —
+$4,500 within 30 days, $100–150K in month one, $2,000 → $1,000 CPA — are
+superseded, and the two reconciliation items are resolved rather than deleted.
+
+## §12 — the executive screen takes the date picker, and controls are chrome ink
+
+Three reversals of the 22 September design, each at the client's request.
+
+- **Executive has the `DateRangePicker`**, defaulting to month to date. The
+  measured figures follow the range; the comparison is the last whole month
+  while the range is month to date, otherwise the equal-length period before.
+  The ramp still covers the engagement on its M axis and never reads the range,
+  pacing is always this calendar month, and counts across the two periods are
+  still never subtracted. Every ratio remains gated on its own denominator, so
+  a one-day range withholds cost per funded deal rather than dividing by one.
+- **Controls are chrome ink, not blue.** `--color-primary` is the rail's
+  near-black, 18.1:1 on white. Ink cannot be told from body text by colour, so
+  every link carries a permanent underline (`.link`). Gold is unchanged: the
+  active nav item and nothing else.
+- **The black title band is gone.** The rail alone is chrome. The top bar is
+  light, the breadcrumb's last item is the page title, and the h1 is kept for
+  screen readers only.
+
+Also: Sync now reports in a toast labelled per connector, failures marked by
+icon and word as well as colour and never in green or red; and the rail shows
+the tenant's own logo from `tenants.logo_data_url` (migration 0025, set by
+`set-tenant-logo.ts`), stored on the row so it is policy-protected and has no
+public URL.

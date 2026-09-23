@@ -1,4 +1,5 @@
 import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { platformLabel } from '@/lib/platform-labels';
 import {
   callsIn,
   countedStageEvent,
@@ -44,17 +45,7 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  * Zeeraa acquired them for nothing.
  */
 
-export const PLATFORM_LABELS: Record<string, string> = {
-  salesforce: 'Salesforce',
-  google_ads: 'Google Ads',
-  microsoft_ads: 'Microsoft Ads',
-  meta: 'Meta Ads',
-  linkedin_ads: 'LinkedIn Ads',
-  ga4: 'GA4',
-  search_console: 'Search Console',
-  semrush: 'Semrush',
-  call_tracking: 'Call tracking',
-};
+export { PLATFORM_LABELS, platformLabel } from '@/lib/platform-labels';
 
 /**
  * Stages whose only source is `OpportunityFieldHistory`.
@@ -67,9 +58,6 @@ export const PLATFORM_LABELS: Record<string, string> = {
  */
 const HISTORY_SOURCED_STAGES = new Set(['uw_approved']);
 
-export function platformLabel(platform: string): string {
-  return PLATFORM_LABELS[platform] ?? platform;
-}
 
 /** Counts per configured stage, keyed by stage key. */
 export type StageCounts = Record<string, number>;

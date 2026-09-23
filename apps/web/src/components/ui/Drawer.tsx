@@ -45,7 +45,7 @@ export function MethodDrawer({ notes, title }: { notes: MethodNote[]; title: str
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 text-[13px] font-medium text-primary transition-colors hover:text-primary-600 print-hidden"
+        className="link inline-flex items-center gap-1.5 text-[13px] print-hidden"
       >
         <BookOpen aria-hidden="true" className="h-3.5 w-3.5" />
         How this is measured
