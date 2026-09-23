@@ -15,6 +15,7 @@ import {
   type DateRange,
   type DayBucket,
   type ImprovementDirection,
+  type MonthActual,
   type PopulationVerdict,
   type RampTarget,
 } from '@zeeraa/core';
@@ -1370,4 +1371,104 @@ export async function pausedCampaigns(
       recentSpend: Number(row.recentSpend),
     }));
   });
+}
+
+/* ------------------------------------------------------------------------- */
+/* The frozen baseline                                                       */
+/* ------------------------------------------------------------------------- */
+
+export type FrozenMonth = MonthActual & { frozenAt: Date; version: number };
+
+/**
+ * Every frozen baseline month's current version, keyed
+ * `platform|YYYY-MM|metric`.
+ *
+ * Current is the highest version: a correction is inserted, never edited
+ * (migration 0032), so the history stays in the table and this reads the top
+ * of it. The ramp shows these in place of recomputing the month.
+ */
+export async function frozenBaseline(session: TenantSession): Promise<Map<string, FrozenMonth>> {
+  const rows = await queryTenant(session, (tx) =>
+    tx
+      .select()
+      .from(schema.baselineSnapshots)
+      .where(eq(schema.baselineSnapshots.tenantId, session.tenant.id)),
+  );
+  const out = new Map<string, FrozenMonth>();
+  const num = (v: string | null) => (v === null ? null : Number(v));
+  for (const row of rows) {
+    const key = `${row.platform}|${String(row.month).slice(0, 7)}|${row.metric}`;
+    const existing = out.get(key);
+    if (existing && existing.version >= row.version) continue;
+    const value = num(row.value);
+    const attributed = num(row.attributed);
+    out.set(key, {
+      value,
+      reason: row.notMeasuredReason,
+      cost:
+        value !== null && attributed !== null && row.channelSpend !== null
+          ? {
+              channelSpend: Number(row.channelSpend),
+              attributedDeals: attributed,
+              value,
+              unattributedDeals: num(row.unattributed) ?? 0,
+              dealsAttributedElsewhere: num(row.attributedElsewhere) ?? 0,
+              plausibleRange: { low: num(row.rangeLow), high: num(row.rangeHigh) },
+            }
+          : undefined,
+      frozenAt: row.frozenAt,
+      version: row.version,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Reconciliation                                                            */
+/* ------------------------------------------------------------------------- */
+
+export type ReconciliationRow = {
+  source: string;
+  metric: string;
+  windowStart: string;
+  windowEnd: string;
+  ours: number | null;
+  theirs: number | null;
+  status: 'match' | 'drift' | 'explained' | 'error';
+  detail: string | null;
+  checkedAt: Date;
+};
+
+/**
+ * The latest reconciliation checks, per source.
+ *
+ * Written daily by the reconciliation job (`reconciliation_checks`); read by
+ * the Connections screen, which names each drift rather than colouring a
+ * tile — a source that disagrees with our figures is a fact to state with its
+ * days, not a status light.
+ */
+export async function reconciliationBySource(session: TenantSession): Promise<Map<string, ReconciliationRow[]>> {
+  const rows = await queryTenant(session, (tx) =>
+    tx
+      .select()
+      .from(schema.reconciliationChecks)
+      .where(eq(schema.reconciliationChecks.tenantId, session.tenant.id))
+      .orderBy(asc(schema.reconciliationChecks.windowStart)),
+  );
+  const out = new Map<string, ReconciliationRow[]>();
+  for (const r of rows) {
+    const list = out.get(r.source) ?? out.set(r.source, []).get(r.source)!;
+    list.push({
+      source: r.source,
+      metric: r.metric,
+      windowStart: String(r.windowStart),
+      windowEnd: String(r.windowEnd),
+      ours: r.ours === null ? null : Number(r.ours),
+      theirs: r.theirs === null ? null : Number(r.theirs),
+      status: r.status,
+      detail: r.detail,
+      checkedAt: r.checkedAt,
+    });
+  }
+  return out;
 }

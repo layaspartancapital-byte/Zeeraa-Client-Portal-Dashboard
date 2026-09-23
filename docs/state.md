@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 23 September 2026, end of session.**
+**Last updated: 23 September 2026, end of session (audit).**
 
 ---
 
@@ -201,7 +201,28 @@ secret (`67e4309c2482`, which still fails every credential).
   `docs/brief-amendments.md`, "§12 — the ramp is drawn on the calendar once M1
   is recorded".
 
-**Next:** nothing outstanding.
+- **Accuracy audit and fixes (23 September 2026).** August matched every
+  source; September's differences are all fixed — see
+  `docs/brief-amendments.md`, "§7 and §16 — the accuracy audit". Day ledger
+  (`sync_days`, 0030), resume-from-oldest-unread, nightly re-pull
+  (`/api/cron/nightly`, 07:00 UTC), merged leads excluded, renewal submissions
+  excluded (0031), coverage by day on every screen, GA4 monthly users,
+  population gates on performance/platform/funnel, pacing on Google Ads only.
+  Daily reconciliation (`/api/cron/reconcile`, 08:00 UTC,
+  `reconciliation_checks`) on Connections; baseline freeze
+  (`baseline_snapshots`, 0032) — June–August frozen, September freezes itself
+  on 5 October if clean (`baseline_freeze`). Scripts: `repull`, `reconcile`,
+  `freeze-baseline`, `load-config-row`. Mutations 53/53.
+- **The Vercel cron barely fires.** Three `cron-hourly` runs in eight days
+  (18 and 22 September); `/api/cron/sync` answers 404 to an unauthenticated
+  GET, so `CRON_SECRET` is set and the route is healthy — the schedule is not
+  invoking it. Check the project's Cron Jobs page (enabled? plan?) in Vercel.
+  Until then the sources are kept current by manual runs; the nightly and
+  reconciliation routes are daily, which every plan allows.
+
+**Next:** confirm the Vercel cron is enabled and firing (the first nightly and
+reconciliation runs should appear in `sync_runs` and `reconciliation_checks`
+the morning after deploy).
 
 
 

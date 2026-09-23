@@ -316,6 +316,34 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger users_guard_own_account_row on public.users',
   },
   {
+    // A frozen baseline must not move for any role, including one that
+    // bypasses row level security — which only the trigger can hold.
+    name: 'baseline-append-only-dropped',
+    description: 'Drop the trigger that keeps a frozen baseline from being edited',
+    sql: 'drop trigger baseline_snapshots_append_only on public.baseline_snapshots',
+  },
+  {
+    name: 'job-read-targets-unscoped',
+    description: 'Let the ingestion role read every tenant’s engagement targets',
+    sql: `drop policy job_read_targets on public.engagement_targets;
+          create policy job_read_targets on public.engagement_targets
+            as permissive for select to zeeraa_jobs using (true)`,
+  },
+  {
+    name: 'drop-reconciliation-policy',
+    description: 'Drop the tenant_isolation policy on reconciliation_checks',
+    sql: 'drop policy tenant_isolation on public.reconciliation_checks',
+  },
+  {
+    name: 'reconciliation-member-write',
+    description: 'Let any member rewrite a reconciliation check, so drift can read as a match',
+    sql: `grant update on public.reconciliation_checks to zeeraa_app;
+          create policy member_write on public.reconciliation_checks
+            as permissive for update to zeeraa_app
+            using (tenant_id = app.current_tenant_id())
+            with check (tenant_id = app.current_tenant_id())`,
+  },
+  {
     name: 'drop-sync-days-policy',
     description: 'Drop the tenant_isolation policy on sync_days',
     sql: 'drop policy tenant_isolation on public.sync_days',

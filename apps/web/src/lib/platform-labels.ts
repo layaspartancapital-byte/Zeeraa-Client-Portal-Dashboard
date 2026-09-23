@@ -66,18 +66,5 @@ export function campaignTypeLabel(platform: string, key: string | null): string 
  * client component — the Sync now toast — names a connector exactly as the
  * server does without pulling the database client into the browser bundle.
  */
-export const PLATFORM_LABELS: Record<string, string> = {
-  salesforce: 'Salesforce',
-  google_ads: 'Google Ads',
-  microsoft_ads: 'Microsoft Ads',
-  meta: 'Meta Ads',
-  linkedin_ads: 'LinkedIn Ads',
-  ga4: 'GA4',
-  search_console: 'Search Console',
-  semrush: 'Semrush',
-  call_tracking: 'Call tracking',
-};
-
-export function platformLabel(platform: string): string {
-  return PLATFORM_LABELS[platform] ?? platform;
-}
+// One copy, in core, shared with the jobs that store reasons naming a channel.
+export { PLATFORM_LABELS, platformLabel } from '@zeeraa/core';

@@ -381,6 +381,17 @@ export const spartan: TenantSeed = {
       },
     },
     {
+      key: 'baseline_freeze',
+      description:
+        'Baseline months the daily job freezes on its own, and how many days ' +
+        'after the month ends it waits. June–August 2026 were frozen by hand ' +
+        'after the audit of 23 September 2026; September freezes itself five ' +
+        'days after it ends — spend and deal counts are final by then (the ' +
+        'client’s decision) — and only if that day’s reconciliation is clean. ' +
+        'A frozen month is never edited; a correction is a new version.',
+      value: { months: ['2026-09'], freezeAfterDays: 5 },
+    },
+    {
       /*
        * Not `working_hours`, above. That row is Zeeraa's own availability to
        * the client under the brief's SLA (9–3 ET); this is when Spartan's desk

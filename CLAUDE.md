@@ -86,6 +86,21 @@
   `users` and `memberships` policies, not by a query filter.
 - **A missing data dependency is an explicit blocked state in the UI**, not a
   silent gap. A visible dependency is a conversation; a gap looks like failure.
+- **Coverage is by day, from `sync_days`.** Every pull records the days it
+  covered and whether each had settled; a source resumes from its oldest day
+  not read final. A range with an unread day is partial and names the days; a
+  range with every day unread is Not measured; a chart leaves an unread day
+  blank and draws a read empty day as 0. Never decide coverage from the last
+  sync alone — that is how two unread days of Meta read as quiet ones.
+- **A frozen baseline month is never edited.** `baseline_snapshots` is
+  append-only for every role, including one that bypasses row level security
+  (the trigger holds it). A correction is the next `version` with a `reason`.
+  Its figures come from `channelMonthActuals` in core, which the live ramp also
+  uses — never compute a ramp month anywhere else.
+- **The daily reconciliation is the check that our figures are the source's.**
+  A change that makes a figure differ from its source on purpose (an
+  exclusion, a correction) must make the reconciliation say `explained`, not
+  drift — or it will block the next baseline freeze.
 
 Where the implementation departs from the brief, the departure is recorded in
 `docs/brief-amendments.md` with its reason. Add to it rather than letting the

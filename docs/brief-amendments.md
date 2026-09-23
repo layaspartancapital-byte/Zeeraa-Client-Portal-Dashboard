@@ -3113,3 +3113,50 @@ M2 on would be $150,000. The target is the model's figure.
 
 Pacing no longer says a month before the start "falls outside the contracted
 ramp". It says the engagement has not started.
+
+## §7 and §16 — the accuracy audit, and what it changed (23 September 2026)
+
+An audit before the engagement starts reconciled August and September on every
+screen against each source's own API: Google Ads, Meta, GA4, Search Console,
+Salesforce and the Aloware export. August matched everywhere. September
+differed for five reasons, all fixed:
+
+| Finding | Cause | Fix |
+|---|---|---|
+| Meta 19–20 Sep and GA4 19–20 Sep had no rows; 18 Sep was stored mid-day | The hourly run pulled a fixed two days, stopped starting work at 45s with Google's per-day `click_view` first, and recorded nothing for a skipped platform. The nightly 90-day re-pull the brief requires was never scheduled. The cron itself barely fired (three runs in eight days) | A per-day read ledger (`sync_days`, 0030); each source resumes from its oldest day not read final; spend first, clicks last; `skipped` runs recorded; a nightly re-pull on its own daily cron |
+| Google Ads September conversions 4 short | Restated by Google after our last read of those days | The nightly re-pull |
+| 45 September leads counted that Salesforce had merged away | The reconciliation marked `merged_into` and every count ignored it | A merged lead is excluded (`excluded_reason = 'merged'`) |
+| Calls 18–21 Sep absent, drawn as a quiet desk | The export ended 17 Sep and the webhook began 22 Sep; coverage looked only at the newest call | The missing export imported; calls on the ledger; coverage by day |
+| September funded 3 vs Salesforce's 4 | Onu Ventures, re-dated to May by the client's decision | Correct by design; reconciliation marks it `explained` |
+
+Rules the audit found broken and fixed: pacing counted every channel's spend
+against the Google Ads budget; ramp cost-per-deal lines had no coverage or
+range; performance month-over-month drew a cost per deal of 0 for a month with
+no deal; population gates were missing on the performance, platform and funnel
+screens (verified, then applied); renewal submissions were in the lender offer
+rates (`submissions.excluded_reason`, 0031); GA4 "users" summed daily users,
+which GA4 does not add up — it is now GA4's own monthly figure.
+
+**The model's baseline** ($2,119 CPA, $8,227 CPF) reproduces to 0.5% as Google
+Ads spend ÷ Google Ads-attributed UW approvals (31) and funded deals (8) over
+1 June to about 29 August 2026 — the same definition the product uses, pooled
+over three months where the ramp shows single months. Our June lacked 1–20 June
+spend until it was backfilled.
+
+**Coverage is by day.** A range with an unread day is partial and names the
+days; a range with every day unread is Not measured; charts leave unread days
+blank. Salesforce keeps its watermark rule.
+
+**Daily reconciliation** (`reconciliation_checks`, 0032): each source's own
+totals for last month and this month to yesterday against ours, with the
+differing days or records named, on the Connections screen. An hour after the
+nightly re-pull.
+
+**Baseline freeze** (`baseline_snapshots`, 0032): June–August 2026 frozen after
+the audit; September freezes itself five days after it ends if that day's
+reconciliation is clean (`baseline_freeze` config row). Append-only for every
+role: no update or delete policy, and a trigger that refuses both even to a
+role that bypasses row level security. A correction is the next version with a
+reason. The ramp reads a frozen month from the snapshot; the figures are
+computed by `channelMonthActuals` in core, the same function the live ramp
+uses, so a frozen month is what the ramp showed.

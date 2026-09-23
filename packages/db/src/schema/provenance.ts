@@ -156,3 +156,71 @@ export const syncDays = pgTable(
   },
   (t) => [uniqueIndex('sync_days_tenant_platform_day_key').on(t.tenantId, t.platform, t.day)],
 );
+
+/**
+ * Our totals against each source's own, per day (migration 0032).
+ *
+ * The latest state per source, metric and window, upserted by the daily
+ * reconciliation job. `detail` names what differs — the days, or the records —
+ * because "drift: $590" is a question and "Meta 19–20 Sep not read" is an
+ * answer. Read by the Connections screen.
+ */
+export const reconciliationChecks = pgTable(
+  'reconciliation_checks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(),
+    metric: text('metric').notNull(),
+    windowStart: date('window_start').notNull(),
+    windowEnd: date('window_end').notNull(),
+    ours: numeric('ours', { precision: 20, scale: 4 }),
+    theirs: numeric('theirs', { precision: 20, scale: 4 }),
+    difference: numeric('difference', { precision: 20, scale: 4 }),
+    tolerance: numeric('tolerance', { precision: 20, scale: 4 }).notNull().default('0'),
+    status: text('status').$type<'match' | 'drift' | 'explained' | 'error'>().notNull(),
+    detail: text('detail'),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('reconciliation_checks_key').on(t.tenantId, t.source, t.metric, t.windowStart, t.windowEnd),
+  ],
+);
+
+/**
+ * The audited pre-engagement months, frozen (migration 0032).
+ *
+ * Append-only for every role — no update or delete policy, and a trigger that
+ * refuses both — so a later re-sync cannot change the baseline silently. A
+ * correction is the next `version` with a `reason`; the current figure is the
+ * highest version.
+ */
+export const baselineSnapshots = pgTable(
+  'baseline_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    month: date('month').notNull(),
+    platform: text('platform').notNull(),
+    metric: text('metric').notNull(),
+    version: integer('version').notNull().default(1),
+    value: numeric('value', { precision: 20, scale: 4 }),
+    notMeasuredReason: text('not_measured_reason'),
+    channelSpend: numeric('channel_spend', { precision: 20, scale: 4 }),
+    attributed: numeric('attributed', { precision: 20, scale: 4 }),
+    unattributed: numeric('unattributed', { precision: 20, scale: 4 }),
+    attributedElsewhere: numeric('attributed_elsewhere', { precision: 20, scale: 4 }),
+    rangeLow: numeric('range_low', { precision: 20, scale: 4 }),
+    rangeHigh: numeric('range_high', { precision: 20, scale: 4 }),
+    frozenAt: timestamp('frozen_at', { withTimezone: true }).notNull().defaultNow(),
+    frozenBy: text('frozen_by').notNull(),
+    reason: text('reason').notNull(),
+  },
+  (t) => [
+    uniqueIndex('baseline_snapshots_key').on(t.tenantId, t.month, t.platform, t.metric, t.version),
+  ],
+);

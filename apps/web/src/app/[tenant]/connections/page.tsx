@@ -9,13 +9,18 @@ import {
   Share2,
   Users,
 } from 'lucide-react';
-import { canAdministerTenant, canManageConnections, formatCount } from '@zeeraa/core';
+import { canAdministerTenant, canManageConnections, formatCount, formatRangeLabel } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
-import { connectionHealth, type ConnectionCard } from '@/lib/dashboard';
+import {
+  connectionHealth,
+  reconciliationBySource,
+  type ConnectionCard,
+  type ReconciliationRow,
+} from '@/lib/dashboard';
 import { requireRole } from '@/lib/tenant';
 
 export const metadata = { title: 'Connections' };
@@ -29,7 +34,8 @@ export const metadata = { title: 'Connections' };
  * in the interface's voice, without apologising.
  */
 const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
-  healthy: { label: 'Healthy', tone: 'up' },
+  // Neutral, not green: green means a metric improved, never a status.
+  healthy: { label: 'Healthy', tone: 'neutral' },
   degraded: { label: 'Degraded', tone: 'warn' },
   failing: { label: 'Failing', tone: 'down' },
   waiting_on_client: { label: 'Waiting on client', tone: 'neutral' },
@@ -63,7 +69,10 @@ export default async function Connections({ params }: { params: Promise<{ tenant
   const { tenant: slug } = await params;
   const session = await requireRole(slug, canManageConnections);
 
-  const connections = await connectionHealth(session);
+  const [connections, reconciliation] = await Promise.all([
+    connectionHealth(session),
+    reconciliationBySource(session),
+  ]);
 
   const live = connections.filter((c) => c.status === 'healthy' || c.status === 'degraded');
   const waiting = connections.filter((c) => c.status === 'waiting_on_client');
@@ -78,7 +87,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
       <Grid>
         <Card span={12} className="!shadow-none !border-0 !bg-transparent">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="up">{formatCount(live.length)} reporting</Badge>
+            <Badge tone="neutral">{formatCount(live.length)} reporting</Badge>
             <Badge tone="neutral">{formatCount(waiting.length)} waiting on client</Badge>
             <Badge tone="neutral">{formatCount(unconfigured.length)} not configured</Badge>
           </div>
@@ -91,6 +100,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
             slug={slug}
             canSync={canAdministerTenant(session.tenant.role)}
             timezone={session.tenant.timezone}
+            checks={reconciliation.get(connection.platform === 'aloware' ? 'call_tracking' : connection.platform) ?? []}
           />
         ))}
       </Grid>
@@ -103,11 +113,14 @@ function ConnectionTile({
   slug,
   canSync,
   timezone,
+  checks,
 }: {
   connection: ConnectionCard;
   slug: string;
   canSync: boolean;
   timezone: string;
+  /** The latest reconciliation checks for this source, from the daily job. */
+  checks: ReconciliationRow[];
 }) {
   const status = STATUS[connection.status] ?? { label: connection.status, tone: 'neutral' as const };
   const syncable = SYNCABLE.has(connection.platform);
@@ -182,6 +195,8 @@ function ConnectionTile({
             </EmptyLine>
           </div>
         ) : null}
+
+        <Reconciled checks={checks} label={connection.label} timezone={timezone} />
       </CardBody>
 
       {canSync && syncable && (
@@ -190,6 +205,59 @@ function ConnectionTile({
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * How our figures compare with the source's own, from the daily job.
+ *
+ * Matching is one neutral line; drift is an amber badge and a line per
+ * disagreeing check naming the window and the days or records — "Sep spend
+ * $590 below Meta · not read 19–20 Sep" is the answer, not a red tile.
+ */
+function Reconciled({
+  checks,
+  label,
+  timezone,
+}: {
+  checks: ReconciliationRow[];
+  label: string;
+  timezone: string;
+}) {
+  if (checks.length === 0) return null;
+  const off = checks.filter((c) => c.status === 'drift' || c.status === 'error');
+  const explained = checks.filter((c) => c.status === 'explained');
+  const through = checks.reduce((max, c) => (c.windowEnd > max ? c.windowEnd : max), '');
+  const checkedAt = checks.reduce((max, c) => (c.checkedAt > max ? c.checkedAt : max), checks[0]!.checkedAt);
+  const when = checkedAt.toLocaleString('en-US', { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short' });
+
+  return (
+    <div className="mt-3 border-t border-border/60 pt-3">
+      <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-text-3">
+        <span className="font-medium text-text-2">Reconciled</span>
+        {off.length > 0 ? <Badge tone="warn">Drift</Badge> : null}
+        <span>checked {when}</span>
+      </p>
+      {off.length === 0 ? (
+        <p className="mt-1 text-[13px] leading-snug text-text-2">
+          Matches {label} through {formatRangeLabel({ start: through, end: through })}
+          {explained.length > 0 ? ` · ${explained.length} difference${explained.length === 1 ? '' : 's'} explained by recorded corrections` : ''}.
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-1 text-[13px] leading-snug text-text-2">
+          {off.slice(0, 3).map((c) => (
+            <li key={`${c.metric}-${c.windowStart}`}>
+              <span className="tabular">
+                {formatRangeLabel({ start: c.windowStart, end: c.windowEnd })} · {c.metric.replace(/_/g, ' ')}
+                {c.ours !== null && c.theirs !== null ? ` ${formatCount(c.ours)} vs ${formatCount(c.theirs)}` : ''}
+              </span>
+              {c.detail ? <span className="text-text-3"> · {c.detail}</span> : null}
+            </li>
+          ))}
+          {off.length > 3 ? <li className="text-text-3">and {off.length - 3} more</li> : null}
+        </ul>
+      )}
+    </div>
   );
 }
 

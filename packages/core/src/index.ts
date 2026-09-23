@@ -18,3 +18,4 @@ export * from './phone';
 export * from './calls';
 export * from './business-hours';
 export * from './platform-metrics';
+export * from './platform-labels';

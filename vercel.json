@@ -11,6 +11,11 @@
       "comment": "Nightly re-pull: 90 days of paid-media spend and conversions, 35 of GA4 and Search Console, upserted — so restatements land and any day the hourly run missed is read. 07:00 UTC is 3am Eastern.",
       "path": "/api/cron/nightly",
       "schedule": "0 7 * * *"
+    },
+    {
+      "comment": "Daily reconciliation against each source's own totals, then any baseline month due to freeze (only if clean). An hour after the nightly re-pull.",
+      "path": "/api/cron/reconcile",
+      "schedule": "0 8 * * *"
     }
   ]
 }

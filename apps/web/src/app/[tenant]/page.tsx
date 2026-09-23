@@ -15,6 +15,9 @@ import {
   rampMonthKey,
   rampSeries,
   rampTimeline,
+  channelMonthActuals,
+  rangeCoverage,
+  RAMP_METRICS,
   type MonthActual,
   trailingMonths,
   type AttributionModel,
@@ -42,6 +45,7 @@ import {
   connectionHealth,
   dataQuality,
   engagementRamp,
+  frozenBaseline,
   loadMetrics,
   maxRateLeakage,
   pausedCampaigns,
@@ -155,6 +159,7 @@ export default async function ExecutiveBriefing({
     metrics,
     quality,
     ramp,
+    frozenAll,
     calls,
     connections,
     paused,
@@ -171,6 +176,7 @@ export default async function ExecutiveBriefing({
     loadMetrics(session),
     dataQuality(session),
     engagementRamp(session),
+    frozenBaseline(session),
     callReport(session, range, connectedThreshold),
     connectionHealth(session),
     pausedCampaigns(session, lastFullMonth.start),
@@ -341,104 +347,51 @@ export default async function ExecutiveBriefing({
    * One month of each contracted metric for the calendar ramp, with the reason
    * where there is none.
    *
-   * The same arithmetic and the same gates as `actualFor` — the ramp
-   * channel's own spend over the ramp channel's own deals, a ratio withheld
-   * below its population floor — but it also answers for the month in
-   * progress, which the chart draws as partial, and it says *why* a month has
-   * no figure, because the chart names each one rather than leaving a gap.
-   *
-   * A count over a synced month is a measurement even at zero: no funded deals
-   * in a month Salesforce was read for is a result. A count over a month
-   * nobody synced is not, and says so.
+   * A frozen month comes from its snapshot (`baseline_snapshots`), so a later
+   * re-sync cannot move the audited baseline. Every other month is computed
+   * by `channelMonthActuals` in core from the ramp channel's bucket — the same
+   * function the freeze used, so a frozen month is what this showed for it.
    */
   const rampChannel = platformName(rampPlatform);
-  const monthActual = (
-    month: string,
-    needs: { spend?: boolean; crm?: boolean },
-    compute: (bucket: (typeof buckets)[number]) => MonthActual,
-  ): MonthActual => {
+  const frozen = new Map(
+    [...frozenAll]
+      .filter(([key]) => key.startsWith(`${rampPlatform}|`))
+      .map(([key, value]) => [key.slice(rampPlatform.length + 1), value]),
+  );
+  const liveMonth = (month: string): Record<RampMetricKey, MonthActual> => {
     const bucket = buckets.find((b) => monthKeyOf(b.start) === month);
-    if (needs.spend) {
-      // The ramp channel's own days, not every platform's: a Meta hole must
-      // not withhold a Google Ads month. A finished month has to have been
-      // read to its last day; the month in progress only has to have no hole.
-      const cover = bucket?.spendCoverage[rampPlatform];
-      if (!bucket || !cover || cover.state === 'never' || cover.state === 'none') {
-        return { value: null, reason: `${rampChannel} spend is not synced for this month.` };
-      }
-      if (cover.missing.length > 0) {
-        return {
-          value: null,
-          reason: `${rampChannel} spend was not read for ${unreadLabel(cover.missing)}.`,
-        };
-      }
-      if (month < periods.currentMonth && cover.pastThrough) {
-        return {
-          value: null,
-          reason: `${rampChannel} spend was read only through ${formatRangeLabel({ start: cover.through!, end: cover.through! })}.`,
-        };
-      }
-    }
-    if (needs.crm && (!bucket || !bucket.crmIngested)) {
-      return { value: null, reason: 'Salesforce is not synced for this month.' };
-    }
-    if (!bucket) return { value: null, reason: 'Nothing is synced for this month.' };
-    return compute(bucket);
-  };
-  /**
-   * The ramp channel's cost per a stage in one bucket, as the whole metric:
-   * its own deals as the denominator, and beside it the deals no channel
-   * claims and the range they could move it across. The chart states both.
-   */
-  const ratioActual = (
-    bucket: (typeof buckets)[number],
-    stage: string,
-    formulaKey: string,
-  ): MonthActual => {
-    const own = bucket.stagesByPlatform[rampPlatform]?.[stage] ?? 0;
-    const gate = metrics.population(formulaKey, own);
-    if (!gate.sufficient) return { value: null, reason: gate.reason };
-    const unattributed = bucket.unattributedStages[stage] ?? 0;
-    const cost = channelCostPerDeal({
-      channelSpend: bucket.spendByPlatform[rampPlatform] ?? 0,
-      attributedDeals: own,
-      unattributedDeals: unattributed,
-      dealsAttributedElsewhere: Math.max(0, (bucket.stages[stage] ?? 0) - own - unattributed),
+    const stage = (key: string) => ({
+      own: bucket?.stagesByPlatform[rampPlatform]?.[key] ?? 0,
+      unattributed: bucket?.unattributedStages[key] ?? 0,
+      all: bucket?.stages[key] ?? 0,
     });
-    return { value: cost.value, reason: null, cost };
+    return channelMonthActuals(
+      {
+        spend: bucket?.spendByPlatform[rampPlatform] ?? 0,
+        stages: {
+          uw_approved: stage('uw_approved'),
+          ...(valueKey ? { [valueKey]: stage(valueKey) } : {}),
+        },
+        ownVolume: bucket?.valueVolumeByPlatform[rampPlatform] ?? 0,
+        spendCoverage: bucket?.spendCoverage[rampPlatform] ?? rangeCoverage({ start: `${month}-01`, end: `${month}-01` }, null),
+        crmRead: bucket?.crmIngested ?? false,
+      },
+      {
+        month,
+        currentMonth: periods.currentMonth,
+        channel: rampChannel,
+        valueStage: valueKey,
+        approvalStage: 'uw_approved',
+        renderFloor: metrics.floors.render,
+      },
+    );
   };
-  const noValueStage: MonthActual = {
-    value: null,
-    reason: 'No funnel stage is configured to count value.',
-  };
-  const monthActualFor: Record<RampMetricKey, (month: string) => MonthActual> = {
-    costPerFundedDeal: (month) =>
-      monthActual(month, { spend: true, crm: true }, (b) =>
-        valueKey ? ratioActual(b, valueKey, 'cost_per_funded_deal') : noValueStage,
-      ),
-    cpa: (month) =>
-      monthActual(month, { spend: true, crm: true }, (b) => ratioActual(b, 'uw_approved', 'cpa')),
-    budget: (month) =>
-      monthActual(month, { spend: true }, (b) => ({
-        value: b.spendByPlatform[rampPlatform] ?? 0,
-        reason: null,
-      })),
-    approvals: (month) =>
-      monthActual(month, { crm: true }, (b) => ({
-        value: b.stagesByPlatform[rampPlatform]?.uw_approved ?? 0,
-        reason: null,
-      })),
-    fundedDeals: (month) =>
-      monthActual(month, { crm: true }, (b) =>
-        valueKey
-          ? { value: b.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0, reason: null }
-          : noValueStage,
-      ),
-    fundedAmount: (month) =>
-      monthActual(month, { crm: true }, (b) =>
-        valueKey ? { value: b.valueVolumeByPlatform[rampPlatform] ?? 0, reason: null } : noValueStage,
-      ),
-  };
+  const monthActualFor = Object.fromEntries(
+    RAMP_METRICS.map((metric) => [
+      metric,
+      (month: string): MonthActual => frozen.get(`${month}|${metric}`) ?? liveMonth(month)[metric],
+    ]),
+  ) as Record<RampMetricKey, (month: string) => MonthActual>;
 
   const panelFor = (
     metric: RampMetricKey,

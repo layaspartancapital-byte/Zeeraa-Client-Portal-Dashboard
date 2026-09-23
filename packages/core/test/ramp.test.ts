@@ -5,6 +5,7 @@ import {
   rampMonthIndex,
   rampMonthKey,
   rampTimeline,
+  channelMonthActuals,
   seriesTrend,
   targetForMonth,
   type RampTarget,
@@ -244,5 +245,80 @@ describe('rampTimeline', () => {
 
   it('never assesses a baseline month against a target', () => {
     expect(before.points.filter((p) => p.phase === 'baseline').every((p) => p.gap === null)).toBe(true);
+  });
+});
+
+describe('channelMonthActuals', () => {
+  const full = { state: 'full' as const, through: '2026-09-23', missing: [], pastThrough: false };
+  const base = {
+    spend: 25_747.82,
+    stages: { uw_approved: { own: 12, unattributed: 14, all: 29 }, funded: { own: 3, unattributed: 4, all: 7 } },
+    ownVolume: 24_600,
+    spendCoverage: full,
+    crmRead: true,
+  };
+  const opts = {
+    month: '2026-08',
+    currentMonth: '2026-09',
+    channel: 'Google Ads',
+    valueStage: 'funded',
+    approvalStage: 'uw_approved',
+    renderFloor: 3,
+  };
+
+  it('computes August 2026 as the audit reconciled it, coverage and range included', () => {
+    const f = channelMonthActuals(base, opts);
+    expect(f.costPerFundedDeal.value).toBeCloseTo(8_582.61, 2);
+    expect(f.costPerFundedDeal.cost).toMatchObject({ attributedDeals: 3, unattributedDeals: 4, dealsAttributedElsewhere: 0 });
+    expect(f.costPerFundedDeal.cost!.plausibleRange.low).toBeCloseTo(3_678.26, 2);
+    expect(f.cpa.value).toBeCloseTo(2_145.65, 2);
+    expect(f.budget.value).toBe(25_747.82);
+    expect(f.approvals.value).toBe(12);
+    expect(f.fundedDeals.value).toBe(3);
+    expect(f.fundedAmount.value).toBe(24_600);
+  });
+
+  it('withholds a ratio below its floor, with the reason, and never a zero', () => {
+    const f = channelMonthActuals(
+      { ...base, stages: { ...base.stages, funded: { own: 2, unattributed: 13, all: 15 } } },
+      { ...opts, month: '2026-06' },
+    );
+    expect(f.costPerFundedDeal.value).toBeNull();
+    expect(f.costPerFundedDeal.reason).toMatch(/below the 3/);
+    // The count itself is still a measurement.
+    expect(f.fundedDeals.value).toBe(2);
+  });
+
+  it('names the unread days of a month with a hole', () => {
+    const f = channelMonthActuals(
+      { ...base, spendCoverage: { ...full, state: 'partial', missing: ['2026-08-19', '2026-08-20'] } },
+      opts,
+    );
+    expect(f.budget.value).toBeNull();
+    expect(f.budget.reason).toMatch(/Google Ads spend was not read for/);
+    expect(f.costPerFundedDeal.value).toBeNull();
+    // Counts from the CRM do not depend on the ad platform's days.
+    expect(f.approvals.value).toBe(12);
+  });
+
+  it('refuses a finished month read only part of the way', () => {
+    const f = channelMonthActuals(
+      { ...base, spendCoverage: { state: 'partial', through: '2026-08-20', missing: [], pastThrough: true } },
+      opts,
+    );
+    expect(f.budget.reason).toMatch(/read only through/);
+  });
+
+  it('lets the month in progress run past the last read', () => {
+    const f = channelMonthActuals(
+      { ...base, spendCoverage: { state: 'partial', through: '2026-09-22', missing: [], pastThrough: true } },
+      { ...opts, month: '2026-09' },
+    );
+    expect(f.budget.value).toBe(25_747.82);
+  });
+
+  it('says the CRM is not synced rather than counting zero deals', () => {
+    const f = channelMonthActuals({ ...base, crmRead: false }, opts);
+    expect(f.fundedDeals).toEqual({ value: null, reason: 'Salesforce is not synced for this month.' });
   });
 });

@@ -1,5 +1,7 @@
 import { delta, type Delta, type ImprovementDirection } from './format';
-import type { ChannelCostPerDeal } from './attribution';
+import { channelCostPerDeal, type ChannelCostPerDeal } from './attribution';
+import { daySpans, formatRangeLabel, type RangeCoverage } from './date-range';
+import { assessPopulation } from './population';
 
 /**
  * The engagement ramp: what a metric is contracted to reach, month by month.
@@ -440,4 +442,96 @@ function shiftMonth(month: MonthKey, by: number): MonthKey {
   const total = Number(month.slice(0, 4)) * 12 + (Number(month.slice(5, 7)) - 1) + by;
   const year = Math.floor(total / 12);
   return `${year}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+
+/* ------------------------------------------------------------------------- */
+/* One channel's month, as the six contracted figures                        */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * What a month of one channel contained, whoever read it.
+ *
+ * The web ramp builds this from a bucket; the baseline freeze builds it from
+ * `channelMonth` in `@zeeraa/db`. Either way the figures come from
+ * `channelMonthActuals` below, so a frozen month is by construction what the
+ * ramp showed for it.
+ */
+export type ChannelMonthInput = {
+  spend: number;
+  /** This channel's deals, the deals no channel claims, and every deal, per stage. */
+  stages: Record<string, { own: number; unattributed: number; all: number }>;
+  ownVolume: number;
+  /** The channel's spend coverage of the month (the day ledger). */
+  spendCoverage: RangeCoverage;
+  /** Whether the CRM has been read for the month at all. */
+  crmRead: boolean;
+};
+
+const RENDER_DAY = (day: string) => formatRangeLabel({ start: day, end: day });
+
+/**
+ * The six contracted figures for one month of one channel.
+ *
+ * The rules the ramp states on screen, in one place: a ratio takes both halves
+ * from the channel and is withheld below its population floor; a finished
+ * month must have been read to its last day and the month in progress must
+ * have no unread day; a count in a read month is a measurement even at zero.
+ * Every figure that is missing says why.
+ */
+export function channelMonthActuals(
+  input: ChannelMonthInput,
+  options: {
+    month: MonthKey;
+    currentMonth: MonthKey;
+    /** Display name for reasons: "Google Ads". */
+    channel: string;
+    valueStage: string | null;
+    approvalStage: string;
+    /** The smallest denominator a ratio may be drawn over (`min_rate_denominator.render`). */
+    renderFloor: number;
+  },
+): Record<RampMetricKey, MonthActual> {
+  const { month, currentMonth, channel, valueStage, approvalStage, renderFloor } = options;
+  const cover = input.spendCoverage;
+
+  const spendProblem = (): string | null => {
+    if (cover.state === 'never' || cover.state === 'none') return `${channel} spend is not synced for this month.`;
+    if (cover.missing.length > 0) {
+      return `${channel} spend was not read for ${daySpans(cover.missing).map((span) => formatRangeLabel(span)).join(', ')}.`;
+    }
+    if (month < currentMonth && cover.pastThrough && cover.through) {
+      return `${channel} spend was read only through ${RENDER_DAY(cover.through)}.`;
+    }
+    return null;
+  };
+  const crmProblem = input.crmRead ? null : 'Salesforce is not synced for this month.';
+  const noValue = 'No funnel stage is configured to count value.';
+
+  const ratio = (stage: string, formulaKey: string): MonthActual => {
+    const problem = spendProblem() ?? crmProblem;
+    if (problem) return { value: null, reason: problem };
+    const counts = input.stages[stage] ?? { own: 0, unattributed: 0, all: 0 };
+    const gate = assessPopulation(formulaKey, counts.own, renderFloor);
+    if (!gate.sufficient) return { value: null, reason: gate.reason };
+    const cost = channelCostPerDeal({
+      channelSpend: input.spend,
+      attributedDeals: counts.own,
+      unattributedDeals: counts.unattributed,
+      dealsAttributedElsewhere: Math.max(0, counts.all - counts.own - counts.unattributed),
+    });
+    return { value: cost.value, reason: null, cost };
+  };
+  const count = (value: number, needs: 'spend' | 'crm'): MonthActual => {
+    const problem = needs === 'spend' ? spendProblem() : crmProblem;
+    return problem ? { value: null, reason: problem } : { value, reason: null };
+  };
+
+  return {
+    costPerFundedDeal: valueStage ? ratio(valueStage, 'cost_per_funded_deal') : { value: null, reason: noValue },
+    cpa: ratio(approvalStage, 'cpa'),
+    budget: count(input.spend, 'spend'),
+    approvals: count(input.stages[approvalStage]?.own ?? 0, 'crm'),
+    fundedDeals: valueStage ? count(input.stages[valueStage]?.own ?? 0, 'crm') : { value: null, reason: noValue },
+    fundedAmount: valueStage ? count(input.ownVolume, 'crm') : { value: null, reason: noValue },
+  };
 }
