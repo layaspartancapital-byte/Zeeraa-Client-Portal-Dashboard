@@ -1,7 +1,7 @@
 import { withJobTenant, type Database } from '@zeeraa/db';
 import { tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
 import { ga4Client, searchConsoleClient } from '@zeeraa/connectors';
-import { closeSyncRun, openSyncRun } from '../sync-runs';
+import { closeSyncRun, openSyncRun, recordSyncedDays } from '../sync-runs';
 import { upsertGa4Metrics, upsertSearchConsoleMetrics } from './writer';
 import type { OrganicContext } from './context';
 
@@ -39,11 +39,12 @@ export type OrganicSyncResult = {
 
 export async function runGa4Sync(
   context: OrganicContext,
-  options: { trigger?: string; now?: Date; windowDays?: number } = {},
+  options: { trigger?: string; now?: Date; windowDays?: number; range?: DateRange } = {},
 ): Promise<OrganicSyncResult> {
   const now = options.now ?? new Date();
   const today = tenantDay(now, context.tenantTimezone);
-  const range = trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
+  const range =
+    options.range ?? trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
   const runInTenant = <T>(fn: (tx: Database) => Promise<T>) => withJobTenant(context.tenantId, fn);
 
   const syncRunId = await runInTenant((tx) =>
@@ -68,7 +69,13 @@ export async function runGa4Sync(
       ga4.sourceMedium(range),
     ]);
 
-    result.totals = await runInTenant((tx) => upsertGa4Metrics(tx, context.tenantId, daily, syncRunId));
+    result.totals = await runInTenant(async (tx) => {
+      const written = await upsertGa4Metrics(tx, context.tenantId, daily, syncRunId);
+      // GA4 keeps processing a finished day for a day or so, so yesterday is
+      // covered but not final until the read after next.
+      await recordSyncedDays(tx, context.tenantId, 'ga4', range, { today, settleDays: 1, syncRunId });
+      return written;
+    });
     result.breakdownA = await runInTenant((tx) =>
       upsertGa4Metrics(tx, context.tenantId, landingPages, syncRunId),
     );
@@ -86,16 +93,16 @@ export async function runGa4Sync(
 
 export async function runSearchConsoleSync(
   context: OrganicContext,
-  options: { trigger?: string; now?: Date; windowDays?: number } = {},
+  options: { trigger?: string; now?: Date; windowDays?: number; range?: DateRange } = {},
 ): Promise<OrganicSyncResult> {
   const now = options.now ?? new Date();
   const today = tenantDay(now, context.tenantTimezone);
-  const full = trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
+  const full = options.range ?? trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
   // Ends where Search Console actually has data. Asking past that returns
   // nothing, which draws as a cliff rather than as an absence.
   const range: DateRange = {
     start: full.start,
-    end: shiftDays(full.end, -SEARCH_CONSOLE_LAG_DAYS),
+    end: minDay(full.end, shiftDays(today, -SEARCH_CONSOLE_LAG_DAYS)),
   };
   const runInTenant = <T>(fn: (tx: Database) => Promise<T>) => withJobTenant(context.tenantId, fn);
 
@@ -122,9 +129,20 @@ export async function runSearchConsoleSync(
       gsc.pages(range),
     ]);
 
-    result.totals = await runInTenant((tx) =>
-      upsertSearchConsoleMetrics(tx, context.tenantId, daily, syncRunId),
-    );
+    result.totals = await runInTenant(async (tx) => {
+      const written = await upsertSearchConsoleMetrics(tx, context.tenantId, daily, syncRunId);
+      // The range already stops where Search Console has finalised, but a day
+      // it published is not always a day it returned: only days it answered
+      // for are recorded, so a day it has not published stays unread.
+      const answered = [...new Set(daily.map((r) => r.date))].sort();
+      for (const day of answered) {
+        await recordSyncedDays(tx, context.tenantId, 'search_console', { start: day, end: day }, {
+          today,
+          syncRunId,
+        });
+      }
+      return written;
+    });
     result.breakdownA = await runInTenant((tx) =>
       upsertSearchConsoleMetrics(tx, context.tenantId, queries, syncRunId),
     );
@@ -148,4 +166,8 @@ function shiftDays(day: string, delta: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + delta);
   return d.toISOString().slice(0, 10);
+}
+
+function minDay(a: string, b: string): string {
+  return a < b ? a : b;
 }

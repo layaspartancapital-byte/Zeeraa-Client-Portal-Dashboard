@@ -1,7 +1,7 @@
 import { withJobTenant, type Database } from '@zeeraa/db';
 import { tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
 import { checkReportingZone, normalizeAccount, accountQuery } from '@zeeraa/connectors';
-import { closeSyncRun, openSyncRun } from '../sync-runs';
+import { closeSyncRun, openSyncRun, recordSyncedDays } from '../sync-runs';
 import { buildAttribution, type JoinResult } from './join';
 import { ingestClicks, type ClickIngestResult } from './clicks';
 import { upsertCampaigns, upsertDailyMetrics } from './writer';
@@ -36,11 +36,25 @@ export type GoogleAdsSyncResult = {
 
 export async function runGoogleAdsSync(
   context: GoogleAdsContext,
-  options: { trigger?: string; now?: Date; windowDays?: number; maxClickDays?: number } = {},
+  options: {
+    trigger?: string;
+    now?: Date;
+    windowDays?: number;
+    /** An explicit range, overriding `windowDays` — how a missed day is caught up. */
+    range?: DateRange;
+    maxClickDays?: number;
+    /**
+     * Skip the spend pull and do only clicks and the join. The runner pulls
+     * every platform's spend first and Google's day-by-day `click_view` last,
+     * so a slow click backlog cannot starve Meta or Salesforce of the budget.
+     */
+    clicksOnly?: boolean;
+  } = {},
 ): Promise<GoogleAdsSyncResult> {
   const now = options.now ?? new Date();
   const today = tenantDay(now, context.connection.tenantTimezone);
-  const range: DateRange = trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
+  const range: DateRange =
+    options.range ?? trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
 
   const runInTenant = <T>(fn: (tx: Database) => Promise<T>) => withJobTenant(context.tenantId, fn);
 
@@ -83,16 +97,24 @@ export async function runGoogleAdsSync(
       result.status = 'partial';
     }
 
-    const campaigns = (await context.connector.fetchEntities?.(context.connection)) ?? [];
-    const campaignIds = await runInTenant((tx) =>
-      upsertCampaigns(tx, context.tenantId, 'google_ads', campaigns),
-    );
-    result.campaigns = campaigns.length;
+    if (!options.clicksOnly) {
+      const campaigns = (await context.connector.fetchEntities?.(context.connection)) ?? [];
+      const campaignIds = await runInTenant((tx) =>
+        upsertCampaigns(tx, context.tenantId, 'google_ads', campaigns),
+      );
+      result.campaigns = campaigns.length;
 
-    const metrics = await context.connector.fetchDailyMetrics(context.connection, range);
-    result.dailyMetrics = await runInTenant((tx) =>
-      upsertDailyMetrics(tx, context.tenantId, 'google_ads', metrics, campaignIds, syncRunId),
-    );
+      const metrics = await context.connector.fetchDailyMetrics(context.connection, range);
+      result.dailyMetrics = await runInTenant(async (tx) => {
+        const written = await upsertDailyMetrics(
+          tx, context.tenantId, 'google_ads', metrics, campaignIds, syncRunId,
+        );
+        // Every day of the range was asked for and answered, including the
+        // ones with no spend, so every day is recorded as read.
+        await recordSyncedDays(tx, context.tenantId, 'google_ads', range, { today, syncRunId });
+        return written;
+      });
+    }
 
     result.clicks = await ingestClicks(
       runInTenant,

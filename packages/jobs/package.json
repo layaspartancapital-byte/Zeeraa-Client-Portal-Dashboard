@@ -20,7 +20,8 @@
     "spend-to-funded": "tsx scripts/spend-to-funded.ts",
     "sync-salesforce": "tsx scripts/sync-salesforce.ts",
     "run-scheduled": "tsx scripts/run-scheduled.ts",
-    "import-aloware-calls": "tsx scripts/import-aloware-calls.ts"
+    "import-aloware-calls": "tsx scripts/import-aloware-calls.ts",
+    "repull": "tsx scripts/repull.ts"
   },
   "dependencies": {
     "@zeeraa/connectors": "workspace:*",

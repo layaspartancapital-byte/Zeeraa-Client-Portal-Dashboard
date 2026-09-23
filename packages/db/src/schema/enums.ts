@@ -26,6 +26,8 @@ export const syncStatusEnum = pgEnum('sync_status', [
   'partial',
   'failed',
   'dead_lettered',
+  /** The runner did not reach this platform in its budget (migration 0030). */
+  'skipped',
 ]);
 
 export const organicSourceEnum = pgEnum('organic_source', ['gsc', 'ga4', 'semrush']);

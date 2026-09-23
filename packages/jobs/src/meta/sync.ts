@@ -1,6 +1,6 @@
 import { withJobTenant, type Database } from '@zeeraa/db';
 import { tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
-import { closeSyncRun, openSyncRun } from '../sync-runs';
+import { closeSyncRun, openSyncRun, recordSyncedDays } from '../sync-runs';
 import { buildAttribution, type JoinResult } from '../google-ads/join';
 import { upsertCampaigns, upsertDailyMetrics } from '../google-ads/writer';
 import type { MetaContext } from './context';
@@ -37,11 +37,18 @@ export type MetaSyncResult = {
 
 export async function runMetaSync(
   context: MetaContext,
-  options: { trigger?: string; now?: Date; windowDays?: number } = {},
+  options: {
+    trigger?: string;
+    now?: Date;
+    windowDays?: number;
+    /** An explicit range, overriding `windowDays` — how a missed day is caught up. */
+    range?: DateRange;
+  } = {},
 ): Promise<MetaSyncResult> {
   const now = options.now ?? new Date();
   const today = tenantDay(now, context.connection.tenantTimezone);
-  const range: DateRange = trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
+  const range: DateRange =
+    options.range ?? trailingWindow(today, options.windowDays ?? DEFAULT_WINDOW_DAYS);
 
   const runInTenant = <T>(fn: (tx: Database) => Promise<T>) => withJobTenant(context.tenantId, fn);
 
@@ -91,9 +98,15 @@ export async function runMetaSync(
     result.campaigns = campaigns.length;
 
     const metrics = await context.connector.fetchDailyMetrics(context.connection, range);
-    result.dailyMetrics = await runInTenant((tx) =>
-      upsertDailyMetrics(tx, context.tenantId, 'meta', metrics, campaignIds, syncRunId),
-    );
+    result.dailyMetrics = await runInTenant(async (tx) => {
+      const written = await upsertDailyMetrics(
+        tx, context.tenantId, 'meta', metrics, campaignIds, syncRunId,
+      );
+      // A day Meta returned nothing for was still asked about and answered —
+      // no delivery is a measurement — so every day of the range is recorded.
+      await recordSyncedDays(tx, context.tenantId, 'meta', range, { today, syncRunId });
+      return written;
+    });
 
     result.join = await runInTenant((tx) => buildAttribution(tx, context.tenantId));
 

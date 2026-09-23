@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { addDays, eachDay, type DateRange } from '@zeeraa/core';
 import { schema, type Database } from '@zeeraa/db';
 import type { ExclusionCounts } from '@zeeraa/connectors';
 
@@ -157,4 +158,114 @@ export async function readSourceWindow(
     )
     .limit(1);
   return row?.asOf ?? null;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Which days a pull covered (migration 0030)                                */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Records every day a successful pull covered, and whether it was final.
+ *
+ * A day is final when it had settled before the pull: over in the tenant's
+ * zone, plus `settleDays` for a source that keeps filling in a finished day
+ * (GA4 processes for a day or so). A day read while still open is covered but
+ * not final, so the next run comes back for it — which is exactly what 18
+ * September never got. Once final, a later non-final read cannot un-final it.
+ */
+export async function recordSyncedDays(
+  tx: Database,
+  tenantId: string,
+  platform: string,
+  range: DateRange,
+  options: { today: string; settleDays?: number; syncRunId: string | null },
+): Promise<number> {
+  const settleDays = options.settleDays ?? 0;
+  const lastFinal = addDays(options.today, -1 - settleDays);
+  const days = eachDay(range).filter((d) => d <= options.today);
+  if (days.length === 0) return 0;
+  await tx
+    .insert(schema.syncDays)
+    .values(
+      days.map((day) => ({
+        tenantId,
+        platform,
+        day,
+        final: day <= lastFinal,
+        syncedAt: new Date(),
+        syncRunId: options.syncRunId,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [schema.syncDays.tenantId, schema.syncDays.platform, schema.syncDays.day],
+      set: {
+        final: sql`${schema.syncDays.final} or excluded.final`,
+        syncedAt: sql`excluded.synced_at`,
+        syncRunId: sql`excluded.sync_run_id`,
+      },
+    });
+  return days.length;
+}
+
+/**
+ * Where a platform's next pull should start: the oldest day in the lookback
+ * that has never been read final, or the routine window, whichever is earlier.
+ *
+ * This is what makes a missed run self-healing. The window used to be a fixed
+ * two days, so three days without a run left a hole nothing ever went back
+ * for. `maxDays` bounds the catch-up to what one request can carry; the
+ * nightly re-pull covers anything older.
+ */
+export async function resumeWindow(
+  tx: Database,
+  tenantId: string,
+  platform: string,
+  options: { today: string; floorDays: number; maxDays: number; lastDay?: string },
+): Promise<DateRange> {
+  const end = options.lastDay ?? options.today;
+  const floorStart = addDays(end, -(options.floorDays - 1));
+  const lookbackStart = addDays(end, -(options.maxDays - 1));
+  const finals = await tx
+    .select({ day: sql<string>`to_char(${schema.syncDays.day}, 'YYYY-MM-DD')` })
+    .from(schema.syncDays)
+    .where(
+      and(
+        eq(schema.syncDays.tenantId, tenantId),
+        eq(schema.syncDays.platform, platform),
+        eq(schema.syncDays.final, true),
+        gte(schema.syncDays.day, lookbackStart),
+        lte(schema.syncDays.day, end),
+      ),
+    );
+  const done = new Set(finals.map((r) => r.day));
+  const oldestOpen = eachDay({ start: lookbackStart, end: addDays(floorStart, -1) }).find(
+    (d) => !done.has(d),
+  );
+  return { start: oldestOpen ?? floorStart, end };
+}
+
+/**
+ * A platform the runner did not reach, as a row rather than as an absence.
+ *
+ * Before this, a skipped unit wrote nothing, so four days without a Meta read
+ * looked the same in the ledger as four days nobody had asked about.
+ */
+export async function recordSkippedRun(
+  tx: Database,
+  tenantId: string,
+  platform: string,
+  trigger: string,
+  startedAt: Date,
+  detail: string,
+): Promise<void> {
+  await tx.insert(schema.syncRuns).values({
+    tenantId,
+    platform,
+    trigger,
+    startedAt,
+    finishedAt: new Date(),
+    status: 'skipped',
+    rowsWritten: '0',
+    error: detail,
+  });
 }

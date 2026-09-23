@@ -1,4 +1,5 @@
 import { withJobTenant } from '@zeeraa/db';
+import { addDays, tenantDay, type DateRange } from '@zeeraa/core';
 import { listGoogleAdsConnections, resolveGoogleAdsContext } from './google-ads/context';
 import { runGoogleAdsSync } from './google-ads/sync';
 import { listMetaConnections, resolveMetaContext } from './meta/context';
@@ -8,7 +9,7 @@ import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from './salesforce/context';
 import { runSalesforceSync } from './salesforce/sync';
 import { backfillClickIdsFromConvertedLeads } from './salesforce/backfill';
-import { lastCompletedWatermark } from './sync-runs';
+import { lastCompletedWatermark, recordSkippedRun, resumeWindow } from './sync-runs';
 
 /**
  * The hourly incremental sync, sized for a 60-second serverless function.
@@ -18,12 +19,19 @@ import { lastCompletedWatermark } from './sync-runs';
  * *not* the backfill. Two things keep it inside the budget, and both of them
  * matter more than they look:
  *
- *   - **Paid media is pulled for a two-day window.** Google restates
- *     conversions for thirty days and more, so the nightly re-pulls ninety and
- *     upserts. Ninety days of `click_view` is ninety sequential requests and
- *     takes about a minute on its own. Two days is the smallest window that
- *     still absorbs a restatement of yesterday plus a missed run, and it
- *     upserts exactly as the long window does, so nothing double-counts.
+ *   - **Each source resumes from the oldest day it has not read final**, up
+ *     to `catchUpDays` back, with two days as the floor. The window used to be
+ *     a fixed two days, which meant three days without a run left a hole
+ *     nothing ever went back for — Meta and GA4 lost 19–20 September 2026
+ *     exactly that way. Spend is one request whatever the range, so catching
+ *     up costs nothing; restatements older than the catch-up are the nightly
+ *     re-pull's (`nightly.ts`), which re-reads ninety days.
+ *
+ *   - **Cheap work first.** Every platform's spend, then Salesforce, then
+ *     Google's `click_view`, which is one request *per day*. A click backlog
+ *     used to run first and could spend the whole budget before Meta was
+ *     reached; a skipped platform now also leaves a `skipped` row rather than
+ *     nothing.
  *
  *   - **Salesforce is asked what changed since it last finished reading**, and
  *     if that answer is missing or stale the platform is skipped rather than
@@ -68,8 +76,10 @@ export type IncrementalOptions = {
   platforms?: SyncPlatform[];
   trigger?: string;
   now?: Date;
-  /** Trailing days of spend and `click_view` to re-pull. */
+  /** Trailing days of spend and `click_view` to re-pull at minimum. */
   spendWindowDays?: number;
+  /** How far back a source resumes from its oldest unread day. */
+  catchUpDays?: number;
   /**
    * How stale the Salesforce watermark may be before the platform is skipped.
    * Generous against the hourly cadence on purpose: several missed runs should
@@ -85,7 +95,11 @@ export type IncrementalOptions = {
 
 const DEFAULTS = {
   spendWindowDays: 2,
-  maxWatermarkAgeHours: 26,
+  catchUpDays: 35,
+  // A week, not a day. The cadence this was sized for never materialised, and
+  // at 26 hours a runner that fires once a day skipped Salesforce every time.
+  // A few days of changes is a small read; a full pull is still refused.
+  maxWatermarkAgeHours: 168,
   deadlineMs: 45_000,
 } as const;
 
@@ -98,6 +112,7 @@ export async function runIncrementalSync(
   const spendWindowDays = options.spendWindowDays ?? DEFAULTS.spendWindowDays;
   const maxAgeHours = options.maxWatermarkAgeHours ?? DEFAULTS.maxWatermarkAgeHours;
   const deadlineMs = options.deadlineMs ?? DEFAULTS.deadlineMs;
+  const catchUpDays = options.catchUpDays ?? DEFAULTS.catchUpDays;
   const wanted = (platform: SyncPlatform) =>
     !options.platforms || options.platforms.includes(platform);
   const mine = (tenantId: string) => !options.tenantId || options.tenantId === tenantId;
@@ -111,14 +126,20 @@ export async function runIncrementalSync(
     work: () => Promise<Pick<PlatformOutcome, 'status' | 'detail'> & { remedy?: string }>,
   ) => {
     if (elapsed() > deadlineMs) {
+      const detail = `Not started: ${Math.round(elapsed() / 1000)}s of the budget was already spent.`;
       outcomes.push({
         tenantId,
         platform,
         status: 'skipped',
-        detail: `Not started: ${Math.round(elapsed() / 1000)}s of the budget was already spent.`,
-        remedy: 'The next hourly run picks it up; nothing is lost.',
+        detail,
+        remedy: 'The next run resumes from the oldest day this platform has not read.',
         durationMs: 0,
       });
+      // Best-effort: a ledger row that cannot be written must not turn a
+      // skip into a failure of the whole run.
+      await withJobTenant(tenantId, (tx) =>
+        recordSkippedRun(tx, tenantId, platform, trigger, startedAt, detail),
+      ).catch(() => undefined);
       return;
     }
     const unitBegan = Date.now();
@@ -136,8 +157,26 @@ export async function runIncrementalSync(
     }
   };
 
-  // Ads first: `click_view` is the only thing here with an expiry on it, so it
-  // runs before anything that could consume the budget.
+  /** The range a platform's pull covers this run: resume, floor, catch-up cap. */
+  const windowFor = (
+    tenantId: string,
+    platform: string,
+    timezone: string,
+    floorDays: number,
+    lastDayOffset = 0,
+  ): Promise<DateRange> => {
+    const today = tenantDay(startedAt, timezone);
+    return withJobTenant(tenantId, (tx) =>
+      resumeWindow(tx, tenantId, platform, {
+        today,
+        floorDays,
+        maxDays: catchUpDays,
+        lastDay: lastDayOffset ? addDays(today, -lastDayOffset) : undefined,
+      }),
+    );
+  };
+
+  // Spend first, for every platform: one request each, whatever the range.
   if (wanted('google_ads')) {
     for (const connection of await listGoogleAdsConnections()) {
       if (!mine(connection.tenantId)) continue;
@@ -146,32 +185,23 @@ export async function runIncrementalSync(
           connection.tenantId,
           connection.connectionId,
         );
+        const range = await windowFor(
+          connection.tenantId,
+          'google_ads',
+          context.connection.tenantTimezone,
+          spendWindowDays,
+        );
         const result = await runGoogleAdsSync(context, {
           trigger,
           now: startedAt,
-          windowDays: spendWindowDays,
-          maxClickDays: spendWindowDays,
+          range,
+          // Clicks come last, below, so a click backlog cannot starve the
+          // other platforms' spend.
+          maxClickDays: 0,
         });
-        const clicks = result.clicks;
-        const detail =
-          `${result.campaigns} campaigns, ${result.dailyMetrics} metric rows, ` +
-          `${clicks.daysSucceeded}/${clicks.daysAttempted} click days, ` +
-          `${clicks.clicksWritten} clicks`;
-        // Days that aged out are unrecoverable, so they are named rather than
-        // folded into a count. Not a failure — no retry fixes it — but the one
-        // thing in this result somebody has to act on.
-        const expired =
-          clicks.daysExpired > 0
-            ? ` — ${clicks.daysExpired} click ${
-                clicks.daysExpired === 1 ? 'day' : 'days'
-              } aged out of the 90-day window uningested and cannot be recovered`
-            : '';
         return {
           status: result.status === 'failed' ? 'failed' : result.status,
-          detail: detail + expired,
-          remedy: clicks.daysRemaining > 0
-            ? `${clicks.daysRemaining} click days still outstanding — run backfill-clicks.`
-            : undefined,
+          detail: `${range.start} → ${range.end}: ${result.campaigns} campaigns, ${result.dailyMetrics} metric rows`,
         };
       });
     }
@@ -185,15 +215,17 @@ export async function runIncrementalSync(
       if (!mine(connection.tenantId)) continue;
       await unit(connection.tenantId, 'meta', async () => {
         const context = await resolveMetaContext(connection.tenantId, connection.connectionId);
-        const result = await runMetaSync(context, {
-          trigger,
-          now: startedAt,
-          windowDays: spendWindowDays,
-        });
+        const range = await windowFor(
+          connection.tenantId,
+          'meta',
+          context.connection.tenantTimezone,
+          spendWindowDays,
+        );
+        const result = await runMetaSync(context, { trigger, now: startedAt, range });
         return {
           status: result.status === 'failed' ? ('failed' as const) : result.status,
           detail:
-            `${result.campaigns} campaigns, ${result.dailyMetrics} metric rows` +
+            `${range.start} → ${range.end}: ${result.campaigns} campaigns, ${result.dailyMetrics} metric rows` +
             (result.accountWarning ? ` — ${result.accountWarning}` : ''),
           // Meta deals are attributable by channel and never by campaign, so
           // there is no click backfill to name here and no remedy to offer: a
@@ -217,17 +249,17 @@ export async function runIncrementalSync(
           connection.connectionId,
           platform,
         );
+        // Search Console has not finalised the last few days, so its window
+        // ends at the lag and its floor is wider than the lag: narrower would
+        // ask for nothing at all and report a healthy zero.
+        const range =
+          platform === 'ga4'
+            ? await windowFor(connection.tenantId, 'ga4', context.tenantTimezone, spendWindowDays)
+            : await windowFor(connection.tenantId, 'search_console', context.tenantTimezone, 7, 3);
         const result =
           platform === 'ga4'
-            ? await runGa4Sync(context, { trigger, now: startedAt, windowDays: spendWindowDays })
-            : await runSearchConsoleSync(context, {
-                trigger,
-                now: startedAt,
-                // Search Console has not finalised the last few days, so an
-                // incremental window narrower than the lag would ask for
-                // nothing at all and report a healthy zero.
-                windowDays: Math.max(spendWindowDays, 7),
-              });
+            ? await runGa4Sync(context, { trigger, now: startedAt, range })
+            : await runSearchConsoleSync(context, { trigger, now: startedAt, range });
         return {
           status: result.status === 'failed' ? ('failed' as const) : result.status,
           detail:
@@ -298,6 +330,47 @@ export async function runIncrementalSync(
             sync.missingFields.length > 0
               ? `Mapped fields absent from the org: ${sync.missingFields.join(', ')}.`
               : undefined,
+        };
+      });
+    }
+  }
+
+  // Google's `click_view` last: one request per day, and the only thing here
+  // that expires — so it gets whatever budget is left every run, and the
+  // ledger it keeps (`click_ingest_days`) carries the backlog to the next.
+  if (wanted('google_ads')) {
+    for (const connection of await listGoogleAdsConnections()) {
+      if (!mine(connection.tenantId)) continue;
+      await unit(connection.tenantId, 'google_ads', async () => {
+        const context = await resolveGoogleAdsContext(
+          connection.tenantId,
+          connection.connectionId,
+        );
+        const result = await runGoogleAdsSync(context, {
+          trigger: `${trigger}-clicks`,
+          now: startedAt,
+          windowDays: Math.max(spendWindowDays, 5),
+          maxClickDays: Math.max(spendWindowDays, 5),
+          clicksOnly: true,
+        });
+        const clicks = result.clicks;
+        // Days that aged out are unrecoverable, so they are named rather than
+        // folded into a count. Not a failure — no retry fixes it — but the one
+        // thing in this result somebody has to act on.
+        const expired =
+          clicks.daysExpired > 0
+            ? ` — ${clicks.daysExpired} click ${
+                clicks.daysExpired === 1 ? 'day' : 'days'
+              } aged out of the 90-day window uningested and cannot be recovered`
+            : '';
+        return {
+          status: result.status === 'failed' ? 'failed' : result.status,
+          detail:
+            `${clicks.daysSucceeded}/${clicks.daysAttempted} click days, ` +
+            `${clicks.clicksWritten} clicks` + expired,
+          remedy: clicks.daysRemaining > 0
+            ? `${clicks.daysRemaining} click days still outstanding — the next run continues, or run backfill-clicks.`
+            : undefined,
         };
       });
     }

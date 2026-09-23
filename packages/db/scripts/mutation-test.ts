@@ -316,6 +316,21 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger users_guard_own_account_row on public.users',
   },
   {
+    name: 'drop-sync-days-policy',
+    description: 'Drop the tenant_isolation policy on sync_days',
+    sql: 'drop policy tenant_isolation on public.sync_days',
+  },
+  {
+    name: 'sync-days-member-write',
+    description: 'Let any member write sync_days, so an unread day can be made to look read',
+    sql: `drop policy tenant_admin_write on public.sync_days;
+          grant insert on public.sync_days to zeeraa_app;
+          create policy tenant_admin_write on public.sync_days
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id())
+            with check (tenant_id = app.current_tenant_id())`,
+  },
+  {
     // 0028 shipped the guard as SECURITY INVOKER, and admin recovery through
     // `set-password.ts` failed on schema `app` until 0029. Reverting it is the
     // plausible accident: it looks like tightening.

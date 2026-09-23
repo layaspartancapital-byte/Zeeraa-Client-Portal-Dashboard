@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   date,
   index,
   integer,
@@ -128,4 +129,30 @@ export const webhookDeliveries = pgTable(
     lastReceivedAt: timestamp('last_received_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('webhook_deliveries_tenant_source_day_key').on(t.tenantId, t.source, t.day)],
+);
+
+/**
+ * Which days each source has been read for (migration 0030).
+ *
+ * One row per tenant, platform and tenant-local day a successful pull covered.
+ * `final` is whether that pull came after the day had settled: a day read while
+ * it was still in progress is covered but not final, and the next run resumes
+ * from the oldest day that is not. The screens read it to mark an unread day
+ * inside a range `Not measured`, where the last sync run alone would have made
+ * it look like a quiet day.
+ */
+export const syncDays = pgTable(
+  'sync_days',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    platform: text('platform').notNull(),
+    day: date('day').notNull(),
+    final: boolean('final').notNull().default(false),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+  },
+  (t) => [uniqueIndex('sync_days_tenant_platform_day_key').on(t.tenantId, t.platform, t.day)],
 );

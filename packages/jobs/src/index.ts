@@ -5,6 +5,7 @@ export * from './salesforce/writer';
 export * from './salesforce/context';
 export * from './sync-runs';
 export * from './incremental';
+export * from './nightly';
 export * from './google-ads/writer';
 export * from './google-ads/clicks';
 export * from './google-ads/join';
