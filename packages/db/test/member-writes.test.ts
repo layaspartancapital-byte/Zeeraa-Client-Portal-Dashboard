@@ -7,12 +7,22 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { withTenant, withUserOnly } from '../src/tenant-context';
+import { withMaintenance, withTenant, withUserOnly } from '../src/tenant-context';
 import * as schema from '../src/schema/index';
-import { appClient, asOwner, cleanup, failure, ownerClient, seedTwoTenants, type Fixture } from './fixtures';
+import {
+  appClient,
+  asOwner,
+  cleanup,
+  failure,
+  maintClient,
+  ownerClient,
+  seedTwoTenants,
+  type Fixture,
+} from './fixtures';
 
 const owner = ownerClient();
 const app = appClient();
+const maint = maintClient();
 let fx: Fixture;
 
 beforeAll(async () => {
@@ -23,6 +33,7 @@ afterAll(async () => {
   await cleanup(owner.db, fx);
   await owner.client.end();
   await app.client.end();
+  await maint.client.end();
 });
 
 const clientAdmin = () => ({ tenantId: fx.tenantA, userId: fx.clientAdminA, role: 'client_admin' as const });
@@ -192,5 +203,35 @@ describe('your own account row', () => {
       ),
     );
     expect(error.message).toMatch(/not edited directly/);
+  });
+});
+
+describe('admin recovery, through the maintenance role', () => {
+  /*
+   * `scripts/set-password.ts` is how a locked-out admin gets back in, and 0028
+   * broke it: the guard ran as the invoker and called into schema `app`, which
+   * the maintenance role cannot use, so the UPDATE failed before the guard had
+   * decided anything. 0029 runs the guard as its owner. This is the script's
+   * own statement, against a fixture user.
+   */
+  it('sets somebody else\'s password and ends their sessions', async () => {
+    const updated = await withMaintenance(maint.db, async (tx) => {
+      const rows = await tx
+        .update(schema.users)
+        .set({ passwordHash: `recovery-${Date.now()}`, mustChangePassword: true, passwordUpdatedAt: new Date() })
+        .where(eq(schema.users.id, fx.clientViewerB))
+        .returning({ id: schema.users.id });
+      await tx.delete(schema.sessions).where(eq(schema.sessions.userId, fx.clientViewerB));
+      return rows;
+    });
+    expect(updated).toHaveLength(1);
+
+    const [row] = await asOwner(owner.db, (tx) =>
+      tx
+        .select({ mustChangePassword: schema.users.mustChangePassword })
+        .from(schema.users)
+        .where(eq(schema.users.id, fx.clientViewerB)),
+    );
+    expect(row?.mustChangePassword).toBe(true);
   });
 });

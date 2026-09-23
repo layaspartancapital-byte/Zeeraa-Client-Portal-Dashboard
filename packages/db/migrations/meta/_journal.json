@@ -204,6 +204,13 @@
       "when": 1789970000000,
       "tag": "0028_members_read_only",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790060000000,
+      "tag": "0029_account_guard_definer",
+      "breakpoints": true
     }
   ]
 }

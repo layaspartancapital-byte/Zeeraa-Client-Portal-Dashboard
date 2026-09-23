@@ -316,6 +316,14 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger users_guard_own_account_row on public.users',
   },
   {
+    // 0028 shipped the guard as SECURITY INVOKER, and admin recovery through
+    // `set-password.ts` failed on schema `app` until 0029. Reverting it is the
+    // plausible accident: it looks like tightening.
+    name: 'own-row-guard-invoker',
+    description: 'Run the account-row guard as the invoker again, which locks maintenance out of users',
+    sql: 'alter function app.guard_own_account_row() security invoker',
+  },
+  {
     name: 'membership-write-unscoped',
     description: 'Let an admin grant access to a tenant other than their own',
     sql: `drop policy memberships_admin_write on public.memberships;

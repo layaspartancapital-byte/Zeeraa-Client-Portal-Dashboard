@@ -1,0 +1,30 @@
+-- ===========================================================================
+-- The account-row guard runs as its owner, so admin recovery works again.
+--
+-- 0028 created `app.guard_own_account_row()` as SECURITY INVOKER. It calls
+-- `app.current_user_id()`, and `zeeraa_maintenance` has no USAGE on schema
+-- `app` — so every maintenance-role UPDATE of `users` failed with
+-- "permission denied for schema app" before the guard had decided anything.
+-- That is `scripts/set-password.ts`, the bootstrap path for an admin who is
+-- locked out, and it was broken in production from the moment 0028 applied.
+--
+-- The fix is the guard's privileges, not maintenance's. Granting USAGE on
+-- `app` to the maintenance role would widen what it can name to fix a single
+-- trigger. Every other trigger function on a public table is already SECURITY
+-- DEFINER, owned by `zeeraa_owner`, with a pinned `search_path`, and this one
+-- now matches.
+--
+-- Nothing about what the guard refuses changes. Its body reads only NEW, OLD
+-- and two transaction settings (`app.current_user_id`, `app.password_change`),
+-- and `current_setting` returns the session's value whichever role evaluates
+-- it. A self-edit outside the change-password flow is refused exactly as
+-- before, for every role; maintenance, which sets no user, passes through, as
+-- the guard's own first branch always intended.
+--
+-- Ownership is not touched here: the function is `zeeraa_owner`'s locally
+-- and in production (checked 23 September 2026), `ALTER FUNCTION` keeps it,
+-- and preflight's `assertDefinerFunctionsSafelyOwned` refuses the deploy if
+-- that is ever not so.
+-- ===========================================================================
+
+ALTER FUNCTION app.guard_own_account_row() SECURITY DEFINER;
