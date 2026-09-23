@@ -254,9 +254,11 @@ secret (`67e4309c2482`, which still fails every credential).
   dependency; the stale crontab stand-in is deleted, and
   `apps/web/test/single-scheduler.test.ts` keeps it that way.
 
-**Next:** confirm the three crons appear on Vercel's Cron Jobs page, then that
-`cron-hourly` runs appear in `sync_runs` on the hour and the first nightly
-(07:00 UTC) and reconciliation (08:00 UTC) runs land.
+**Vercel Cron confirmed firing:** the first `cron-hourly` run landed at
+20:00:28 UTC on 23 September 2026, every platform `succeeded`, clicks last.
+
+**Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
+runs on 24 September, and complete the Inngest disconnection steps above.
 
 
 
