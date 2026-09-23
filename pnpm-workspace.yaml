@@ -1,9 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
-# Postinstall scripts are denied by default; these two are approved explicitly.
+# Postinstall scripts are denied by default; this one is approved explicitly.
 # esbuild ships a prebuilt binary that vitest, drizzle-kit and Next all need.
-# protobufjs arrives via inngest and generates its runtime bundles.
 allowBuilds:
   esbuild: true
-  protobufjs: true

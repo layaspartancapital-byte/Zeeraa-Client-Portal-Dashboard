@@ -223,6 +223,37 @@ secret (`67e4309c2482`, which still fails every credential).
   `apps/web/test/vercel-config.test.ts` pins its place and contents. The three
   cron runs recorded on 18 and 22 September were manual invocations.
 
+- **Inngest was still running, on an old deployment — found 23 September
+  2026.** The code was removed on 18 September (2aaf012), but the Inngest
+  Cloud app `zeeraa-platform` was never archived. Its hourly cron
+  (`salesforce-sync-schedule`, `TZ=America/New_York 0 * * * *`) kept calling
+  `/api/inngest` on a deployment from before the removal: Vercel keeps every
+  deployment live at its own URL, with that deployment's code and environment,
+  so it ran the 18 September Salesforce sync against production — 118
+  `sync_runs` with trigger `hourly`, 18 Sep 17:40 to 23 Sep 14:00 UTC, 5,207
+  rows — and has failed since ("Failed query: update sync_runs"). It is why
+  Salesforce looked current while Vercel Cron never fired. The data is correct
+  now: every later sync recomputes exclusions tenant-wide, and the
+  reconciliation after its last success matched Salesforce exactly.
+
+  **To disconnect, outside this repository:**
+  1. Inngest dashboard → Apps → `zeeraa-platform` → **Archive** (stops the
+     cron and the event functions `salesforce-sync`,
+     `salesforce-sync-schedule`, `salesforce-backfill-click-ids`).
+  2. Inngest → Settings → Integrations → **Vercel → disconnect**, and Vercel →
+     Integrations → **Inngest → Uninstall**, so no deployment is synced again.
+  3. Inngest → Manage → Keys: **rotate the signing key**. The old deployment
+     reads the old key and can no longer be invoked, even from a replay.
+  4. Vercel → Settings → Environment Variables: **delete `INNGEST_EVENT_KEY`,
+     `INNGEST_SIGNING_KEY`** (and any `INNGEST_*`) in every environment.
+  5. Vercel → Deployments: **delete the deployments from before 18 Sep 17:24
+     UTC**, or turn on Deployment Protection for non-production URLs. Removing
+     an env var does not change a deployment already built with it.
+
+  In the repository nothing remains: no route, client, functions or
+  dependency; the stale crontab stand-in is deleted, and
+  `apps/web/test/single-scheduler.test.ts` keeps it that way.
+
 **Next:** confirm the three crons appear on Vercel's Cron Jobs page, then that
 `cron-hourly` runs appear in `sync_runs` on the hour and the first nightly
 (07:00 UTC) and reconciliation (08:00 UTC) runs land.

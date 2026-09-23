@@ -71,11 +71,11 @@ reconciliation, and the converted-Lead backfill.
 
 ### Ingestion
 
-Runs on Inngest (§7). Three functions: an hourly incremental sync keyed on
-`SystemModstamp`, the cron that fans it out per tenant, and the click-ID
-backfill on demand. Concurrency is keyed on the tenant, so two runs for one
-client cannot fight over the same watermark while different clients still sync
-in parallel.
+Runs on **Vercel Cron**, the only scheduler (`apps/web/vercel.json`): the
+hourly incremental sync (`/api/cron/sync`), the nightly 90-day re-pull
+(`/api/cron/nightly`) and the daily reconciliation and baseline freeze
+(`/api/cron/reconcile`). Inngest was removed on 18 September 2026; see
+`docs/state.md` for what had to be disconnected on its side.
 
 Ingestion connects as **`zeeraa_jobs_runner`**, a fifth role. A sync writes on
 nobody's behalf, so it cannot use the user-scoped policies — but giving it the
@@ -101,7 +101,7 @@ apps/web            Next.js app (UI + API routes)
 packages/db         Drizzle schema, migrations, RLS policies, seeds
 packages/core       Metric definitions, formatting, roles, shared types
 packages/connectors One module per platform, behind a shared interface
-packages/jobs       Inngest functions (ingestion, notifications, digests)
+packages/jobs       Ingestion, the nightly re-pull, reconciliation and the baseline freeze
 ```
 
 ## Getting started
