@@ -16,4 +16,5 @@ export * from './attribution';
 export * from './submissions';
 export * from './phone';
 export * from './calls';
+export * from './business-hours';
 export * from './platform-metrics';

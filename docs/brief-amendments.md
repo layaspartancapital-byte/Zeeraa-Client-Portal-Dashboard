@@ -3023,3 +3023,43 @@ the ingestion role's own policies. A user's own account row changes only
 through the change-password flow, and only its password. Client admin and
 client viewer remain separate roles with identical access.
 
+
+## §7 and §9 — speed to lead runs on the desk's hours
+
+Requested 23 September 2026. Speed to lead, its p90 and "called within five
+minutes" were on a 24/7 clock, which charged Spartan's desk for every night and
+weekend a lead sat through. They now run on the `lead_response_hours` config
+row: the clock runs only while the desk is open (9am–6pm Eastern, Monday to
+Friday, for Spartan); a lead that arrives outside hours starts its clock at the
+next opening; a call before the opening is a zero wait; a holiday is a closed
+day. The holiday list is empty until somebody records one.
+
+The arithmetic is `businessSecondsBetween` in `packages/core/src/business-hours.ts`.
+Both clocks go through `responseSeconds`, so the business figure and the 24/7
+figure beside it cannot drift apart. `callReport` and `callSeries` read the row
+in their own transaction rather than taking it as an argument, so no screen can
+compute a response time on a clock it does not state. With no row, or one that
+does not parse, the clock is 24/7 and the card says so. It never guesses hours.
+
+The card states its clock ("business hours · 9–6 ET, Mon–Fri") under both
+figures, and keeps the 24/7 median as a secondary line so the change can be
+traced. The executive finding carries both.
+
+Not `working_hours`. That row, seeded in phase 1 and never read, is Zeeraa's
+own availability to the client under the brief's SLA (9–3 ET, federal holidays
+excluded). It is a different fact about a different party.
+
+Measured against production on 23 September, before the row was loaded (every
+called lead, the same 4,015 leads on both clocks):
+
+| | 24/7 | Business hours |
+|---|---|---|
+| Median | 2d 15h | 12h 56m |
+| p90 | 123d 6h | 33d 1h |
+| Within five minutes | 9.6% (385) | 10.0% (403) |
+
+Month to date: median 11h 50m → 3h 15m, p90 3d 22h → 1d 2h, within five
+minutes 3.4% → 3.6% over 670 leads. The median falls by a factor of three to
+five, but the five-minute share barely moves: 3,327 of 4,015 waits ran through
+closed hours, and only 144 leads were rung before the clock started. Even on
+the desk's own hours, very few leads get a call within five minutes.

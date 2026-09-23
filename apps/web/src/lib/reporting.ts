@@ -13,12 +13,16 @@ import {
   attemptsPerLead,
   callVolume,
   channelCostPerDeal,
+  clockLabel,
+  parseBusinessHours,
   previousMonth,
   rankReasonCitations,
   reasonCoverageByPeriod,
+  responseSeconds,
   speedToLead,
   submissionOfferRate,
   type AttributionModel,
+  type BusinessHours,
   type ChannelCostPerDeal,
   type DateRange,
   type ReasonCitations,
@@ -1133,8 +1137,24 @@ export type CallReport = {
     /** Share of calls carrying a lead, or null with no calls. */
     coverage: number | null;
   };
-  /** Time from lead creation to first outbound call. */
+  /**
+   * Time from lead creation to first outbound call, on the tenant's clock —
+   * `lead_response_hours` when it is configured, 24/7 when it is not.
+   * `withinFiveMinutes` is on the same clock: a response-time figure on a
+   * different clock from the median beside it would be two definitions of
+   * one word.
+   */
   speed: SpeedToLead;
+  /**
+   * The same leads on the 24/7 clock, kept beside the business-hours figure
+   * so the change of clock is traceable on the card rather than in a commit.
+   * Identical to `speed` when no hours are configured.
+   */
+  speedAllHours: SpeedToLead;
+  /** The clock `speed` is on, in words — "business hours · 9–6 ET, Mon–Fri". */
+  clock: string;
+  /** Whether `speed` is on business hours rather than 24/7. */
+  businessHours: boolean;
   /** Outbound attempts per lead, over leads that were called. */
   attempts: AttemptsPerLead;
   /** Calls per month, for the trend. */
@@ -1143,6 +1163,28 @@ export type CallReport = {
   from: string | null;
   empty: boolean;
 };
+
+/**
+ * The desk's hours, from the `lead_response_hours` row, or null for 24/7.
+ *
+ * Read inside the report's own transaction rather than passed in, so no screen
+ * can compute speed to lead on a clock the card does not state.
+ */
+async function responseHours(tx: Database, tenantId: string): Promise<BusinessHours | null> {
+  const [row] = await tx
+    .select({ value: schema.tenantConfig.value })
+    .from(schema.tenantConfig)
+    .where(
+      and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'lead_response_hours')),
+    )
+    .limit(1);
+  return parseBusinessHours(row?.value);
+}
+
+/** Epoch seconds as SQL returns them, back to an instant. */
+function instant(epoch: number | string): Date {
+  return new Date(Number(epoch) * 1000);
+}
 
 /**
  * Calls for one window, with the lead join's coverage.
@@ -1162,8 +1204,16 @@ export async function callReport(
       callsIn(range),
     );
 
-    const [outcomeRows, matchRows, speedRows, attemptRows, monthlyRows, [firstRow], [leadCount]] =
-      await Promise.all([
+    const [
+      outcomeRows,
+      matchRows,
+      speedRows,
+      attemptRows,
+      monthlyRows,
+      [firstRow],
+      [leadCount],
+      hours,
+    ] = await Promise.all([
         tx
           .select({
             outcome: schema.calls.outcome,
@@ -1196,9 +1246,12 @@ export async function callReport(
          * because a lead created on the last day of the window and called the
          * next morning was still answered in fourteen hours.
          */
+        // The two instants rather than their difference: the business-hours
+        // clock needs to know when each fell, not only how far apart they are.
         tx
           .select({
-            seconds: sql<number>`extract(epoch from (min(${schema.calls.occurredAt}) - ${schema.leads.createdAt}))::int`,
+            created: sql<number>`extract(epoch from ${schema.leads.createdAt})::float8`,
+            firstCall: sql<number>`extract(epoch from min(${schema.calls.occurredAt}))::float8`,
           })
           .from(schema.leads)
           .innerJoin(
@@ -1279,6 +1332,8 @@ export async function callReport(
               leadsCreatedIn(range),
             ),
           ),
+
+        responseHours(tx, session.tenant.id),
       ]);
 
     const tally = { connected: 0, attempted: 0, abandoned: 0 };
@@ -1292,10 +1347,13 @@ export async function callReport(
     const matched = Number(matchRows[0]?.matched ?? 0);
     const unkeyable = Number(matchRows[0]?.unkeyable ?? 0);
 
-    const speeds = speedRows
-      .map((r) => ({ seconds: Number(r.seconds) }))
-      .filter((r) => Number.isFinite(r.seconds));
+    const pairs = speedRows
+      .map((r) => ({ created: instant(r.created), firstCall: instant(r.firstCall) }))
+      .filter((r) => Number.isFinite(r.created.getTime()) && Number.isFinite(r.firstCall.getTime()));
+    const onClock = (clock: BusinessHours | null) =>
+      pairs.map((r) => ({ seconds: responseSeconds(r.created, r.firstCall, clock) }));
     const leadsInWindow = Number(leadCount?.n ?? 0);
+    const notCalled = Math.max(0, leadsInWindow - pairs.length);
 
     const monthly = (() => {
       const months = new Map<string, { connected: number; attempted: number; abandoned: number }>();
@@ -1333,7 +1391,10 @@ export async function callReport(
         unkeyable,
         coverage: total === 0 ? null : matched / total,
       },
-      speed: speedToLead(speeds, Math.max(0, leadsInWindow - speeds.length)),
+      speed: speedToLead(onClock(hours), notCalled),
+      speedAllHours: speedToLead(onClock(null), notCalled),
+      clock: clockLabel(hours),
+      businessHours: hours !== null,
       attempts: attemptsPerLead(
         attemptRows.map((r) => ({
           attempts: Number(r.attempts),
@@ -1396,7 +1457,7 @@ export async function callSeries(
 
   return queryTenant(session, async (tx) => {
 
-    const [callRows, speedRows] = await Promise.all([
+    const [callRows, speedRows, hours] = await Promise.all([
       tx
         .select({
           day: sql<string>`to_char(${schema.calls.occurredOn}, 'YYYY-MM-DD')`,
@@ -1419,7 +1480,8 @@ export async function callSeries(
       tx
         .select({
           day: sql<string>`to_char(${schema.leads.createdOn}, 'YYYY-MM-DD')`,
-          seconds: sql<number>`extract(epoch from (min(${schema.calls.occurredAt}) - ${schema.leads.createdAt}))::int`,
+          created: sql<number>`extract(epoch from ${schema.leads.createdAt})::float8`,
+          firstCall: sql<number>`extract(epoch from min(${schema.calls.occurredAt}))::float8`,
         })
         .from(schema.leads)
         .innerJoin(
@@ -1439,6 +1501,10 @@ export async function callSeries(
           ),
         )
         .groupBy(sql`1`, schema.leads.externalId, schema.leads.createdAt),
+
+      // The same clock as `callReport`, so a sparkline and the figure above it
+      // cannot disagree about what a response time is.
+      responseHours(tx, session.tenant.id),
     ]);
 
     return spans.map((span, i) => {
@@ -1451,7 +1517,9 @@ export async function callSeries(
 
       const seconds = speedRows
         .filter((r) => r.day >= span.start && r.day <= span.end)
-        .map((r) => ({ seconds: Number(r.seconds) }));
+        .map((r) => ({
+          seconds: responseSeconds(instant(r.created), instant(r.firstCall), hours),
+        }));
       // `notCalled` is zero here on purpose: the bucket's median is over the
       // leads that were called, and the coverage that qualifies it is stated on
       // the card, over the window, where a reader can see it.

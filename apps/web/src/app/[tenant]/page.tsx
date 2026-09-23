@@ -523,7 +523,10 @@ export default async function ExecutiveBriefing({
           calls.speed.withinFiveMinutesShare === null
             ? 'none'
             : formatRate(calls.speed.withinFiveMinutesShare)
-        } reached within five minutes`,
+        } reached within five minutes · ${calls.clock}` +
+        (calls.businessHours
+          ? ` · 24/7 median ${formatDuration(calls.speedAllHours.medianSeconds)}`
+          : ''),
       note: 'Measured only over leads that were called — a lead nobody rang has no response time and is not counted as a slow one. Five minutes is the industry bar, not one this product sets.',
       action: { label: 'Funnel', href: `/${slug}/funnel` },
     });

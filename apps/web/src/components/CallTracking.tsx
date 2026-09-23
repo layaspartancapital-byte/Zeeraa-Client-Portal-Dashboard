@@ -31,7 +31,7 @@ import type { CallReport } from '@/lib/reporting';
  * needed to answer the question.
  */
 export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 6 | 8 | 12 }) {
-  const { volume, match, speed, attempts } = report;
+  const { volume, match, speed, speedAllHours, attempts } = report;
 
   if (report.empty) {
     return (
@@ -159,10 +159,13 @@ export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 
               Speed to lead
               <InfoTip label="How speed to lead is measured" align="start">
                 From the lead being created in the CRM to the first outbound call to that lead's
-                number. Inbound calls are excluded — a merchant ringing in is not a response time —
-                and so is any call stamped before its lead, which happens when the lead is created
-                during the conversation. The median, not the mean: one lead called three weeks late
-                moves a mean and tells you nothing about the desk.
+                number
+                {report.businessHours
+                  ? ", counting only the desk's hours: a lead that arrives after closing starts its clock at the next opening, and one rung before the opening is a zero wait."
+                  : ', on the wall clock, nights and weekends included.'}{' '}
+                Inbound calls, and calls stamped before their lead, are excluded. The median, not
+                the mean: one lead called three weeks late moves a mean and tells you nothing about
+                the desk.
               </InfoTip>
             </p>
             <p className="mt-1 text-[24px] font-semibold leading-tight tabular text-text">
@@ -171,6 +174,18 @@ export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 
             <p className="mt-1 text-[13px] tabular text-text-2">
               median · p90 {formatDuration(speed.p90Seconds)}
             </p>
+            {/*
+              The clock is part of the figure. Nine minutes on business hours
+              and nine minutes on the wall clock are different claims, and the
+              24/7 median stays beside it so the change of clock is visible on
+              the card rather than only in the history.
+            */}
+            <p className="mt-1.5 text-[12px] leading-snug text-text-3">{report.clock}</p>
+            {report.businessHours && (
+              <p className="mt-0.5 text-[12px] leading-snug tabular text-text-3">
+                24/7 median {formatDuration(speedAllHours.medianSeconds)}
+              </p>
+            )}
             {/*
               The population, on the figure. A median over the called leads is
               not a median over the leads, and the difference here is most of
@@ -188,7 +203,8 @@ export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 
               Called within five minutes
               <InfoTip label="What this share is over" align="start">
                 Of the leads that were called at all, not of every lead — the leads nobody called
-                have no response time to be inside or outside five minutes.
+                have no response time to be inside or outside five minutes. On the same clock as
+                speed to lead.
               </InfoTip>
             </p>
             <p className="mt-1 text-[24px] font-semibold leading-tight tabular text-text">
@@ -199,6 +215,7 @@ export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 
             <p className="mt-1 text-[13px] tabular text-text-2">
               {formatCount(speed.withinFiveMinutes)} of {formatCount(speed.called)} called
             </p>
+            <p className="mt-1.5 text-[12px] leading-snug text-text-3">{report.clock}</p>
           </div>
 
           <div className="min-w-[210px]">

@@ -174,6 +174,24 @@ secret (`67e4309c2482`, which still fails every credential).
   original of 18 Sep. Name, title and email have no history to check, but no
   application path ever edited them.
 
+- **Speed to lead runs on the desk's hours** (not yet deployed). The
+  `lead_response_hours` row (9–6 ET, Mon–Fri, no holidays) drives the median,
+  p90 and within-five-minutes share on the funnel card and the executive
+  finding; the 24/7 median stays beside it. Production before and after is in
+  `docs/brief-amendments.md`, "§7 and §9 — speed to lead runs on the desk's
+  hours". Compare the clocks with `scripts/speed-to-lead-clocks.ts`
+  (read-only). Load the row with `scripts/load-lead-response-hours.ts
+  --dry-run` then without, after the code deploys. Until the row exists the
+  card reads 24/7 and says so, so the order is safe either way.
+- **Admin recovery fixed (migration 0029).** From 0028 until 0029,
+  `set-password.ts` failed in production and locally with `permission denied
+  for schema app`: `app.guard_own_account_row` was SECURITY INVOKER, called
+  `app.current_user_id()`, and `zeeraa_maintenance` has no USAGE on `app`, so
+  every maintenance-role `UPDATE` of `users` failed. 0029 makes the guard
+  SECURITY DEFINER like every other trigger function. Its body reads only
+  NEW/OLD and two settings, so what it refuses is unchanged, and maintenance
+  gains no privilege. Covered by `member-writes.test.ts` ("admin recovery")
+  and the mutation `own-row-guard-invoker`. Mutations 47/47.
 **Next:** nothing outstanding.
 
 
@@ -2295,10 +2313,20 @@ throwaway database rather than the development one:
 
 ```bash
 cd packages/db
-DATABASE_URL=postgres://postgres:postgres@localhost:5433/zeeraa_mut \
-DATABASE_URL_OWNER=postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa_mut \
-  npx tsx scripts/mutation-test.ts
+set -a && . ../../.env && set +a
+for v in DATABASE_URL DATABASE_URL_OWNER DATABASE_URL_APP DATABASE_URL_AUTH \
+         DATABASE_URL_JOBS DATABASE_URL_MAINT; do
+  export $v="$(printf %s "${!v}" | sed -E 's#/zeeraa(\?|$)#/zeeraa_mut\1#')"
+done
+npx tsx scripts/mutation-test.ts
 ```
+
+**Every role URL, not only the two the script names.** The script forwards the
+environment to the suite, and the app, auth, jobs and maintenance URLs from
+`.env` point at `zeeraa`. With only two overridden, the suite seeds fixtures in
+`zeeraa_mut` and queries them in `zeeraa`, so about 40 tests fail under every
+mutation, and "47/47 killed" means nothing (23 September 2026). A trustworthy
+run kills each mutation with a handful of tests.
 
 **From `packages/db`, not from the root.** The script shells out to
 `scripts/reset.ts` by a path relative to the working directory, so the

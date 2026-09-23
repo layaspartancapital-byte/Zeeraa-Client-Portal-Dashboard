@@ -381,6 +381,28 @@ export const spartan: TenantSeed = {
       },
     },
     {
+      /*
+       * Not `working_hours`, above. That row is Zeeraa's own availability to
+       * the client under the brief's SLA (9–3 ET); this is when Spartan's desk
+       * answers leads, which is the clock speed to lead is held to.
+       */
+      key: 'lead_response_hours',
+      description:
+        "The clock speed to lead and every response-time figure run on: the " +
+        "desk's hours, 9am–6pm Eastern, Monday to Friday. A lead that arrives " +
+        'outside hours starts its clock at the next opening; one called before ' +
+        'the opening is a zero wait. Holidays are closed days, YYYY-MM-DD in ' +
+        'this timezone — none recorded yet. The 24/7 median is still shown ' +
+        'beside the figure.',
+      value: {
+        timezone: 'America/New_York',
+        days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+        open: '09:00',
+        close: '18:00',
+        holidays: [],
+      },
+    },
+    {
       key: 'attribution_default_model',
       description: 'The UI default. The other model stays available as a toggle.',
       value: { model: 'last_touch' },

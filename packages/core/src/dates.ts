@@ -7,14 +7,52 @@
 
 export type DateRange = { start: string; end: string };
 
+/*
+ * Formatters, one per zone.
+ *
+ * Constructing an `Intl.DateTimeFormat` costs far more than using one — a
+ * business-hours response time resolves two wall-clock times per day of wait,
+ * and building the formatter each time made a page of speed to lead take
+ * seconds. The options never vary, so the zone is the whole key.
+ */
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+const offsetFormats = new Map<string, Intl.DateTimeFormat>();
+
+function dayFormat(timeZone: string): Intl.DateTimeFormat {
+  let format = dayFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    dayFormats.set(timeZone, format);
+  }
+  return format;
+}
+
+function offsetFormat(timeZone: string): Intl.DateTimeFormat {
+  let format = offsetFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    offsetFormats.set(timeZone, format);
+  }
+  return format;
+}
+
 /** Instant → the tenant-local calendar day, as `YYYY-MM-DD`. */
 export function tenantDay(instant: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant);
+  const parts = dayFormat(timeZone).formatToParts(instant);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
@@ -182,16 +220,7 @@ export function parseWallClock(text: string, timeZone: string): Date | null {
 
 /** How far ahead of UTC the zone is at this instant, in milliseconds. */
 function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(instant);
+  const parts = offsetFormat(timeZone).formatToParts(instant);
 
   const field = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? '0');
   // `hour12: false` renders midnight as 24 in some engines.
