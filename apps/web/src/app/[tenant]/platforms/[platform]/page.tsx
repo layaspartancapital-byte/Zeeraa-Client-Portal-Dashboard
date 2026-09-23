@@ -21,6 +21,14 @@ import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Segmented, segments } from '@/components/ui/Segmented';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { NotMeasuredCard } from '@/components/NotMeasuredCard';
+import {
+  coverageFor,
+  isUnmeasured,
+  notMeasuredReason,
+  sourcesThrough,
+  throughNote,
+} from '@/lib/coverage';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
@@ -113,6 +121,15 @@ export default async function PlatformPage({
   const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
   const days = rangeLengthDays(range);
 
+  // No zeros for a range past a source's last read — see `lib/coverage.ts`.
+  // This platform's own figures ask this platform; the outcomes ask Salesforce.
+  const cover = coverageFor(await sourcesThrough(session), range);
+  const own = cover.of(platform);
+  const ownOut = isUnmeasured(own);
+  const cutoff = entry.kind === 'organic' ? 'published' : 'synced';
+  const ownWhy = notMeasuredReason(own, entry.label, cutoff);
+  const ownNote = throughNote(own, entry.label, cutoff);
+
   /*
    * Organic sources take a different page, not the same page with the numbers
    * swapped: no spend, no campaigns, and no outcomes section, because neither
@@ -152,9 +169,15 @@ export default async function PlatformPage({
         rangeParams={rangeParams(range)}
         seriesKey={seriesKey}
         seriesOptions={seriesOptions}
+        notMeasured={ownOut ? ownWhy : undefined}
+        coverageNote={ownNote}
       />
     );
   }
+
+  const crmOut = isUnmeasured(cover.crm);
+  const outcomesOut = crmOut || ownOut;
+  const outcomesWhy = crmOut ? notMeasuredReason(cover.crm, 'Salesforce') : ownWhy;
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
   const requestedSeries = query.series ?? 'spend';
@@ -283,10 +306,18 @@ export default async function PlatformPage({
 
       <Grid>
         {/* ---------------- platform-reported ---------------- */}
+        {ownOut ? (
+          <NotMeasuredCard
+            title={`${view.label} reporting`}
+            subtitle={`${range.start} to ${range.end}`}
+            reason={ownWhy}
+          />
+        ) : (
+        <>
         <Card span={12}>
           <CardHeader
             title={`${view.label} reporting`}
-            subtitle={`${range.start} to ${range.end} · as ${view.label} reports it`}
+            subtitle={`${range.start} to ${range.end} · as ${view.label} reports it${ownNote}`}
             info={
               <InfoTip label="Where these figures come from" align="start">
                 Every figure in this block is {view.label}&rsquo;s own, pulled from its API. None
@@ -499,6 +530,9 @@ export default async function PlatformPage({
           )}
         </Card>
 
+        </>
+        )}
+
         {/* ================= outcomes, from the CRM ================= */}
         <div className="col-span-12 mt-2 flex items-center gap-3">
           <span className="h-px flex-1 bg-border" />
@@ -508,6 +542,10 @@ export default async function PlatformPage({
           <span className="h-px flex-1 bg-border" />
         </div>
 
+        {outcomesOut ? (
+          <NotMeasuredCard title={`Cost per ${stageWord} deal`} reason={outcomesWhy} />
+        ) : (
+        <>
         <Card span={8}>
           <CardHeader
             title={`Cost per ${stageWord} deal`}
@@ -596,6 +634,8 @@ export default async function PlatformPage({
             )}
           </CardBody>
         </Card>
+        </>
+        )}
       </Grid>
 
       <MethodNotesForPrint notes={notes} />

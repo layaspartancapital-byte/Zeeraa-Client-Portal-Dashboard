@@ -226,6 +226,15 @@ The short version:
   plot zero for a bucket nobody ingested.
 - A blocked or unmeasured figure is an amber `Not measured` badge with the reason
   in its tooltip. Never a zero.
+- **A range past a source's last read is unmeasured, not quiet.** Every screen
+  that draws synced figures asks `sourcesThrough()` / `coverageFor()` in
+  `apps/web/src/lib/coverage.ts` for the sources behind each figure — the
+  comparison period included — and renders `notMeasuredReason()` (or
+  `NotMeasuredCard`) where the range starts after the last read, and
+  `throughNote()` where it runs past it. GA4 and Search Console are bounded by
+  what they have published, not by the sync. `windowBuckets` applies the same
+  cutoff to every chart. `apps/web/test/coverage-usage.test.ts` fails if a
+  screen or the export stops asking.
 - **The executive screen defaults to month to date and takes the same
   `DateRangePicker`** (reversed 23 September 2026). Measured figures follow the
   range, beside the last whole month (on MTD) or the equal-length period

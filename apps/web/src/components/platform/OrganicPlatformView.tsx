@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { NotMeasuredCard } from '@/components/NotMeasuredCard';
 import { formatCount, formatRate, ctr } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -28,7 +29,17 @@ export function OrganicPlatformView({
   rangeParams,
   seriesKey,
   seriesOptions,
+  notMeasured,
+  coverageNote = '',
 }: {
+  /**
+   * Why nothing in the range can be shown: the source has published nothing
+   * for any of it. Replaces every figure on the page rather than drawing a
+   * collapse in traffic. From `notMeasuredReason` in `lib/coverage.ts`.
+   */
+  notMeasured?: string;
+  /** "· GA4 synced through …" where the range runs past what is published. */
+  coverageNote?: string;
   session: TenantSession;
   view: OrganicView;
   slug: string;
@@ -98,10 +109,18 @@ export function OrganicPlatformView({
       </PageMeta>
 
       <Grid>
+        {notMeasured ? (
+          <NotMeasuredCard
+            title={`${view.label} reporting`}
+            subtitle={`${view.range.start} to ${view.range.end}`}
+            reason={notMeasured}
+          />
+        ) : (
+        <>
         <Card span={12}>
           <CardHeader
             title={`${view.label} reporting`}
-            subtitle={`${view.range.start} to ${view.range.end} · as ${view.label} reports it`}
+            subtitle={`${view.range.start} to ${view.range.end} · as ${view.label} reports it${coverageNote}`}
           />
           <CardBody>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
@@ -255,6 +274,9 @@ export function OrganicPlatformView({
             )}
           </Card>
         ))}
+
+        </>
+        )}
 
         {/* The absence, stated. Every ad platform page ends with funded deals;
             this one cannot, and saying why is the point. */}

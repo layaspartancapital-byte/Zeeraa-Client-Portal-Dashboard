@@ -11,10 +11,7 @@ import {
   improvementDirectionFor,
   monthKeyOf,
   previousRange,
-  rangeCoverage,
   rangeLengthDays,
-  tenantDay,
-  type RangeCoverage,
   rampMonthKey,
   rampSeries,
   trailingMonths,
@@ -50,6 +47,13 @@ import {
   windowBuckets,
 } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
+import {
+  coverageFor,
+  isUnmeasured,
+  notMeasuredReason,
+  sourcesThrough,
+  throughNote,
+} from '@/lib/coverage';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange, type RangeQuery } from '@/lib/range';
 import { Download } from 'lucide-react';
@@ -153,6 +157,7 @@ export default async function ExecutiveBriefing({
     paused,
     freshness,
     leakage,
+    through,
   ] = await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, comparison, model),
@@ -168,6 +173,7 @@ export default async function ExecutiveBriefing({
     pausedCampaigns(session, lastFullMonth.start),
     sourceFreshness(session),
     maxRateLeakage(session),
+    sourcesThrough(session),
   ]);
 
   const valueStage = current.stages.find((s) => s.countsValue);
@@ -192,37 +198,15 @@ export default async function ExecutiveBriefing({
    * `Not measured` state, and a range that runs past the last sync says where
    * its figures stop.
    */
-  const dayOf = (at: Date | null | undefined) =>
-    at ? tenantDay(at, session.tenant.timezone) : null;
-  const dayLabel = (day: string) => formatRangeLabel({ start: day, end: day });
-  const crmSource = freshness.find((f) => f.platform === 'salesforce');
-  const spendPlatforms = new Set(buckets.flatMap((b) => Object.keys(b.spendByPlatform)));
-  const spendDays = freshness
-    .filter((f) => spendPlatforms.has(f.platform))
-    .map((f) => dayOf(f.at));
-  // The stalest paid platform decides: a total is only as far along as its
-  // least-current part.
-  const spendThrough =
-    spendDays.length === 0 || spendDays.some((d) => d === null)
-      ? null
-      : [...(spendDays as string[])].sort()[0]!;
-  const callSource = freshness.find((f) => f.arrival === 'webhook');
-
-  const crmCoverage = rangeCoverage(range, dayOf(crmSource?.at));
+  const cover = coverageFor(through, range);
+  const crmCoverage = cover.crm;
   // The comparison beside a figure is a figure too, and can be just as unsynced.
-  const crmPriorCoverage = rangeCoverage(comparison, dayOf(crmSource?.at));
-  const spendCoverage = rangeCoverage(range, spendThrough);
-  const monthSpendCoverage = rangeCoverage(periods.monthToDate, spendThrough);
-  const callCoverage = rangeCoverage(range, dayOf(callSource?.at));
+  const crmPriorCoverage = cover.of('salesforce', comparison);
+  const spendCoverage = cover.spend;
+  const monthSpendCoverage = cover.of(through.spendPlatforms, periods.monthToDate);
+  const callCoverage = cover.calls;
 
-  const unmeasured = (c: RangeCoverage) => c.state === 'none' || c.state === 'never';
-  const why = (c: RangeCoverage, source: string) =>
-    c.state === 'never'
-      ? `${source} has never synced.`
-      : `${source} last synced ${dayLabel(c.through!)}; nothing in this range has been read.`;
-  const throughNote = (c: RangeCoverage, source: string) =>
-    c.state === 'partial' ? ` · ${source} synced through ${dayLabel(c.through!)}` : '';
-  const crmUnmeasured = unmeasured(crmCoverage);
+  const crmUnmeasured = isUnmeasured(crmCoverage);
   const crmNote = throughNote(crmCoverage, 'Salesforce');
   const spendNote = throughNote(spendCoverage, 'paid media');
 
@@ -521,7 +505,7 @@ export default async function ExecutiveBriefing({
 
   const findings: Finding[] = [];
 
-  const callsMeasured = !unmeasured(callCoverage) && !crmUnmeasured;
+  const callsMeasured = !isUnmeasured(callCoverage) && !crmUnmeasured;
   if (callsMeasured && speedGate.sufficient && calls.speed.medianSeconds !== null) {
     findings.push({
       key: 'speed-to-lead',
@@ -768,9 +752,9 @@ export default async function ExecutiveBriefing({
         <TwoPeriodKpi
           label={`${valueLabel} deals`}
           value={formatCount(totalDeals)}
-          notMeasured={crmUnmeasured ? why(crmCoverage, 'Salesforce') : undefined}
+          notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
           priorValue={
-            unmeasured(crmPriorCoverage)
+            isUnmeasured(crmPriorCoverage)
               ? NOT_MEASURED
               : formatCount(dealsIn(previous.total.stages))
           }
@@ -788,9 +772,9 @@ export default async function ExecutiveBriefing({
         <TwoPeriodKpi
           label={`${valueLabel} volume`}
           value={formatCurrency(current.total.valueVolume, currency)}
-          notMeasured={crmUnmeasured ? why(crmCoverage, 'Salesforce') : undefined}
+          notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
           priorValue={
-            unmeasured(crmPriorCoverage)
+            isUnmeasured(crmPriorCoverage)
               ? NOT_MEASURED
               : formatCurrency(previous.total.valueVolume, currency)
           }
@@ -808,7 +792,7 @@ export default async function ExecutiveBriefing({
             'paid media',
           )}`}
           notMeasured={
-            unmeasured(monthSpendCoverage) ? why(monthSpendCoverage, 'Paid media') : undefined
+            isUnmeasured(monthSpendCoverage) ? notMeasuredReason(monthSpendCoverage, 'Paid media') : undefined
           }
           budgetMissing={budgetMissing}
           elapsedDays={periods.elapsedDays}
@@ -829,7 +813,7 @@ export default async function ExecutiveBriefing({
           />
           {crmUnmeasured ? (
             <CardBody>
-              <EmptyLine action={<NotMeasuredBadge />}>{why(crmCoverage, 'Salesforce')}</EmptyLine>
+              <EmptyLine action={<NotMeasuredBadge />}>{notMeasuredReason(crmCoverage, 'Salesforce')}</EmptyLine>
             </CardBody>
           ) : (
             <FunnelStages
@@ -842,7 +826,7 @@ export default async function ExecutiveBriefing({
         </Card>
 
         {/* 4. What each stage costs, per channel. */}
-        {crmUnmeasured || unmeasured(spendCoverage) ? (
+        {crmUnmeasured || isUnmeasured(spendCoverage) ? (
           <Card span={12}>
             <CardHeader
               title="Efficiency"
@@ -850,7 +834,7 @@ export default async function ExecutiveBriefing({
             />
             <CardBody>
               <EmptyLine action={<NotMeasuredBadge />}>
-                {crmUnmeasured ? why(crmCoverage, 'Salesforce') : why(spendCoverage, 'Paid media')}
+                {crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : notMeasuredReason(spendCoverage, 'Paid media')}
               </EmptyLine>
             </CardBody>
           </Card>

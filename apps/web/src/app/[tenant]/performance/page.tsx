@@ -18,10 +18,18 @@ import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Car
 import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import {
+  coverageFor,
+  isUnmeasured,
+  notMeasuredReason,
+  sourceName,
+  sourcesThrough,
+  throughNote,
+} from '@/lib/coverage';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Delta, NoDelta } from '@/components/ui/Delta';
 import { InfoTip } from '@/components/ui/InfoTip';
-import { ProvisionalBadge } from '@/components/ui/Badge';
+import { NotMeasuredBadge, ProvisionalBadge } from '@/components/ui/Badge';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
@@ -120,6 +128,7 @@ export default async function Performance({
     metrics,
     quality,
     submissions,
+    through,
   ] = await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, baseline, model),
@@ -127,12 +136,29 @@ export default async function Performance({
     loadMetrics(session),
     dataQuality(session),
     submissionReport(session, range),
+    sourcesThrough(session),
   ]);
 
+  /*
+   * No zeros for a range past a source's last read. Each figure asks the
+   * source behind it; `Not measured` replaces the figure, and a comparison
+   * against an unread baseline has no delta. See `lib/coverage.ts`.
+   */
+  const cover = coverageFor(through, range);
+  const spendOut = isUnmeasured(cover.spend);
+  const crmOut = isUnmeasured(cover.crm);
+  const spendBaseOut = isUnmeasured(cover.of(through.spendPlatforms, baseline));
+  const crmBaseOut = isUnmeasured(cover.of('salesforce', baseline));
+  const spendWhy = notMeasuredReason(cover.spend, sourceName(through.spendPlatforms));
+  const crmWhy = notMeasuredReason(cover.crm, 'Salesforce');
+  const coverageNote =
+    throughNote(cover.spend, 'paid media') + throughNote(cover.crm, 'Salesforce');
+
   // Paid media was first pulled long after the CRM history begins, so the two
-  // have separate baselines. See `ingestionStart`.
-  const spendComparable = covers(ingestion.spendFrom, baseline);
-  const crmComparable = covers(ingestion.crmFrom, baseline);
+  // have separate baselines. See `ingestionStart`. A baseline past the last
+  // read is no baseline either.
+  const spendComparable = covers(ingestion.spendFrom, baseline) && !spendBaseOut;
+  const crmComparable = covers(ingestion.crmFrom, baseline) && !crmBaseOut;
   const notIngested = (from: string | null) =>
     from ? `not ingested before ${from}` : 'nothing ingested yet';
 
@@ -356,7 +382,8 @@ export default async function Performance({
       <Grid>
         <KpiCard
           label="Paid media spend"
-          value={formatCurrency(data.total.spend, currency)}
+          value={spendOut ? null : formatCurrency(data.total.spend, currency)}
+          notMeasured={spendWhy}
           delta={
             <Delta
               current={data.total.spend}
@@ -366,7 +393,7 @@ export default async function Performance({
               unavailable={notIngested(ingestion.spendFrom)}
             />
           }
-          context={`${range.start} to ${range.end}`}
+          context={`${range.start} to ${range.end}${throughNote(cover.spend, 'paid media')}`}
           points={mini((b) => b.spend, 'spend')}
           provisional={provisional}
           info="Spend across every connected channel. No metric declares a direction for it, so its change carries a sign and an arrow and no colour."
@@ -374,7 +401,8 @@ export default async function Performance({
 
         <KpiCard
           label={`${valueLabel} deals`}
-          value={formatCount(dealsIn(data.total.stages))}
+          value={crmOut ? null : formatCount(dealsIn(data.total.stages))}
+          notMeasured={crmWhy}
           delta={
             <Delta
               current={dealsIn(data.total.stages)}
@@ -384,9 +412,16 @@ export default async function Performance({
               unavailable={notIngested(ingestion.crmFrom)}
             />
           }
-          context={`${formatCount(
-            data.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0),
-          )} attributed · ${formatCount(dealsIn(data.unattributed.stages))} to no channel`}
+          context={
+            crmOut
+              ? undefined
+              : `${formatCount(
+                  data.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0),
+                )} attributed · ${formatCount(dealsIn(data.unattributed.stages))} to no channel${throughNote(
+                  cover.crm,
+                  'Salesforce',
+                )}`
+          }
           points={mini((b) => (valueKey ? (b.stages[valueKey] ?? 0) : null))}
           variant="bars"
           provisional={provisional}
@@ -397,11 +432,19 @@ export default async function Performance({
           <KpiCard
             label={`Cost per ${valueLabel.toLowerCase()} deal · ${lead.label}`}
             value={
-              lead.costPerDeal.value === null ? null : formatCurrency(lead.costPerDeal.value, currency)
+              spendOut || crmOut || lead.costPerDeal.value === null
+                ? null
+                : formatCurrency(lead.costPerDeal.value, currency)
             }
-            notMeasured={`No ${valueLabel.toLowerCase()} deal is attributed to ${lead.label}`}
+            notMeasured={
+              crmOut
+                ? crmWhy
+                : spendOut
+                  ? spendWhy
+                  : `No ${valueLabel.toLowerCase()} deal is attributed to ${lead.label}`
+            }
             delta={
-              lead.costPerDeal.value !== null ? (
+              !spendOut && !crmOut && lead.costPerDeal.value !== null ? (
                 <Delta
                   current={lead.costPerDeal.value}
                   baseline={
@@ -416,11 +459,13 @@ export default async function Performance({
               )
             }
             context={
+              spendOut || crmOut ? undefined : (
               <CostPerDealCoverage
                 cost={lead.costPerDeal}
                 currency={currency}
                 channelLabel={lead.label}
               />
+              )
             }
             points={mini((b) => {
               if (!valueKey) return null;
@@ -447,7 +492,11 @@ export default async function Performance({
           the grain the answer exists: one lender's offers over that lender's
           decisions.
         */}
-        <LenderOfferRateCard report={submissions} metric={lenderOfferMetric} />
+        <LenderOfferRateCard
+          report={submissions}
+          metric={lenderOfferMetric}
+          unsynced={crmOut ? crmWhy : undefined}
+        />
 
         <Card span={8}>
           <CardHeader
@@ -501,7 +550,7 @@ export default async function Performance({
             title="All platforms"
             subtitle={`${range.start} to ${range.end} · ${
               model === 'last_touch' ? 'last touch' : 'first touch'
-            } · ${session.tenant.timezone}`}
+            } · ${session.tenant.timezone}${coverageNote}`}
             controls={
               data.dataThrough ? (
                 <span className="text-[12px] text-text-3 tabular">
@@ -512,7 +561,11 @@ export default async function Performance({
               )
             }
           />
-          {data.channels.length > 0 || dealsIn(data.total.stages) > 0 ? (
+          {spendOut || crmOut ? (
+            <CardBody>
+              <EmptyLine action={<NotMeasuredBadge />}>{crmOut ? crmWhy : spendWhy}</EmptyLine>
+            </CardBody>
+          ) : data.channels.length > 0 || dealsIn(data.total.stages) > 0 ? (
             <PerformanceTable data={data} currency={currency} />
           ) : (
             <CardBody>
@@ -529,6 +582,9 @@ export default async function Performance({
             subtitle="The marker is confirmed; the bar is the range the data supports"
           />
           <CardBody className="flex-1">
+            {spendOut || crmOut ? (
+              <EmptyLine action={<NotMeasuredBadge />}>{crmOut ? crmWhy : spendWhy}</EmptyLine>
+            ) : (
             <RangeBars
               id="perf-cost-range"
               rows={data.channels
@@ -552,6 +608,7 @@ export default async function Performance({
               }
               height={240}
             />
+            )}
           </CardBody>
         </Card>
 
@@ -561,6 +618,9 @@ export default async function Performance({
             subtitle="Blocked stages are absent rather than drawn at zero"
           />
           <CardBody className="flex-1">
+            {crmOut ? (
+              <EmptyLine action={<NotMeasuredBadge />}>{crmWhy}</EmptyLine>
+            ) : (
             <StackedBars
               id="perf-stage-composition"
               layout="horizontal-bars"
@@ -578,6 +638,7 @@ export default async function Performance({
               format={{ kind: 'count' }}
               height={240}
             />
+            )}
           </CardBody>
         </Card>
 

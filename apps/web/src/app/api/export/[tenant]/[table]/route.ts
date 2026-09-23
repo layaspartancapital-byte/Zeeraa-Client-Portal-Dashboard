@@ -3,6 +3,7 @@ import { resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
 import { requireTenant } from '@/lib/tenant';
+import { coverageFor, isUnmeasured, notMeasuredReason, sourceName, sourcesThrough } from '@/lib/coverage';
 
 /**
  * CSV export, matching the filters on screen.
@@ -41,7 +42,18 @@ export async function GET(
   });
 
   if (table === 'performance' || table === 'funnel') {
-    const data = await monthlyPerformance(session, range, model);
+    const [data, through] = await Promise.all([
+      monthlyPerformance(session, range, model),
+      sourcesThrough(session),
+    ]);
+    // The screen's rule, in the spreadsheet: a source not read for any of the
+    // range exports empty cells and a note, never a column of zeros.
+    const cover = coverageFor(through, range);
+    const spendOut = isUnmeasured(cover.spend);
+    const crmOut = isUnmeasured(cover.crm);
+    const spendCell = <T,>(value: T): T | null => (spendOut ? null : value);
+    const crmCell = <T,>(value: T): T | null => (crmOut ? null : value);
+    const bothCell = <T,>(value: T): T | null => (spendOut || crmOut ? null : value);
     const stageHeaders = data.stages.map((s) => s.label);
     const valueLabel = data.stages.find((s) => s.countsValue)?.label ?? 'Funded';
 
@@ -54,7 +66,7 @@ export async function GET(
         // Raw numbers, not the display format: a thousands separator makes the
         // field a quoted string, and a spreadsheet will not sum a column of
         // those.
-        data.stageStatus[stage.key]?.blocked ? null : (counts[stage.key] ?? 0),
+        crmOut || data.stageStatus[stage.key]?.blocked ? null : (counts[stage.key] ?? 0),
       );
 
     const rows: CsvCell[][] = [
@@ -77,17 +89,17 @@ export async function GET(
       ...data.channels.map((channel): CsvCell[] => [
         'channel',
         channel.label,
-        channel.spend,
-        channel.impressions,
-        channel.clicks,
-        channel.ctr,
-        channel.cpc,
+        spendCell(channel.spend),
+        spendCell(channel.impressions),
+        spendCell(channel.clicks),
+        spendCell(channel.ctr),
+        spendCell(channel.cpc),
         ...stageCells(channel.stages),
-        channel.valueVolume,
-        channel.costPerDeal.value,
-        channel.costPerDeal.attributedDeals,
-        channel.costPerDeal.plausibleRange.low,
-        channel.costPerDeal.plausibleRange.high,
+        crmCell(channel.valueVolume),
+        bothCell(channel.costPerDeal.value),
+        crmCell(channel.costPerDeal.attributedDeals),
+        bothCell(channel.costPerDeal.plausibleRange.low),
+        bothCell(channel.costPerDeal.plausibleRange.high),
         '',
       ]),
       [
@@ -99,7 +111,7 @@ export async function GET(
         null,
         null,
         ...stageCells(data.unattributed.stages),
-        data.unattributed.valueVolume,
+        crmCell(data.unattributed.valueVolume),
         null,
         null,
         null,
@@ -109,13 +121,13 @@ export async function GET(
       [
         'total',
         data.total.label,
-        data.total.spend,
-        data.total.impressions,
-        data.total.clicks,
-        data.total.ctr,
-        data.total.cpc,
+        spendCell(data.total.spend),
+        spendCell(data.total.impressions),
+        spendCell(data.total.clicks),
+        spendCell(data.total.ctr),
+        spendCell(data.total.cpc),
         ...stageCells(data.total.stages),
-        data.total.valueVolume,
+        crmCell(data.total.valueVolume),
         null,
         null,
         null,
@@ -123,6 +135,16 @@ export async function GET(
         data.total.costPerDealAbsentBecause,
       ],
     ];
+
+    const width = 6 + data.stages.length + 5;
+    if (spendOut) {
+      rows.push(['note', 'Spend is not measured', ...Array<CsvCell>(width).fill(null),
+        notMeasuredReason(cover.spend, sourceName(through.spendPlatforms))]);
+    }
+    if (crmOut) {
+      rows.push(['note', 'Stages are not measured', ...Array<CsvCell>(width).fill(null),
+        notMeasuredReason(cover.crm, 'Salesforce')]);
+    }
 
     for (const stage of data.stages) {
       const blocked = data.stageStatus[stage.key]?.blocked;

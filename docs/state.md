@@ -141,18 +141,20 @@ secret (`67e4309c2482`, which still fails every credential).
   for any deal. Turn Clean Pros' lender is the inactive "Test Lender" placeholder
   standing in for EBF, which was never set up — per-lender figures are wrong for
   that deal. Both belong in June either way.
-- **Open question for the client:** `csbs__Funded_Date_Time__c` is the time of
-  data entry and `csbs__Funded_Date__c` looks like the business funding date on
-  backfilled deals. No month changes today apart from Onu Ventures, which is
-  already corrected; switching the mapping is a decision, not made.
+- **Funded stays dated by the timestamp** (client decision): the date field
+  is a copy of `CloseDate`, the creation day. Late entries get a
+  `stage_corrections` row, as Onu Ventures did.
+- **Spartan's logo is live** — trimmed from the client's 1200×243 PNG to
+  509×96, loaded with `set-tenant-logo.ts`, source file deleted. It is white type
+  for dark grounds, so the expanded rail draws it as a wordmark on chrome (no
+  tile) and the collapsed rail keeps the initials.
+- **No zeros for unread ranges anywhere**: Executive, monthly performance,
+  funnel, every platform page and the CSV export ask `lib/coverage.ts`, and
+  `windowBuckets` stops every chart at the last read. Verified locally for 22
+  September against a Salesforce copy last synced 18 September, Search Console
+  published through 20 September and Google Ads synced that day.
 
-**Next:**
-
-1. Spartan's logo: `DATABASE_URL_OWNER="$NEON_DIRECT_URL" npx tsx
-   packages/db/scripts/set-tenant-logo.ts spartan <file> --dry-run`, then again
-   without it. 32px square tile, `object-contain`.
-2. Extend `rangeCoverage` to monthly performance, funnel and platform pages.
-3. Decide the funded-date field (above).
+**Next:** nothing outstanding from the 23 September brief.
 
 ## Cost per funded deal — Google Ads, trailing 90 days
 

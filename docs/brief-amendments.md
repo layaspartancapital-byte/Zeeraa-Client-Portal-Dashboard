@@ -2976,3 +2976,22 @@ icon and word as well as colour and never in green or red; and the rail shows
 the tenant's own logo from `tenants.logo_data_url` (migration 0025, set by
 `set-tenant-logo.ts`), stored on the row so it is policy-protected and has no
 public URL.
+
+## §8 and §12 — funded deals are dated by the timestamp, and unread ranges are named
+
+Decided 23 September 2026.
+
+- **Funded is dated by `csbs__Funded_Date_Time__c`**, the stamp, and a late
+  entry is corrected per deal in `stage_corrections` (Onu Ventures is the
+  first). `csbs__Funded_Date__c` was proposed as a business funding date and
+  rejected: it equals `CloseDate` on all 22 deals that carry it, and `CloseDate`
+  is the creation day unless somebody edits it, so it records when the deal was
+  opened rather than when it funded.
+- **No zero for a range past a source's last read**, on any screen or in the
+  export. A range after the last successful sync — or, for GA4 and Search
+  Console, after the last published day — renders the named `Not measured`
+  state with the source and the day; a range running past it says where its
+  figures stop; a comparison period is held to the same rule, so a delta is
+  never drawn against an unread baseline. Rules in `lib/coverage.ts`, guarded by
+  `coverage-usage.test.ts`.
+

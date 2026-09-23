@@ -12,7 +12,15 @@ import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
+import { NotMeasuredCard } from '@/components/NotMeasuredCard';
+import {
+  coverageFor,
+  isUnmeasured,
+  notMeasuredReason,
+  sourcesThrough,
+  throughNote,
+} from '@/lib/coverage';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
@@ -85,7 +93,7 @@ export default async function Funnel({
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
   const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
 
-  const [data, quality, buckets, metrics, submissions, leakageTolerance, calls] =
+  const [data, quality, buckets, metrics, submissions, leakageTolerance, calls, through] =
     await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
@@ -96,7 +104,18 @@ export default async function Funnel({
     submissionReport(session, range),
     maxRateLeakage(session),
     callReport(session, range, await alowareConnectedThreshold(session)),
+    sourcesThrough(session),
   ]);
+
+  // No zeros for a range past a source's last read — see `lib/coverage.ts`.
+  // Everything here but the calls is Salesforce; calls also need the leads
+  // they are matched to, so they need both.
+  const cover = coverageFor(through, range);
+  const crmOut = isUnmeasured(cover.crm);
+  const crmWhy = notMeasuredReason(cover.crm, 'Salesforce');
+  const callsOut = crmOut || isUnmeasured(cover.calls);
+  const callsWhy = crmOut ? crmWhy : notMeasuredReason(cover.calls, 'Call tracking');
+  const crmNote = throughNote(cover.crm, 'Salesforce');
 
   /**
    * Transitions the funnel must not put a rate on, from configuration.
@@ -247,7 +266,7 @@ export default async function Funnel({
             title="Stage flow"
             subtitle={`${population.label} · ${range.start} to ${range.end} · ${
               model === 'last_touch' ? 'last touch' : 'first touch'
-            }`}
+            }${crmNote}`}
             controls={
               data.stages.length - measurable.length > 0 ? (
                 <Badge tone="warn">
@@ -256,16 +275,26 @@ export default async function Funnel({
               ) : undefined
             }
           />
-          <FunnelStages
-            data={data}
-            counts={population.counts}
-            populationLabel={population.label}
-            suppressed={suppressed}
-            maxLeakage={leakageTolerance}
-          />
+          {crmOut ? (
+            <CardBody>
+              <EmptyLine action={<NotMeasuredBadge />}>{crmWhy}</EmptyLine>
+            </CardBody>
+          ) : (
+            <FunnelStages
+              data={data}
+              counts={population.counts}
+              populationLabel={population.label}
+              suppressed={suppressed}
+              maxLeakage={leakageTolerance}
+            />
+          )}
         </Card>
 
-        <CallTracking report={calls} span={12} />
+        {callsOut ? (
+          <NotMeasuredCard title="Call tracking" subtitle="Aloware" reason={callsWhy} />
+        ) : (
+          <CallTracking report={calls} span={12} />
+        )}
 
         {/*
           The chart and the decline card share the left column rather than
@@ -275,6 +304,13 @@ export default async function Funnel({
           failed to finish loading.
         */}
         <div className="col-span-12 flex flex-col gap-6 lg:col-span-8">
+          {crmOut ? (
+            <>
+              <NotMeasuredCard title="Stage by channel" reason={crmWhy} className="w-full" />
+              <NotMeasuredCard title="Declines" reason={crmWhy} className="w-full" />
+            </>
+          ) : (
+          <>
           <Card selfStart className="w-full">
           <CardHeader
             title="Stage by channel"
@@ -308,11 +344,17 @@ export default async function Funnel({
             reason={declineReason}
             submissions={submissions}
           />
+          </>
+          )}
         </div>
 
         <DataQualityCard items={quality} span={4} />
 
-        <LenderOutcomes report={submissions} span={12} />
+        {crmOut ? (
+          <NotMeasuredCard title="Lender outcomes" reason={crmWhy} />
+        ) : (
+          <LenderOutcomes report={submissions} span={12} />
+        )}
 
         <Card span={12}>
           <CardHeader
@@ -326,12 +368,18 @@ export default async function Funnel({
               />
             }
           />
-          <BreakdownPanel
-            dimension={dimension}
-            stages={measurable.map((s) => ({ key: s.key, label: s.label }))}
-            counts={population.counts}
-            slug={slug}
-          />
+          {crmOut ? (
+            <CardBody>
+              <EmptyLine action={<NotMeasuredBadge />}>{crmWhy}</EmptyLine>
+            </CardBody>
+          ) : (
+            <BreakdownPanel
+              dimension={dimension}
+              stages={measurable.map((s) => ({ key: s.key, label: s.label }))}
+              counts={population.counts}
+              slug={slug}
+            />
+          )}
         </Card>
       </Grid>
 

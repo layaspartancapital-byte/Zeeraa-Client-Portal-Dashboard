@@ -17,6 +17,7 @@ import {
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
+import { sourcesThrough, stalest } from '@/lib/coverage';
 
 /**
  * The queries behind the dashboard furniture that spec v2 added: a mini chart
@@ -380,6 +381,10 @@ export async function windowBuckets(
       ? monthBucketsIn(range)
       : evenBucketsIn(range, granularity === 'week' ? 7 : 1);
 
+  const through = await sourcesThrough(session);
+  const spendThrough = stalest(through, through.spendPlatforms);
+  const crmThrough = through.byPlatform.salesforce ?? null;
+
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
 
@@ -530,8 +535,13 @@ export async function windowBuckets(
         label: bucketLabel(span, granularity === 'month' ? 'month' : 'day'),
         start: span.start,
         end: span.end,
-        spendIngested: spendFrom !== null && span.end >= spendFrom,
-        crmIngested: crmFrom !== null && span.end >= crmFrom,
+        // Ingested means inside the record at both ends: after the first
+        // day the source covers, and not starting after its last read. A
+        // bucket past the last sync is unmeasured, not a bucket of zeros.
+        spendIngested:
+          spendFrom !== null && span.end >= spendFrom && spendThrough !== null && span.start <= spendThrough,
+        crmIngested:
+          crmFrom !== null && span.end >= crmFrom && crmThrough !== null && span.start <= crmThrough,
         provisional: span.end >= settledBefore,
         spend: 0,
         clicks: 0,

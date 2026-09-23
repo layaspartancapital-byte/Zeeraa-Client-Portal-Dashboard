@@ -20,8 +20,15 @@ export function LenderOfferRateCard({
   report,
   metric,
   gate,
+  unsynced,
   span,
 }: {
+  /**
+   * Why the range cannot be read at all — Salesforce has not synced any of it.
+   * Wins over every other reason: "no lender decided" would claim a quiet
+   * period for a period nobody looked at.
+   */
+  unsynced?: string;
   report: SubmissionReport;
   metric: MetricConfig | undefined;
   /**
@@ -37,7 +44,7 @@ export function LenderOfferRateCard({
 }) {
   const { overall } = report;
   const label = metric?.label ?? 'Lender offer rate';
-  const withheld = gate !== undefined && !gate.sufficient;
+  const withheld = unsynced !== undefined || (gate !== undefined && !gate.sufficient);
 
   return (
     <KpiCard
@@ -45,8 +52,10 @@ export function LenderOfferRateCard({
       label={label}
       value={withheld || overall.rate === null ? null : formatRate(overall.rate)}
       notMeasured={
-        withheld
-          ? gate.reason!
+        unsynced
+          ? unsynced
+          : withheld
+          ? gate!.reason!
           : report.empty
             ? 'No lender submissions are ingested yet'
             : 'No lender has decided a submission in this window'
