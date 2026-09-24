@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (executive ramp simplified; product tour).**
+**Last updated: 24 September 2026 (thirteen client-facing fixes).**
 
 ---
 
@@ -80,6 +80,23 @@ takes 190–350ms, because the tour prefetches its three pages with
 fetches the layout only — Funnel took 1.6s). Scrolling is instant, the light
 never starts above the sticky bar, and the caption takes whichever side has
 room, the light cut short above it where none does.
+
+**Thirteen client-facing fixes, deployed 24 September 2026** (`fb323cd`; the
+rules they reversed are in `docs/brief-amendments.md`, "thirteen client-facing
+fixes"). Costs are never withheld for a small denominator — "Based on N deals"
+beneath, "No deals yet" for none. The funnel shows a count ratio between every
+stage. The Data quality card is Zeeraa-admin only, and three of its items are
+now measured over the last 90 days: offer rate 16.7% (137 of 820 lender
+decisions), revenue band known for 86.2% of inbound leads, a decline reason on
+28.4% of lender declines (194 of 683). Production steps, in this order:
+migration 0034, the deploy, `apply-client-fixes.ts` (band edges on the
+connection mapping, `lender_exclusions`, four blocked rows and the `offer_rate`
+metric deleted), `backfill-revenue-band.ts` (6,631 leads). The order matters:
+the old sync cleared every submission exclusion on each run.
+
+**Not built, and why.** Product: the only product field, Opportunity
+`csbs__Product__c`, holds `MCA` on 4.9% of deals, so the tab is not drawn.
+Breakdown ignores the funnel's population toggle and says "every source".
 
 ## Done
 
