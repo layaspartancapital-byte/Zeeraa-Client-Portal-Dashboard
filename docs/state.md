@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (organic source and six client fixes — built, production steps pending).**
+**Last updated: 24 September 2026 (lead sources and six client fixes — live).**
 
 ---
 
@@ -373,15 +373,24 @@ secret (`67e4309c2482`, which still fails every credential).
   database was 120 MB against the Free plan's 0.5 GB on 24 September
   (`search_console_metrics` 60 MB, `calls` 24 MB).
 
-- **Lead sources and six client fixes (24 September 2026).** See
-  `docs/brief-amendments.md`, "§8 and §12" and "The source rules, as approved".
-  Go-live order, as run: (1) migrate 0035 and 0036, then preflight; (2) run the
-  number checks read-only against production, then push `main`; (3)
-  `apply-lead-sources.ts` with `--dry-run`, then for real; (4)
-  `backfill-lead-channel spartan` with `--dry-run`, then for real; (5) restate
-  June–August: `freeze-baseline --correct` for the ramp's six metrics,
-  `--correct-channel-figures`, then `--channel-figures` for the new sources;
-  (6) re-run the number checks.
+- **Lead sources and six client fixes — LIVE (24 September 2026, `681060f`).**
+  See `docs/brief-amendments.md`, "§8 and §12" and "The source rules, as
+  approved". Done on production in this order: migrations 0035 and 0036;
+  number checks; push and deploy (preflight and numbers passed on Vercel);
+  `apply-lead-sources.ts`; `backfill-lead-channel` (52 ZoomInfo leads excluded,
+  742 opportunities with `is_closed`); June–August restated with the
+  reclassification as the reason (13 ramp and 40 channel-figure versions, and
+  SEO/Organic and vendor figures frozen); number checks pass with no
+  exceptions. The 20:30 UTC Salesforce sync wrote 29 leads, all with a source.
+  - **Before the deploy the check caught a separate change.** 34 June–August
+    deals gained a first `Offer_Received_Date_Time__c` in Salesforce on 24
+    September, after the freeze (33 last modified by Laya Shah 19:00–20:00 UTC,
+    1 by Oscar Huamani). They were confirmed as real and restated as offer v2.
+  - **No lead carries a gbraid or wbraid.** `Gbraid__c` and `Wbraid__c` exist
+    and are empty, so Google Ads' iOS evidence is `utm_source=100A00` alone
+    until the form writes them.
+  - Popcrumbs, the seventh source, repeats Google Ads' chart colour: the
+    palette has six validated series.
 - **Salesforce cron re-registration** (deployed `67c41b5`): confirmed firing
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.
