@@ -399,22 +399,28 @@ export const spartan: TenantSeed = {
       key: 'lead_source_rules',
       description:
         'Which source a lead with no click ID is credited to, applied in this order ' +
-        '(leadChannel in core): a gbraid/wbraid or utm_source 100A00 is Google Ads; ' +
-        'Lead Source "Meta Ads" (Meta lead forms) is Meta; a paid UTM goes to the ' +
-        'channel its utm_source names; a lead vendor is its own named source; a lead ' +
-        'referred from the Spartan website or a search results page with no paid ' +
-        'signal is SEO/Organic; everything else is Direct & other. Set from value ' +
-        'sweeps of Salesforce and GA4 on 24 September 2026.',
+        '(leadChannel in core): gbraid/wbraid, or gclid/gbraid/wbraid/gad_source in the ' +
+        'referring URL, is Google Ads; fbclid there is Meta; Lead Source "Meta Ads" ' +
+        '(Meta lead forms) is Meta; a Google or Meta utm_source is that channel; a ' +
+        'Facebook or Instagram referrer is Meta; a lead vendor is its own named ' +
+        'source; utm_source 100A00 alone credits nobody (the landing page both ad ' +
+        'platforms send to sets it) and rules out SEO/Organic; the Spartan website ' +
+        'or a search referrer with no paid signal is SEO/Organic; everything else is ' +
+        'Direct & other. Corrected 24 September 2026.',
       value: {
         utmSources: {
-          google_ads: ['google', 'adwords', '100a00'],
+          google_ads: ['google', 'adwords'],
           // Meta's own placement names for {{site_source_name}}: fb, ig, an, msg, th.
           meta: ['fb', 'facebook', 'meta', 'ig', 'instagram', 'an', 'msg', 'th'],
         },
-        // GA4 shows 100A00 sessions landing from Google Ads links carrying
-        // gad_source/gbraid and no gclid.
-        markerSources: { google_ads: ['100a00'] },
-        paidMediums: ['cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'search', 'display', 'web_ad'],
+        // None: 100A00 marks the shared ad landing page, not a platform.
+        markerSources: {},
+        referrerParams: { google_ads: ['gclid', 'gbraid', 'wbraid', 'gad_source'], meta: ['fbclid'] },
+        referrerHosts: {
+          meta: ['facebook.com', 'm.facebook.com', 'l.facebook.com', 'lm.facebook.com', 'instagram.com', 'l.instagram.com'],
+        },
+        unknownPaidSources: ['100a00'],
+        paidMediums: ['cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'search', 'display', 'web_ad', 'pmax'],
         unpaidMediums: ['organic'],
         leadSourceChannels: { 'Meta Ads': 'meta', 'Google AdWords': 'google_ads' },
         vendors: { popcrumbs: 'Popcrumbs', lendfax: 'Lendfax', leadpop: 'Leadpop', lendingtree: 'LendingTree' },

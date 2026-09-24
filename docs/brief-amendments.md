@@ -3353,7 +3353,8 @@ gclid, and 48 of the 62 "organic" leads carried it. The rules are now
 
 1. A click ID: that platform.
 2. gbraid / wbraid (`Gbraid__c`, `Wbraid__c`): Google Ads.
-3. `utm_source=100A00`: Google Ads.
+3. `utm_source=100A00`: Google Ads. (Withdrawn the same day; see the next
+   section.)
 4. Lead Source `Meta Ads` (Meta's own lead forms, no fbclid): Meta.
 5. A paid UTM: the channel its `utm_source` names.
 6. A lead vendor (Popcrumbs, Lendfax, Leadpop, LendingTree): its own named source.
@@ -3375,3 +3376,34 @@ Production, June–September:
   Direct & other 399, and 52 ZoomInfo leads are excluded.
 - **Funded deals.** Google Ads 10 → 18, SEO/Organic 2, Popcrumbs 1, Meta 1,
   and Unattributed 12 becomes Direct & other 1.
+
+
+### `100A00` is not Google evidence (24 September 2026, corrected the same day)
+
+The approved rules treated `utm_source=100A00` as Google Ads. It isn't: the
+landing page both ad platforms send traffic to sets it. Of the 715 `100A00`
+leads, 191 (27%) carry Google evidence, 94 (13%) carry Facebook or Instagram
+evidence, and 430 (60%) carry neither. Seven of the eight funded deals that
+moved to Google Ads on it had no Google evidence: one was Meta (an fbclid on
+its referring URL), and six were Direct & other.
+
+The rule now credits Google Ads only for a gclid, a gbraid or wbraid, or
+`gclid`, `gbraid`, `wbraid` or `gad_source` on the referring URL, or a Google
+UTM. It credits Meta for an fbclid, a Facebook or Instagram referrer, a Meta UTM
+or Meta's lead forms. `100A00` alone credits nobody, and it rules out
+SEO/Organic, because it marks a visit through an ad page
+(`unknownPaidSources`). June–August is restated as new versions with this as
+the reason.
+
+Production, June–September:
+- **Leads.** Google Ads 1,654 → 1,338, Meta 1,751 → 1,858, Direct & other
+  451 → 655. SEO/Organic is unchanged at 59.
+- **Funded deals.** Google Ads 18 → 11, Meta 1 → 2, Direct & other 1 → 7.
+  The deals that change: OHS Contracting, Kenura Angel Services, THUD
+  Roofing, Personal Auto Repair & Detailing, The flavor pharmacy and Petway
+  Trucking go to Direct & other, and Yessica cleaning and painting goes to
+  Meta.
+
+**Spartan's `Gbraid__c` and `Wbraid__c` are empty.** The apply form has those
+values in its URL but doesn't write them, so an iPhone Google Ads click whose
+landing URL isn't the referrer falls in Direct & other.

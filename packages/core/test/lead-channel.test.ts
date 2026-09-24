@@ -9,8 +9,11 @@ import {
 import { platformLabel } from '../src/platform-labels';
 
 const rules = parseLeadSourceRules({
-  utmSources: { google_ads: ['google', '100a00'], meta: ['fb', 'facebook', 'ig'] },
-  markerSources: { google_ads: ['100a00'] },
+  utmSources: { google_ads: ['google'], meta: ['fb', 'facebook', 'ig'] },
+  markerSources: {},
+  referrerParams: { google_ads: ['gclid', 'gbraid', 'wbraid', 'gad_source'], meta: ['fbclid'] },
+  referrerHosts: { meta: ['facebook.com', 'l.facebook.com', 'instagram.com'] },
+  unknownPaidSources: ['100a00'],
   paidMediums: ['cpc', 'paid', 'paid_social', 'search'],
   unpaidMediums: ['organic'],
   leadSourceChannels: { 'Meta Ads': 'meta' },
@@ -34,9 +37,23 @@ describe('leadChannel', () => {
     expect(leadChannel(lead({ clickIdType: 'meta', utmSource: 'google', leadSource: 'popcrumbs' }), rules)).toBe('meta');
   });
 
-  it('credits Google Ads for a gbraid/wbraid or the 100A00 marker', () => {
+  it('credits Google Ads for a gbraid/wbraid, or paid parameters on the referring URL', () => {
     expect(leadChannel(lead({ braid: 'wbraid-1', referrerUrl: 'https://www.google.com/' }), rules)).toBe('google_ads');
-    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: 'https://www.google.com/' }), rules)).toBe('google_ads');
+    const landing = 'https://apply.spartancapitalgroup.com/?gad_source=1&gad_campaignid=23718411293&gbraid=0AAAAA';
+    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: landing }), rules)).toBe('google_ads');
+  });
+
+  it('credits Meta for an fbclid on the referring URL, or a Facebook or Instagram referrer', () => {
+    const landing = 'https://apply.spartancapitalgroup.com/business-loans/?utm_source=meta&fbclid=IwY2xj';
+    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: landing }), rules)).toBe('meta');
+    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: 'https://l.facebook.com/' }), rules)).toBe('meta');
+    expect(leadChannel(lead({ referrerUrl: 'https://instagram.com/' }), rules)).toBe('meta');
+  });
+
+  it('credits nobody for 100A00 alone, and does not let it pass for organic', () => {
+    // Set by the landing page both platforms send traffic to (24 September 2026).
+    expect(leadChannel(lead({ utmSource: '100A00' }), rules)).toBeNull();
+    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: 'https://www.google.com/' }), rules)).toBeNull();
   });
 
   it('credits Meta for its own lead forms', () => {
@@ -47,6 +64,10 @@ describe('leadChannel', () => {
     expect(leadChannel(lead({ utmSource: 'google', utmMedium: 'cpc' }), rules)).toBe('google_ads');
     expect(leadChannel(lead({ utmSource: 'fb', utmMedium: 'paid' }), rules)).toBe('meta');
     expect(leadChannel(lead({ utmSource: 'ig', utmCampaign: '120249615797590176' }), rules)).toBe('meta');
+    // A Google UTM declared organic is not Google Ads.
+    expect(leadChannel(lead({ utmSource: 'google', utmMedium: 'organic', referrerUrl: 'https://www.google.com/' }), rules)).toBe(
+      ORGANIC_SEARCH,
+    );
     // Paid, but provably neither channel.
     expect(leadChannel(lead({ utmSource: 'debanked', utmMedium: 'paid' }), rules)).toBeNull();
   });
@@ -74,7 +95,6 @@ describe('leadChannel', () => {
       { referrerUrl: 'android-app://com.google.android.gm/' },
       { referrerUrl: 'https://tagassistant.google.com/' },
       { referrerUrl: 'https://apply.spartancapitalgroup.com/' },
-      { referrerUrl: 'https://l.facebook.com/' },
       { referrerUrl: 'https://www.google.com/', utmMedium: 'email' },
       { referrerUrl: 'https://www.google.com/', utmCampaign: 'spring-promo' },
     ] satisfies Partial<LeadSourceEvidence>[]) {

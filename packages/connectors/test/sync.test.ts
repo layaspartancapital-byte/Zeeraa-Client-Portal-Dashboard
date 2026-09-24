@@ -114,8 +114,11 @@ describe('lead normalisation', () => {
       lead: { ...SPARTAN.lead, referrer: 'referral_url__c', leadSource: 'LeadSource', braids: ['Gbraid__c', 'Wbraid__c'] },
     };
     const rules = {
-      utmSources: { google_ads: ['google', '100a00'], meta: ['fb'] },
-      markerSources: { google_ads: ['100a00'] },
+      utmSources: { google_ads: ['google'], meta: ['fb'] },
+      markerSources: {},
+      referrerParams: { google_ads: ['gclid', 'gbraid', 'wbraid', 'gad_source'], meta: ['fbclid'] },
+      referrerHosts: { meta: ['facebook.com'] },
+      unknownPaidSources: ['100a00'],
       paidMediums: ['cpc'],
       unpaidMediums: ['organic'],
       leadSourceChannels: { 'meta ads': 'meta' },

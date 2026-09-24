@@ -335,10 +335,13 @@ assumes they are comparable.
   an ⓘ, never as zero.
 - **A lead's source is decided once, at ingest, in a fixed order.** `leads.channel`
   is resolved by `leadChannel` in core from the `lead_source_rules` row: click
-  ID; gbraid/wbraid or `utm_source=100A00` (Google Ads); a Lead Source naming a
-  channel (Meta lead forms); a paid UTM by its source; a named lead vendor
-  (`vendor:<Name>`); SEO/Organic (the Spartan website or a search referrer,
-  with no paid signal); otherwise Direct & other. Read it through
+  ID; gbraid/wbraid; paid click parameters on the referring URL (gclid,
+  gbraid, wbraid, gad_source; fbclid); a Lead Source naming a channel (Meta
+  lead forms); a UTM source naming a channel; a Facebook/Instagram referrer; a
+  named lead vendor (`vendor:<Name>`); SEO/Organic (the Spartan website or a
+  search referrer, with no paid signal); otherwise Direct & other.
+  **`utm_source=100A00` proves nothing**: the landing page both ad platforms
+  send traffic to sets it, so it credits nobody and rules out SEO/Organic. Read it through
   `leadChannel()` in `@zeeraa/db`, never `click_id_type`. A deal with no click
   touch takes its lead's source. SEO/Organic and vendors have no ingested
   spend, so their cost cells are an em dash with `noSpendReason`, never $0.
