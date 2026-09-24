@@ -356,6 +356,11 @@ secret (`67e4309c2482`, which still fails every credential).
   on return if due. Verified in a browser with a fake clock: none at 9
   minutes, one at 10, range and scroll unchanged; none over 25 hidden minutes,
   one on return. The four cron routes share `lib/cron-auth.ts`.
+  Estimated Vercel Pro cost (24 September 2026, from list prices, not a
+  bill): ~4,320 Salesforce runs and ~20k page refreshes a month come to about
+  $1–3 of usage, inside the $20 credit each Pro seat includes, so the bill is
+  the seat count × $20. The real cost to watch is Neon: a run every ten
+  minutes means the compute never suspends, since its idle timeout is 5 minutes.
 
 **Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
 runs on 24 September, and complete the Inngest disconnection steps above.
@@ -1912,9 +1917,9 @@ labelled early rather than withheld. It does not render for Spartan today —
 the budget sits on a ramp month and the start month is unrecorded — so the card
 shows the spend with `No budget set`.
 
-**The page refetches itself hourly**, matching the sync cadence:
-`revalidate = 3600` plus `AutoRefresh`, which uses `router.refresh()` and pauses
-while the tab is hidden.
+**The page refetches itself every ten minutes**, matching the Salesforce sync
+(changed from hourly on 23 September 2026): `revalidate = 600` plus
+`AutoRefresh`, which uses `router.refresh()` and pauses while the tab is hidden.
 
 **Removed:** `HeroCard`, `ChannelSnapshot`, `SpeedToLeadCard`, `GatedOutcomes`.
 Deleted rather than left unimported, for the reason the retired offer rate was.
