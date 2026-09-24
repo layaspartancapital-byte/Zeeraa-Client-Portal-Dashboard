@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (thirteen client-facing fixes).**
+**Last updated: 24 September 2026 (number guards).**
 
 ---
 
@@ -97,6 +97,18 @@ the old sync cleared every submission exclusion on each run.
 **Not built, and why.** Product: the only product field, Opportunity
 `csbs__Product__c`, holds `MCA` on 4.9% of deals, so the tab is not drawn.
 Breakdown ignores the funnel's population toggle and says "every source".
+
+**Two number guards run on every deploy (24 September 2026)**, after preflight,
+read-only against production (`apps/web/test/numbers`). The baseline check
+recomputes the 18 frozen figures (Google Ads, Jun–Aug, the ramp's six) two ways;
+16 match exactly and the two June costs frozen blank under the old minimum-deal
+rule are listed in `baseline-exceptions.ts`. The consistency check found and
+fixed two real disagreements on its first run: the monthly buckets counted an
+MQL twice when it also had a stage event, and the Breakdown dropped deals with
+no originating lead. **Outstanding, awaiting the client's decision:** freezing
+the other key figures (every stage per channel, Meta's money figures) with
+`freeze-baseline --channel-figures`, and whether to freeze a June version 2
+for the two costs instead of keeping the exceptions.
 
 ## Done
 

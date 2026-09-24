@@ -7,10 +7,15 @@
  * with who and why. The table refuses edits for every role; a frozen month is
  * corrected by inserting the next version, never by running this again.
  * `--dry-run` computes and prints without writing.
+ *
+ * `--channel-figures` freezes the other key figures instead — every funnel
+ * stage per channel, and each paid channel's spend, volume, CPA and cost per
+ * funded deal (`freezeChannelFigures`) — which the pre-deploy number check
+ * compares against.
  */
 import { eq } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withMaintenance } from '@zeeraa/db';
-import { freezeBaselineMonths } from '../src/freeze';
+import { freezeBaselineMonths, freezeChannelFigures } from '../src/freeze';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
@@ -22,8 +27,9 @@ const months = args.slice(1).filter((a, i, all) => /^\d{4}-\d{2}$/.test(a) && ![
 const by = flag('--by');
 const reason = flag('--reason');
 const dryRun = args.includes('--dry-run');
+const channel = args.includes('--channel-figures');
 if (!slug || months.length === 0 || !by || !reason) {
-  throw new Error('Usage: freeze-baseline <slug> <YYYY-MM>... --by "<name>" --reason "<why>" [--dry-run]');
+  throw new Error('Usage: freeze-baseline <slug> <YYYY-MM>... --by "<name>" --reason "<why>" [--dry-run] [--channel-figures]');
 }
 
 const [tenant] = await withMaintenance(getMaintenanceDb(), (tx) =>
@@ -31,7 +37,8 @@ const [tenant] = await withMaintenance(getMaintenanceDb(), (tx) =>
 );
 if (!tenant) throw new Error(`No tenant with slug "${slug}".`);
 
-for (const o of await freezeBaselineMonths({ tenantId: tenant.id, months, by, reason, dryRun })) {
+const freeze = channel ? freezeChannelFigures : freezeBaselineMonths;
+for (const o of await freeze({ tenantId: tenant.id, months, by, reason, dryRun })) {
   console.log(`${o.month}  ${o.status.padEnd(15)} ${o.detail}`);
 }
 process.exit(0);

@@ -86,7 +86,9 @@ export async function breakdownRows(
         select ${dim} dim, ${schema.stageEvents.stage} stage,
                count(distinct ${schema.stageEvents.opportunityExternalId})::int n
         from ${schema.stageEvents}
-        join ${schema.leads} on ${schema.leads.tenantId} = ${schema.stageEvents.tenantId}
+        -- A deal with no originating lead is still a deal: it lands in "Not
+        -- recorded" rather than dropping out, so the rows sum to the funnel.
+        left join ${schema.leads} on ${schema.leads.tenantId} = ${schema.stageEvents.tenantId}
           and ${schema.leads.convertedOpportunityId} = ${schema.stageEvents.opportunityExternalId}
         ${campaignJoin}
         where ${and(eq(schema.stageEvents.tenantId, session.tenant.id), stageEventsIn(range))}

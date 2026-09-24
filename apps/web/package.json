@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "numbers": "vitest run --config vitest.numbers.config.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",

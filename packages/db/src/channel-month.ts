@@ -1,6 +1,6 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import * as schema from './schema/index';
-import { stageEventsIn } from './periods';
+import { leadsCreatedIn, stageEventsIn } from './periods';
 import type { Database } from './client';
 
 /**
@@ -43,9 +43,17 @@ export async function channelMonth(
     stages: readonly string[];
     valueStage: string | null;
     model?: 'first_touch' | 'last_touch';
+    /**
+     * Stages counted from leads rather than stage events — `lead`, and `mql`
+     * narrowed to leads that pass the bar — by the lead's own click, exactly
+     * as `monthlyPerformance` counts them. Added 24 September 2026 so the
+     * frozen baseline can hold every funnel figure, not only the ramp's.
+     */
+    leadStages?: readonly { key: string; qualifiedOnly: boolean }[];
   },
 ): Promise<ChannelMonth> {
   const { tenantId, platform, month, stages, valueStage } = options;
+  const leadStages = options.leadStages ?? [];
   const model = options.model ?? 'last_touch';
   const start = `${month}-01`;
   const [y, m] = month.split('-').map(Number);
@@ -63,7 +71,8 @@ export async function channelMonth(
       ),
     );
 
-  const stageRows = await tx
+  // No deal stages configured is no query, not `in ()`.
+  const stageRows = stages.length === 0 ? [] : await tx
     .select({
       stage: schema.stageEvents.stage,
       platform: schema.attribution.platform,
@@ -94,6 +103,27 @@ export async function channelMonth(
     c.all += Number(row.deals);
     if (row.platform === platform) c.own += Number(row.deals);
     else if (!row.platform) c.unattributed += Number(row.deals);
+  }
+
+  for (const stage of leadStages) {
+    const rows = await tx
+      .select({ clickIdType: schema.leads.clickIdType, n: sql<number>`count(*)::int` })
+      .from(schema.leads)
+      .where(
+        and(
+          eq(schema.leads.tenantId, tenantId),
+          leadsCreatedIn({ start, end }),
+          ...(stage.qualifiedOnly ? [eq(schema.leads.mqlVerdict, 'qualified')] : []),
+        ),
+      )
+      .groupBy(schema.leads.clickIdType);
+    const c = { own: 0, unattributed: 0, all: 0 };
+    for (const row of rows) {
+      c.all += Number(row.n);
+      if (row.clickIdType === platform) c.own += Number(row.n);
+      else if (!row.clickIdType) c.unattributed += Number(row.n);
+    }
+    counts[stage.key] = c;
   }
 
   let ownVolume = 0;

@@ -233,6 +233,20 @@ commit history and get it wrong.
   cannot enforce isolation fails the deployment instead of serving. Adding a
   check there is how an invariant stops being a note in `docs/state.md` — three
   tables sat misowned for eleven days while the file recommended exactly this.
+- **The deploy runs the number checks after preflight** (`pnpm --filter
+  @zeeraa/web numbers`, `apps/web/test/numbers`), read-only against the
+  production database. Every frozen baseline figure is recomputed with the new
+  code through both the screens' path and the freeze's; a difference fails the
+  deploy unless `baseline-exceptions.ts` lists it with a reason, and a listed
+  exception that no longer differs fails too. And every screen that shows a
+  figure for the same month and channel — `monthlyPerformance`, the
+  `windowBuckets` month, `platformView`, `channelFigures` — must return the
+  same number, and the Breakdown's rows must sum to the funnel. A new screen
+  showing a key figure gets a source in `test/numbers/figures.ts`.
+- **A figure in a report to the user comes from production and says so.**
+  Local data is stale (on 24 September 2026 it had no qualified Google or Meta
+  lead); a local number is labelled local, and never stated as a fact about
+  the client.
 - After changing any policy, run `scripts/mutation-test.ts` — against a
   throwaway database, because it drops the schema it points at. If a mutation
   survives, add the test before shipping; if you add a control, add the

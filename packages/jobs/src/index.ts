@@ -35,3 +35,4 @@ export {
 export * from './aloware/writer';
 export * from './aloware/webhook';
 export * from './webhook-delivery';
+export * from './channel-figures';

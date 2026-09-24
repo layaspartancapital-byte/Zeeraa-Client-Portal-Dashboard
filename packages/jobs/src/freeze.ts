@@ -1,4 +1,5 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { channelFigures, stageMetric } from './channel-figures';
 import { channelMonth, getMaintenanceDb, schema, withJobTenant, withMaintenance, type Database } from '@zeeraa/db';
 import {
   addDays,
@@ -61,6 +62,9 @@ export async function freezeBaselineMonths(options: FreezeOptions): Promise<Free
             eq(schema.baselineSnapshots.tenantId, options.tenantId),
             eq(schema.baselineSnapshots.platform, context.platform),
             eq(schema.baselineSnapshots.month, `${month}-01`),
+            // The ramp's own metrics only: a month can carry channel figures
+            // (`freezeChannelFigures`) without its ramp being frozen.
+            inArray(schema.baselineSnapshots.metric, [...RAMP_METRICS]),
           ),
         );
       if (Number(existing[0]?.n ?? 0) > 0) {
@@ -162,7 +166,7 @@ export async function autoFreeze(tenantId: string, now = new Date()): Promise<Fr
   return outcomes;
 }
 
-type FreezeContext = {
+export type FreezeContext = {
   platform: string;
   today: string;
   timezone: string;
@@ -171,7 +175,7 @@ type FreezeContext = {
   crmThrough: string | null;
 };
 
-async function freezeContext(tx: Database, tenantId: string, now: Date): Promise<FreezeContext> {
+export async function freezeContext(tx: Database, tenantId: string, now: Date): Promise<FreezeContext> {
   const [tenant] = await tx.select({ tz: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId));
   const timezone = tenant?.tz ?? 'UTC';
   const [target] = await tx
@@ -246,4 +250,75 @@ export async function tenantsWithRamp(): Promise<string[]> {
     tx.selectDistinct({ tenantId: schema.engagementTargets.tenantId }).from(schema.engagementTargets),
   );
   return rows.map((r) => r.tenantId);
+}
+
+/**
+ * Freezes the key figures the ramp's six do not cover (24 September 2026):
+ * every funnel stage per channel, and spend, funded volume, CPA and cost per
+ * funded deal for each paid channel other than the ramp's — from
+ * `channelFigures`. The ramp channel's approvals, funded deals, spend, volume,
+ * CPA and cost per funded deal are its ramp metrics already, so they are not
+ * written twice under a second name.
+ *
+ * Append-only like the ramp freeze: a figure already frozen for the month is
+ * left alone, and a correction is the next version with a reason.
+ */
+export async function freezeChannelFigures(options: FreezeOptions): Promise<FreezeOutcome[]> {
+  const now = options.now ?? new Date();
+  const outcomes: FreezeOutcome[] = [];
+  await withJobTenant(options.tenantId, async (tx) => {
+    const context = await freezeContext(tx, options.tenantId, now);
+    const rampCovered = new Set([
+      'spend',
+      'funded_volume',
+      'cpa',
+      'cost_per_funded',
+      stageMetric('uw_approved'),
+      ...(context.valueStage ? [stageMetric(context.valueStage)] : []),
+    ]);
+    for (const month of options.months) {
+      if (!isMonthKey(month)) throw new Error(`Not a month: ${month}`);
+      if (month >= context.today.slice(0, 7)) {
+        outcomes.push({ month, status: 'deferred', detail: 'A month in progress cannot be frozen.' });
+        continue;
+      }
+      const existing = await tx
+        .select({ platform: schema.baselineSnapshots.platform, metric: schema.baselineSnapshots.metric })
+        .from(schema.baselineSnapshots)
+        .where(and(eq(schema.baselineSnapshots.tenantId, options.tenantId), eq(schema.baselineSnapshots.month, `${month}-01`)));
+      const frozen = new Set(existing.map((r) => `${r.platform}|${r.metric}`));
+      const figures = (await channelFigures(tx, options.tenantId, month)).filter(
+        (f) =>
+          !(f.platform === context.platform && rampCovered.has(f.metric)) && !frozen.has(`${f.platform}|${f.metric}`),
+      );
+      if (figures.length === 0) {
+        outcomes.push({ month, status: 'already_frozen', detail: 'Every channel figure is frozen already.' });
+        continue;
+      }
+      if (!options.dryRun) {
+        await tx.insert(schema.baselineSnapshots).values(
+          figures.map((f) => ({
+            tenantId: options.tenantId,
+            month: `${month}-01`,
+            platform: f.platform,
+            metric: f.metric,
+            version: 1,
+            value: f.value === null ? null : String(f.value),
+            notMeasuredReason: f.value === null ? 'Nothing to divide by in this month.' : null,
+            frozenAt: now,
+            frozenBy: options.by,
+            reason: options.reason,
+          })),
+        );
+      }
+      outcomes.push({
+        month,
+        status: 'frozen',
+        detail: `${options.dryRun ? '(dry run) ' : ''}${figures
+          .map((f) => `${f.platform} ${f.metric}=${f.value === null ? '—' : Math.round(f.value * 100) / 100}`)
+          .join(', ')}`,
+      });
+    }
+  });
+  return outcomes;
 }

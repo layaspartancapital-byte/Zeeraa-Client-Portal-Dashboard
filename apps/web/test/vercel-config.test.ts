@@ -48,4 +48,12 @@ describe('vercel.json', () => {
   it('builds only after preflight passes', () => {
     expect(config.buildCommand).toMatch(/^pnpm --filter @zeeraa\/db preflight && /);
   });
+
+  it('builds only after the number checks pass (24 September 2026)', () => {
+    // The frozen baseline recomputed with the new code, and every screen's
+    // figure for the same period and channel: a difference fails the deploy.
+    expect(config.buildCommand).toMatch(
+      /preflight && pnpm --filter @zeeraa\/web numbers && pnpm --filter @zeeraa\/web build$/,
+    );
+  });
 });

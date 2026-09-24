@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @zeeraa/db preflight && pnpm --filter @zeeraa/web build",
+  "buildCommand": "pnpm --filter @zeeraa/db preflight && pnpm --filter @zeeraa/web numbers && pnpm --filter @zeeraa/web build",
   "crons": [
     {
       "path": "/api/cron/sync",

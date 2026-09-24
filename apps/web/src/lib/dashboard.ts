@@ -560,6 +560,7 @@ export async function windowBuckets(
     const leadGrainStages = stages
       .filter((s) => s.source === 'leads' || s.source === 'qualified_leads')
       .map((s) => ({ key: s.key, qualifiedOnly: s.source === 'qualified_leads' }));
+    const leadGrainKeys = new Set(leadGrainStages.map((s) => s.key));
     const settledBefore = addDays(range.end, -6);
 
     return spans.map((span) => {
@@ -624,6 +625,11 @@ export async function windowBuckets(
 
       for (const row of stageRows) {
         if (row.day < span.start || row.day > span.end) continue;
+        // A lead-grain stage (MQL) is counted from `leads` below, as
+        // `monthlyPerformance` counts it. Its stage events are the subset that
+        // became deals, and adding them too counted those MQLs twice — found by
+        // the cross-screen number check, 24 September 2026.
+        if (leadGrainKeys.has(row.stage)) continue;
         const key = `${row.stage}\u0000${row.opportunityExternalId}`;
         if (seenInBucket.has(key)) continue;
         seenInBucket.add(key);
