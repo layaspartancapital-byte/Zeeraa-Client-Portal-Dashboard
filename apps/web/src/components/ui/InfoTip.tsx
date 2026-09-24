@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Info } from 'lucide-react';
+import { Clock3, Info } from 'lucide-react';
 
 /**
  * The ⓘ that carries everything the old screens said in paragraphs.
@@ -20,12 +20,16 @@ export function InfoTip({
   label = 'More information',
   align = 'center',
   className = '',
+  icon = 'info',
 }: {
   children: React.ReactNode;
   label?: string;
   align?: 'center' | 'start' | 'end';
   className?: string;
+  /** `clock` for a note about time — "recent days may still update". */
+  icon?: 'info' | 'clock';
 }) {
+  const Icon = icon === 'clock' ? Clock3 : Info;
   const id = useId();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
@@ -56,7 +60,7 @@ export function InfoTip({
         onClick={() => setOpen((v) => !v)}
         className="inline-flex h-4 w-4 items-center justify-center rounded-full text-text-3 transition-colors hover:text-text"
       >
-        <Info aria-hidden="true" className="h-[14px] w-[14px]" strokeWidth={2} />
+        <Icon aria-hidden="true" className="h-[14px] w-[14px]" strokeWidth={2} />
       </button>
 
       {open && (

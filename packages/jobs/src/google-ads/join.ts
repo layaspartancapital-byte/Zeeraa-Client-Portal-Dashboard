@@ -1,8 +1,9 @@
-import { and, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm';
 import { schema, stageEventsIn, type Database } from '@zeeraa/db';
 import {
   attributionCoverage,
   channelCostPerDeal,
+  ORGANIC_SEARCH,
   resolveBothModels,
   type AttributionCoverage,
   type AttributionModel,
@@ -159,6 +160,44 @@ export async function buildAttribution(
       });
     }
   }
+
+  // Organic search, for a deal with no paid touch at all: its converted lead
+  // carries the proof (`leads.channel`, resolved at ingest by `leadChannel`).
+  // Credited under both models, because with no click there is nothing for
+  // the two to disagree about. A deal that later gains a paid touch is
+  // overwritten by the upsert; one whose lead no longer proves organic loses
+  // the row below and falls back to unattributed.
+  const organicDeals = await tx
+    .selectDistinct({ opportunityExternalId: schema.leads.convertedOpportunityId })
+    .from(schema.leads)
+    .where(
+      and(
+        eq(schema.leads.tenantId, tenantId),
+        eq(schema.leads.channel, ORGANIC_SEARCH),
+        isNotNull(schema.leads.convertedOpportunityId),
+      ),
+    );
+  const organic = new Set(
+    organicDeals
+      .map((r) => r.opportunityExternalId!)
+      .filter((id) => !touchesByOpportunity.has(id)),
+  );
+  for (const opportunityExternalId of organic) {
+    for (const model of ['first_touch', 'last_touch'] as const) {
+      rows.push({ tenantId, opportunityExternalId, model, platform: ORGANIC_SEARCH, campaignId: null, clickId: null });
+    }
+  }
+  await tx
+    .delete(schema.attribution)
+    .where(
+      and(
+        eq(schema.attribution.tenantId, tenantId),
+        eq(schema.attribution.platform, ORGANIC_SEARCH),
+        organic.size > 0
+          ? notInArray(schema.attribution.opportunityExternalId, [...organic])
+          : sql`true`,
+      ),
+    );
 
   if (rows.length > 0) {
     await tx

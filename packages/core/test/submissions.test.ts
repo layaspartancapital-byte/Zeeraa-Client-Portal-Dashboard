@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AWAITING_LENDER_ANSWER,
+  pendingState,
   rankReasonCitations,
   reasonCoverageByPeriod,
   submissionOfferRate,
@@ -116,5 +118,20 @@ describe('rankReasonCitations', () => {
   it('breaks a tie by name so the order is stable between renders', () => {
     const { reasons } = rankReasonCitations([{ reasons: ['Bankruptcy'] }, { reasons: ['Alpha'] }]);
     expect(reasons.map((r) => r.reason)).toEqual(['Alpha', 'Bankruptcy']);
+  });
+});
+
+describe('pendingState', () => {
+  it('waits only while the deal is open', () => {
+    expect(pendingState(AWAITING_LENDER_ANSWER, false)).toBe('waiting');
+    // Not yet known to be closed reads as waiting: the old behaviour, never less.
+    expect(pendingState(AWAITING_LENDER_ANSWER, null)).toBe('waiting');
+    expect(pendingState(AWAITING_LENDER_ANSWER, true)).toBe('closed_unanswered');
+  });
+
+  it('keeps a submission that never went through apart from both', () => {
+    expect(pendingState('submission did not complete', false)).toBe('not_completed');
+    expect(pendingState('no status recorded', true)).toBe('not_completed');
+    expect(pendingState(null, null)).toBe('not_completed');
   });
 });

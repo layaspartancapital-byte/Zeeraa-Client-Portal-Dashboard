@@ -14,6 +14,7 @@
     "test-connection": "tsx scripts/test-connection.ts",
     "backfill-clicks": "tsx scripts/backfill-clicks.ts",
     "backfill-click-ids": "tsx scripts/backfill-click-ids.ts",
+    "backfill-lead-channel": "tsx scripts/backfill-lead-channel.ts",
     "sync-google-ads": "tsx scripts/sync-google-ads.ts",
     "sync-meta": "tsx scripts/sync-meta.ts",
     "sync-organic": "tsx scripts/sync-organic.ts",

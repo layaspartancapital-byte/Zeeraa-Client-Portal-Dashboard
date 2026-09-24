@@ -18,7 +18,8 @@ import {
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
-import { Segmented, segments } from '@/components/ui/Segmented';
+import { segments } from '@/components/ui/Segmented';
+import { AttributionModelToggle } from '@/components/AttributionModelToggle';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import {
   coverageFor,
@@ -31,7 +32,7 @@ import {
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Delta, NoDelta } from '@/components/ui/Delta';
 import { InfoTip } from '@/components/ui/InfoTip';
-import { NotMeasuredBadge, ProvisionalBadge } from '@/components/ui/Badge';
+import { NotMeasuredBadge, ProvisionalHint } from '@/components/ui/Badge';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
@@ -151,10 +152,16 @@ export default async function Performance({
   // Paid media was first pulled long after the CRM history begins, so the two
   // have separate baselines. See `ingestionStart`. A baseline past the last
   // read is no baseline either.
-  const spendComparable = covers(ingestion.spendFrom, baseline) && !spendBaseOut;
-  const crmComparable = covers(ingestion.crmFrom, baseline) && !crmBaseOut;
-  const notIngested = (from: string | null) =>
-    from ? `not ingested before ${from}` : 'nothing ingested yet';
+  //
+  // The KPI cards share one start: the first day of paid media. The CRM's own
+  // history reaches back to 2024, but the funded deals in it thin out to one
+  // a month before paid media began, so a previous period reaching before
+  // that compared 22 deals with 2 and printed +1,000% (24 September 2026). A
+  // previous period that starts before the data does is not shown at all —
+  // no delta, and no line explaining the absence.
+  const dataStart = ingestion.spendFrom;
+  const spendComparable = covers(dataStart, baseline) && !spendBaseOut;
+  const crmComparable = covers(dataStart, baseline) && !crmBaseOut;
 
   const channelKeys = data.channels.map((c) => c.platform);
   const valueStage = data.stages.find((s) => s.countsValue);
@@ -178,11 +185,14 @@ export default async function Performance({
    */
   const lenderOfferMetric = metrics.byKey.get('lender_offer_rate');
 
+  // The mini charts start at the month the data does: a bucket before it is
+  // not drawn at all, rather than as an empty bar or a zero.
+  const miniBuckets = dataStart ? buckets.filter((b) => b.end >= dataStart) : buckets;
   const mini = (
     pick: (bucket: WindowBucket) => number | null,
     source: 'spend' | 'crm' = 'crm',
   ) =>
-    buckets.map((bucket) => ({
+    miniBuckets.map((bucket) => ({
       label: bucket.label,
       value: (source === 'spend' ? bucket.spendIngested : bucket.crmIngested)
         ? pick(bucket)
@@ -351,11 +361,7 @@ export default async function Performance({
           earliest={earliest}
           today={today}
         />
-        <Segmented
-          label="Attribution model"
-          active={model}
-          options={segments(base, active, 'model', MODELS)}
-        />
+        <AttributionModelToggle active={model} options={segments(base, active, 'model', MODELS)} />
         <ButtonLink
           data-tour="export-csv"
           href={`/api/export/${slug}/performance?${new URLSearchParams({ model, ...rangeParams(range) }).toString()}`}
@@ -383,13 +389,14 @@ export default async function Performance({
           value={spendOut ? null : formatCurrency(data.total.spend, currency)}
           notMeasured={spendWhy}
           delta={
-            <Delta
-              current={data.total.spend}
-              baseline={spendComparable ? previous.total.spend : null}
-              direction={metrics.direction('paid_media_spend')}
-              comparison="vs previous period"
-              unavailable={notIngested(ingestion.spendFrom)}
-            />
+            spendComparable ? (
+              <Delta
+                current={data.total.spend}
+                baseline={previous.total.spend}
+                direction={metrics.direction('paid_media_spend')}
+                comparison="vs previous period"
+              />
+            ) : undefined
           }
           context={`${range.start} to ${range.end}${throughNote(cover.spend, 'paid media')}`}
           points={mini((b) => b.spend, 'spend')}
@@ -402,20 +409,21 @@ export default async function Performance({
           value={crmOut ? null : formatCount(dealsIn(data.total.stages))}
           notMeasured={crmWhy}
           delta={
-            <Delta
-              current={dealsIn(data.total.stages)}
-              baseline={crmComparable ? dealsIn(previous.total.stages) : null}
-              direction={metrics.direction('funded_deals')}
-              comparison="vs previous period"
-              unavailable={notIngested(ingestion.crmFrom)}
-            />
+            crmComparable ? (
+              <Delta
+                current={dealsIn(data.total.stages)}
+                baseline={dealsIn(previous.total.stages)}
+                direction={metrics.direction('funded_deals')}
+                comparison="vs previous period"
+              />
+            ) : undefined
           }
           context={
             crmOut
               ? undefined
               : `${formatCount(
                   data.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0),
-                )} attributed · ${formatCount(dealsIn(data.unattributed.stages))} to no channel${throughNote(
+                )} with a source · ${formatCount(dealsIn(data.unattributed.stages))} unattributed${throughNote(
                   cover.crm,
                   'Salesforce',
                 )}`
@@ -445,17 +453,15 @@ export default async function Performance({
             }
             delta={
               !spendOut && !crmOut && lead.costPerDeal.value !== null ? (
-                <Delta
-                  current={lead.costPerDeal.value}
-                  baseline={
-                    spendComparable && leadBaselineComparable
-                      ? (leadPrevious?.costPerDeal.value ?? null)
-                      : null
-                  }
-                  direction={metrics.direction('cost_per_funded_deal')}
-                  comparison="vs previous period"
-                  unavailable={notIngested(ingestion.spendFrom)}
-                />
+                spendComparable ? (
+                  <Delta
+                    current={lead.costPerDeal.value}
+                    baseline={leadBaselineComparable ? (leadPrevious?.costPerDeal.value ?? null) : null}
+                    direction={metrics.direction('cost_per_funded_deal')}
+                    comparison="vs previous period"
+                    unavailable="no deals in the previous period"
+                  />
+                ) : undefined
               ) : (
                 <NoDelta />
               )
@@ -544,7 +550,7 @@ export default async function Performance({
           <CardHeader
             title="Spend over time"
             subtitle="Every connected channel, by month"
-            controls={buckets.at(-1)?.provisional ? <ProvisionalBadge /> : undefined}
+            controls={buckets.at(-1)?.provisional ? <ProvisionalHint /> : undefined}
             info={
               <InfoTip label="How the spend series is built" align="start">
                 Months before ingestion began are blank rather than zero: nobody looked, so the

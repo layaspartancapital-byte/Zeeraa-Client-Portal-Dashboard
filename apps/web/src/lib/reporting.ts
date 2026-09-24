@@ -3,6 +3,7 @@ import { platformLabel } from '@/lib/platform-labels';
 import {
   callsIn,
   countedStageEvent,
+  leadChannel,
   leadsCreatedIn,
   schema,
   stageEventsIn,
@@ -14,13 +15,18 @@ import {
   callVolume,
   channelCostPerDeal,
   clockLabel,
+  isPaidChannel,
   parseBusinessHours,
+  parseOrganicSearchRule,
   previousMonth,
   rankReasonCitations,
   reasonCoverageByPeriod,
   responseSeconds,
   speedToLead,
   submissionOfferRate,
+  pendingState,
+  EMPTY_PENDING,
+  type PendingTally,
   type AttributionModel,
   type BusinessHours,
   type ChannelCostPerDeal,
@@ -99,6 +105,12 @@ export type ChannelRow = {
   kind: 'channel';
   platform: string;
   label: string;
+  /**
+   * Whether the channel buys its traffic. Organic search does not: it has no
+   * spend, CTR, CPC or cost per deal, and those cells render an em dash with
+   * `UNPAID_REASON` (core), never $0 (`isPaidChannel` in core).
+   */
+  paid: boolean;
   spend: number;
   impressions: number;
   clicks: number;
@@ -165,6 +177,12 @@ export type MonthlyPerformance = {
   channels: ChannelRow[];
   unattributed: UnattributedRow;
   total: TotalRow;
+  /**
+   * Whether this tenant can credit anything to organic search at all — it has
+   * a readable `organic_search_evidence` row. Without one, an Organic/SEO row
+   * of zero would claim a measurement nobody made.
+   */
+  organicMeasured: boolean;
   /** Completion time of the most recent sync feeding this. Null when none has run. */
   dataThrough: Date | null;
   /**
@@ -177,7 +195,16 @@ export type MonthlyPerformance = {
    * Declined is not a funnel stage — it is an outcome, not a step — so it has
    * no column in `stages`.
    */
-  declines: { deals: number; events: number };
+  declines: {
+    deals: number;
+    events: number;
+    /**
+     * `deals` split by the month of each deal's first decline *inside the
+     * window*, so every deal is in exactly one month and the months sum to
+     * `deals`. Only months the window touches; a month with none is absent.
+     */
+    byMonth: { month: string; deals: number }[];
+  };
   /**
    * What the stage order asserts, checked against the records.
    *
@@ -239,10 +266,10 @@ const BLENDED_NOT_COMPUTED =
   'under a broader name.';
 
 const UNATTRIBUTED_REASON =
-  'These deals carry no click from any connected channel. They came from ' +
-  'organic, referral, outbound and repeat business as well as, possibly, paid ' +
-  'media that was never tagged. Nothing in the data says which, so no channel ' +
-  'may count them and no spend stands behind them.';
+  'These deals carry no click from any connected channel and no proof of an ' +
+  'unpaid search visit. They came from direct, referral, outbound and repeat ' +
+  'business as well as, possibly, paid media that was never tagged. Nothing in ' +
+  'the data says which, so no channel may count them and no spend stands behind them.';
 
 export async function monthlyPerformance(
   session: TenantSession,
@@ -287,7 +314,7 @@ export async function monthlyPerformance(
      * stage events.
      *
      * A lead that never became an opportunity has no opportunity to attribute
-     * through, so the channel comes from `leads.click_id_type` directly. The
+     * through, so the channel comes from the lead itself (`leadChannel()`). The
      * population is already inbound — cold outreach is excluded at ingest — so
      * nothing here re-filters it.
      */
@@ -312,7 +339,7 @@ export async function monthlyPerformance(
        */
       const rows = await tx
         .select({
-          clickIdType: schema.leads.clickIdType,
+          clickIdType: leadChannel(),
           count: sql<number>`count(*)::int`,
         })
         .from(schema.leads)
@@ -325,7 +352,7 @@ export async function monthlyPerformance(
               : []),
           ),
         )
-        .groupBy(schema.leads.clickIdType);
+        .groupBy(leadChannel());
 
       const byPlatformCounts = new Map<string, number>();
       let unattributed = 0;
@@ -540,6 +567,25 @@ export async function monthlyPerformance(
         ),
       );
 
+    // The same deals, each placed once: in the month of its first decline in
+    // the window. A deal declined in June and again in August is one deal, and
+    // one bar, rather than a bar in each — which is how the bars came to sum to
+    // 574 under a headline of 394 (24 September 2026).
+    const declineMonths = await tx.execute<{ month: string; deals: number }>(sql`
+      select to_char(first_on, 'YYYY-MM') as month, count(*)::int as deals
+      from (
+        select ${schema.stageEvents.opportunityExternalId}, min(${schema.stageEvents.occurredOn}) as first_on
+        from ${schema.stageEvents}
+        where ${and(
+          eq(schema.stageEvents.tenantId, tenantId),
+          eq(schema.stageEvents.stage, 'declined'),
+          stageEventsIn(range),
+        )}
+        group by 1
+      ) firsts
+      group by 1
+      order by 1`);
+
     const [topReasonRow] = await tx
       .select({
         reason: schema.leads.mqlUndeterminableReason,
@@ -563,6 +609,12 @@ export async function monthlyPerformance(
     const unqualified = verdictCount('unqualified');
     const undeterminable = verdictCount('undeterminable');
     const verdictTotal = verdictRows.reduce((sum, r) => sum + Number(r.count), 0);
+
+    const [organicRule] = await tx
+      .select({ value: schema.tenantConfig.value })
+      .from(schema.tenantConfig)
+      .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'organic_search_evidence')))
+      .limit(1);
 
     const [latestSync] = await tx
       .select({ finishedAt: schema.syncRuns.finishedAt })
@@ -630,10 +682,18 @@ export async function monthlyPerformance(
         .filter(([key]) => key !== platform)
         .reduce((sum, [, set]) => sum + set.size, 0);
 
+      const paid = isPaidChannel(platform);
+      const cost = channelCostPerDeal({
+        channelSpend: spend,
+        attributedDeals,
+        unattributedDeals: unattributedDealCount,
+        dealsAttributedElsewhere: dealsElsewhere,
+      });
       return {
         kind: 'channel',
         platform,
         label: platformLabel(platform),
+        paid,
         spend,
         impressions,
         clicks,
@@ -641,12 +701,9 @@ export async function monthlyPerformance(
         cpc: clicks === 0 ? null : spend / clicks,
         stages: byPlatform.get(platform) ?? {},
         valueVolume: sumAmounts(valueDealsByPlatform.get(platform) ?? []),
-        costPerDeal: channelCostPerDeal({
-          channelSpend: spend,
-          attributedDeals,
-          unattributedDeals: unattributedDealCount,
-          dealsAttributedElsewhere: dealsElsewhere,
-        }),
+        // An unpaid channel keeps its deal counts and has no cost: a value of
+        // $0 would read as the cheapest channel in the table.
+        costPerDeal: paid ? cost : { ...cost, value: null, plausibleRange: { low: null, high: null } },
       };
     });
 
@@ -721,10 +778,12 @@ export async function monthlyPerformance(
         costPerDeal: null,
         costPerDealAbsentBecause: BLENDED_NOT_COMPUTED,
       },
+      organicMeasured: parseOrganicSearchRule(organicRule?.value) !== null,
       dataThrough: latestSync?.finishedAt ?? null,
       declines: {
         deals: Number(declineRow?.deals ?? 0),
         events: Number(declineRow?.events ?? 0),
+        byMonth: declineMonths.map((r) => ({ month: r.month, deals: Number(r.deals) })),
       },
       progression,
       qualification: {
@@ -890,6 +949,8 @@ export type LenderRow = {
   lenderExternalId: string | null;
   label: string;
   offers: SubmissionOfferRate;
+  /** This lender's undecided submissions, by where they stand (`pendingState`). */
+  pending: PendingTally;
 };
 
 export type SubmissionReport = {
@@ -903,6 +964,11 @@ export type SubmissionReport = {
    * caption.
    */
   overall: SubmissionOfferRate;
+  /**
+   * The undecided submissions, by where they stand. Sums to
+   * `overall.undecided`; `waiting` is the only part anybody is waiting on.
+   */
+  pending: PendingTally;
   /** One row per lender, each rate over that lender's own decisions. */
   lenders: LenderRow[];
   /**
@@ -956,19 +1022,32 @@ export async function submissionReport(
 
     const [byLender, undecidedRows, declineRows, coverageRows, [firstRow], monthlyRows] =
       await Promise.all([
+      // With the deal's closed flag, because an open lender status on a deal
+      // Salesforce has closed is nobody waiting — see `pendingState`.
       tx
         .select({
           lenderExternalId: schema.submissions.lenderExternalId,
           lenderName: schema.submissions.lenderName,
           outcome: schema.submissions.outcome,
+          undecidedReason: schema.submissions.undecidedReason,
+          dealClosed: schema.opportunities.isClosed,
           count: sql<number>`count(*)::int`,
         })
         .from(schema.submissions)
+        .leftJoin(
+          schema.opportunities,
+          and(
+            eq(schema.opportunities.tenantId, schema.submissions.tenantId),
+            eq(schema.opportunities.externalId, schema.submissions.opportunityExternalId),
+          ),
+        )
         .where(inWindow)
         .groupBy(
           schema.submissions.lenderExternalId,
           schema.submissions.lenderName,
           schema.submissions.outcome,
+          schema.submissions.undecidedReason,
+          schema.opportunities.isClosed,
         ),
 
       tx
@@ -1026,11 +1105,17 @@ export async function submissionReport(
     ]);
 
     const totals = { offered: 0, declined: 0, undecided: 0 };
-    const perLender = new Map<string, { label: string; id: string | null; tally: typeof totals }>();
+    const pending: PendingTally = { ...EMPTY_PENDING };
+    const perLender = new Map<
+      string,
+      { label: string; id: string | null; tally: typeof totals; pending: PendingTally }
+    >();
 
     for (const row of byLender) {
       const n = Number(row.count);
       totals[row.outcome] += n;
+      const state = row.outcome === 'undecided' ? pendingState(row.undecidedReason, row.dealClosed) : null;
+      if (state) pending[state] += n;
       // Grouped by id, not by name: two lenders can share a name and one
       // lender can be renamed, and a rate is per lender either way.
       const key = row.lenderExternalId ?? '(none)';
@@ -1041,9 +1126,11 @@ export async function submissionReport(
             label: row.lenderName ?? 'Lender not named',
             id: row.lenderExternalId,
             tally: { offered: 0, declined: 0, undecided: 0 },
+            pending: { ...EMPTY_PENDING },
           })
           .get(key)!;
       entry.tally[row.outcome] += n;
+      if (state) entry.pending[state] += n;
       if (row.lenderName) entry.label = row.lenderName;
     }
 
@@ -1052,6 +1139,7 @@ export async function submissionReport(
         lenderExternalId: entry.id,
         label: entry.label,
         offers: submissionOfferRate(entry.tally),
+        pending: entry.pending,
       }))
       // Most decisions first: a lender with two answers and a 50% rate is not
       // the most informative row on the card.
@@ -1060,6 +1148,7 @@ export async function submissionReport(
     return {
       range,
       overall: submissionOfferRate(totals),
+      pending,
       lenders,
       undecided: undecidedRows.map((row) => ({
         reason: row.reason ?? 'no reason recorded',

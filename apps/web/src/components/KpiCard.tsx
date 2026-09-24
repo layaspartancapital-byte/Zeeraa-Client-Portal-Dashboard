@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Card } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
-import { NotMeasuredBadge, ProvisionalBadge } from '@/components/ui/Badge';
+import { NotMeasuredBadge, ProvisionalHint } from '@/components/ui/Badge';
 import { MiniChart, type MiniPoint } from '@/components/charts/MiniChart';
 
 /**
@@ -54,7 +54,7 @@ export function KpiCard({
             {label}
             {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
           </p>
-          {provisional && value !== null && <ProvisionalBadge />}
+          {provisional && value !== null && <ProvisionalHint />}
           {value === null && <NotMeasuredBadge />}
         </div>
 

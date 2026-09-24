@@ -107,6 +107,24 @@ describe('lead normalisation', () => {
   it('records where a merged lead went', () => {
     expect(normalizeLead({ ...record, MasterRecordId: '00Q9' }, SPARTAN).mergedInto).toBe('00Q9');
   });
+
+  it('stores the referrer and resolves the channel at ingest', () => {
+    const mapping = { ...SPARTAN, lead: { ...SPARTAN.lead, referrer: 'referral_url__c' } };
+    const rule = { searchHosts: ['google.*'], unpaidMediums: ['organic'] };
+    const unpaid = { ...record, GCLID__c: null, UTM_Source__c: null, referral_url__c: 'https://www.google.com/' };
+    const organic = normalizeLead(unpaid, mapping, undefined, undefined, rule);
+    expect(organic).toMatchObject({ referrerUrl: 'https://www.google.com/', clickIdType: null, channel: 'organic_search' });
+    // The same visit with a gclid is Google Ads, whatever the referrer says.
+    expect(normalizeLead({ ...unpaid, GCLID__c: 'g1' }, mapping, undefined, undefined, rule).channel).toBe('google_ads');
+    // With no rule configured, nothing is credited to organic.
+    expect(normalizeLead(unpaid, mapping).channel).toBeNull();
+  });
+
+  it('carries IsClosed onto the opportunity', () => {
+    const base = { Id: '0061', CreatedDate: '2026-08-01T00:00:00Z', StageName: 'Declined by Lender' };
+    expect(normalizeOpportunity({ ...base, IsClosed: true }, SPARTAN).isClosed).toBe(true);
+    expect(normalizeOpportunity(base, SPARTAN).isClosed).toBeNull();
+  });
 });
 
 describe('stage events', () => {

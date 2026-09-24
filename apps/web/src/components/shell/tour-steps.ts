@@ -24,7 +24,7 @@ export const STEPS: TourStep[] = [
   {
     path: '',
     target: 'scorecard',
-    title: 'This month vs target',
+    title: 'Against target',
     caption: 'This row shows how this month is going against the targets we agreed for Google Ads.',
   },
   {

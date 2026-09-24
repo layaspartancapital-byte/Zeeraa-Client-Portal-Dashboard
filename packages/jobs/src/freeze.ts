@@ -387,3 +387,72 @@ export async function correctBaselineMonth(options: {
     return out;
   });
 }
+
+/**
+ * A correction to a frozen month's channel figures (`freezeChannelFigures`):
+ * every one whose recomputed value now differs from its latest version is
+ * inserted as the next version, with who and why. Nothing is edited, and a
+ * figure that still agrees is left alone.
+ *
+ * First used 24 September 2026, when organic search became a source: the
+ * leads and deals it proves move out of `unattributed`, so June–August's
+ * unattributed counts are restated rather than silently disagreeing with what
+ * the screens show. Freeze the new channel's own figures with
+ * `freezeChannelFigures` afterwards.
+ */
+export async function correctChannelFigures(options: {
+  tenantId: string;
+  month: MonthKey;
+  by: string;
+  reason: string;
+  now?: Date;
+  dryRun?: boolean;
+}): Promise<{ key: string; version: number; before: number | null; after: number | null }[]> {
+  const now = options.now ?? new Date();
+  return withJobTenant(options.tenantId, async (tx) => {
+    const context = await freezeContext(tx, options.tenantId, now);
+    const figures = new Map(
+      (await channelFigures(tx, options.tenantId, options.month)).map((f) => [`${f.platform}|${f.metric}`, f.value]),
+    );
+    const rows = await tx
+      .select({
+        platform: schema.baselineSnapshots.platform,
+        metric: schema.baselineSnapshots.metric,
+        version: schema.baselineSnapshots.version,
+        value: schema.baselineSnapshots.value,
+      })
+      .from(schema.baselineSnapshots)
+      .where(and(eq(schema.baselineSnapshots.tenantId, options.tenantId), eq(schema.baselineSnapshots.month, `${options.month}-01`)))
+      .orderBy(sql`${schema.baselineSnapshots.version} desc`);
+    const latest = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) if (!latest.has(`${r.platform}|${r.metric}`)) latest.set(`${r.platform}|${r.metric}`, r);
+
+    const out: { key: string; version: number; before: number | null; after: number | null }[] = [];
+    for (const [key, current] of latest) {
+      // The ramp's own figures are corrected by `correctBaselineMonth`, from `monthFigures`.
+      if (current.platform === context.platform && (RAMP_METRICS as readonly string[]).includes(current.metric)) continue;
+      if (!figures.has(key)) continue;
+      const after = figures.get(key) ?? null;
+      const before = current.value === null ? null : Number(current.value);
+      const same = before === null || after === null ? before === after : Math.abs(before - after) < 1e-6;
+      if (same) continue;
+      const version = current.version + 1;
+      if (!options.dryRun) {
+        await tx.insert(schema.baselineSnapshots).values({
+          tenantId: options.tenantId,
+          month: `${options.month}-01`,
+          platform: current.platform,
+          metric: current.metric,
+          version,
+          value: after === null ? null : String(after),
+          notMeasuredReason: after === null ? 'Nothing to divide by in this month.' : null,
+          frozenAt: now,
+          frozenBy: options.by,
+          reason: options.reason,
+        });
+      }
+      out.push({ key, version, before, after });
+    }
+    return out;
+  });
+}

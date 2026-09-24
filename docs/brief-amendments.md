@@ -3294,3 +3294,50 @@ against the seeded hours to hold the window to that. A tenant with no
 `lead_response_hours` row is on the 24/7 clock and keeps ten minutes around
 the clock. An open page refreshes at hh:02 outside hours, just after the hourly
 sync, so it wakes the database when the sync already has.
+
+## §8 and §12 — organic search as a source, and six client-facing fixes (24 September 2026)
+
+**Organic/SEO is a source on proof, and only then.** A value sweep of the
+4,750 inbound leads since June found the evidence that holds. The lead's
+referrer (`referral_url__c`) is a search results page, and it has no click ID,
+no `utm_campaign`, and no `utm_medium` other than `organic`. That is 62 leads,
+and 1 of the 23 deals funded since June. Salesforce's `Referrer_Source__c`
+cannot be used: 1,247 of its 1,313 `google_organic` leads carry a gclid and
+`utm_medium=cpc`. `LeadSource`, Pardot's first-touch and search fields and
+`Opportunity_Source__c` say nothing, and GA4 has no per-lead key. The test is
+`isOrganicSearch` in core, and its hosts are the `organic_search_evidence`
+config row. A lead's source is stored at ingest as `leads.channel` (migration
+0035). A deal is organic only with no paid touch and an organic lead
+(`buildAttribution`). Everything else stays unattributed. Organic buys nothing,
+so every spend and cost cell for it is an em dash, never $0. The `Not a channel`
+badge is gone. The unattributed row keeps its heavier rule.
+
+**The frozen June–August unattributed counts are restated, not left to
+disagree.** The organic leads and deals leave `unattributed`, so each changed
+figure gets the next version with its reason
+(`freeze-baseline --correct-channel-figures`), and organic's own figures are
+frozen beside them.
+
+**"Waiting on a lender reply" counts open deals only.** Lenders leave a
+submission at `Submitted` when a deal ends without their answer. 570 of the 624
+in the default window were on deals Salesforce had closed. `pendingState` in
+core splits undecided submissions three ways: waiting (the deal is still open,
+from `opportunities.is_closed`, Salesforce's `IsClosed`), no reply before the
+deal closed, and not completed. The headline and the table's Waiting total are
+the same number.
+
+**Declines add up.** The bars are the headline's deals, over the picked window
+only. Each deal is placed in the month of its first decline in the window
+(`declines.byMonth`), where before it counted in every month it was declined,
+over twelve calendar months. The card names two counts: deals declined, and
+lender decline responses.
+
+**Monthly performance KPIs.** A previous period that starts before the first
+day of paid media shows no comparison at all. That day is when the data starts
+for all three cards: funded deals before it thin to one a month, which is how
+22 against 2 printed +1,000%. The mini charts start at that month.
+"Provisional" is now a quiet hover: "Recent days may still update."
+
+**Executive.** "All funded this month" sits above the scorecard, one row per
+source, adding to the total. The scorecard is titled for its channel ("Google
+Ads vs target"), because the targets are contracted for one channel.

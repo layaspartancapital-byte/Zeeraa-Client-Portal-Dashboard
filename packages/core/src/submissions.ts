@@ -72,6 +72,34 @@ export function submissionOfferRate(tally: SubmissionTally): SubmissionOfferRate
   };
 }
 
+/** The undecided reason the connector writes for an open lender status. */
+export const AWAITING_LENDER_ANSWER = 'awaiting a lender answer';
+
+/**
+ * Where an undecided submission actually stands.
+ *
+ * "Submitted" is what the lender left on it, not a fact about now: a lender
+ * that never answers leaves the status alone after the deal is funded
+ * elsewhere, declined or lost. In Spartan's org 570 of 624 submissions "waiting
+ * on a lender reply" sat on deals Salesforce had already closed (24 September
+ * 2026). So an open status on a closed deal is `closed_unanswered` — nobody is
+ * waiting — and only an open status on an open deal is `waiting`.
+ *
+ *   - `waiting`            open status, deal not closed (or not yet known to be)
+ *   - `closed_unanswered`  open status, deal closed without this lender replying
+ *   - `not_completed`      the submission failed, or its status says nothing
+ */
+export type PendingState = 'waiting' | 'closed_unanswered' | 'not_completed';
+
+export function pendingState(undecidedReason: string | null, dealClosed: boolean | null): PendingState {
+  if (undecidedReason !== AWAITING_LENDER_ANSWER) return 'not_completed';
+  return dealClosed === true ? 'closed_unanswered' : 'waiting';
+}
+
+export type PendingTally = Record<PendingState, number>;
+
+export const EMPTY_PENDING: PendingTally = { waiting: 0, closed_unanswered: 0, not_completed: 0 };
+
 /**
  * Coverage of the decline-reason field in one period.
  *

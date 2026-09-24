@@ -15,10 +15,15 @@
  *
  * `--correct <metric,...>` corrects one frozen ramp month instead: the named
  * metrics recomputed now and inserted as the next version with the reason.
+ *
+ * `--correct-channel-figures` corrects each month's frozen channel figures:
+ * every one that now differs gets the next version with the reason
+ * (`correctChannelFigures`). Run `--channel-figures` after it to freeze a
+ * channel that did not exist when the month was frozen.
  */
 import { eq } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withMaintenance } from '@zeeraa/db';
-import { correctBaselineMonth, freezeBaselineMonths, freezeChannelFigures } from '../src/freeze';
+import { correctBaselineMonth, correctChannelFigures, freezeBaselineMonths, freezeChannelFigures } from '../src/freeze';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
@@ -46,6 +51,16 @@ if (correct) {
   const metrics = correct.split(',') as Parameters<typeof correctBaselineMonth>[0]['metrics'];
   for (const r of await correctBaselineMonth({ tenantId: tenant.id, month: months[0]!, metrics, by, reason, dryRun })) {
     console.log(`${months[0]}  ${r.metric} v${r.version}${dryRun ? ' (dry run)' : ''}: ${r.before ?? 'blank'} → ${r.after ?? 'blank'}`);
+  }
+  process.exit(0);
+}
+if (args.includes('--correct-channel-figures')) {
+  for (const month of months) {
+    const changed = await correctChannelFigures({ tenantId: tenant.id, month, by, reason, dryRun });
+    if (changed.length === 0) console.log(`${month}  every frozen channel figure still agrees`);
+    for (const r of changed) {
+      console.log(`${month}  ${r.key} v${r.version}${dryRun ? ' (dry run)' : ''}: ${r.before ?? 'blank'} → ${r.after ?? 'blank'}`);
+    }
   }
   process.exit(0);
 }

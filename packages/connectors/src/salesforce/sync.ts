@@ -1,4 +1,4 @@
-import { qualifyLead, readPhone, type QualificationBar } from '@zeeraa/core';
+import { leadChannel, qualifyLead, readPhone, type OrganicSearchRule, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
 import { judgeQualificationBands, readRevenueBand } from './qualification-bands';
@@ -25,6 +25,12 @@ export type LeadRow = {
   utmContent: string | null;
   utmTerm: string | null;
   landingPage: string | null;
+  referrerUrl: string | null;
+  /**
+   * The lead's source (`leadChannel` in core): its click's platform, else
+   * `organic_search` where the rule proves it, else null.
+   */
+  channel: string | null;
   selfReportedRevenue: number | null;
   selfReportedAnnualRevenue: number | null;
   selfReportedTimeInBusiness: number | null;
@@ -59,6 +65,8 @@ export type OpportunityRow = {
   declineReason: string | null;
   industry: string | null;
   state: string | null;
+  /** Salesforce's `IsClosed`. Null when the record did not carry it. */
+  isClosed: boolean | null;
 };
 
 export type StageEventRow = {
@@ -163,19 +171,26 @@ export function normalizeLead(
    * band fields; omitted, it stays null and nothing downstream claims one.
    */
   bar?: QualificationBar,
+  /** The tenant's `organic_search_evidence` rule; null credits nothing to organic. */
+  organicSearch: OrganicSearchRule | null = null,
 ): LeadRow {
   const { clickId, clickIdType } = pickClickId(record, mapping.lead.clickIds, platformPriority);
+  const referrerUrl = str(record, mapping.lead.referrer);
+  const utmMedium = str(record, mapping.lead.utmMedium);
+  const utmCampaign = str(record, mapping.lead.utmCampaign);
   return {
     externalId: String(record.Id),
     createdAt: date(record, 'CreatedDate') ?? new Date(0),
     clickId,
     clickIdType,
     utmSource: str(record, mapping.lead.utmSource),
-    utmMedium: str(record, mapping.lead.utmMedium),
-    utmCampaign: str(record, mapping.lead.utmCampaign),
+    utmMedium,
+    utmCampaign,
     utmContent: str(record, mapping.lead.utmContent),
     utmTerm: str(record, mapping.lead.utmTerm),
     landingPage: str(record, mapping.lead.landingPage),
+    referrerUrl,
+    channel: leadChannel({ clickIdType, referrerUrl, utmMedium, utmCampaign }, organicSearch),
     selfReportedRevenue: num(record, mapping.lead.selfReportedRevenue),
     selfReportedAnnualRevenue: num(record, mapping.lead.selfReportedAnnualRevenue),
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),
@@ -217,6 +232,7 @@ export function normalizeOpportunity(
     declineReason: str(record, mapping.opportunity.declineReason),
     industry: str(record, mapping.opportunity.industry),
     state: str(record, mapping.opportunity.state),
+    isClosed: typeof record.IsClosed === 'boolean' ? record.IsClosed : null,
   };
 }
 

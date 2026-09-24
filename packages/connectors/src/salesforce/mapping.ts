@@ -19,6 +19,12 @@ export type SalesforceFieldMapping = {
     utmContent?: string;
     utmTerm?: string;
     landingPage?: string;
+    /**
+     * The page the lead arrived from. What `organic_search_evidence` reads a
+     * search result from; a label that classifies the referrer is no
+     * substitute, because it cannot tell a paid Google click from an unpaid one.
+     */
+    referrer?: string;
     /** Monthly gross. */
     selfReportedRevenue?: string;
     /** Annual gross. Either may be present; both are read, monthly wins. */

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { InfoTip } from '@/components/ui/InfoTip';
 
 /**
  * Status pills (spec v2 §6).
@@ -55,10 +56,18 @@ export function NotMeasuredBadge({ className = '' }: { className?: string }) {
   );
 }
 
-export function ProvisionalBadge({ className = '' }: { className?: string }) {
+/**
+ * A figure whose last few days can still move — platforms restate conversions
+ * for weeks. A quiet hover rather than an amber pill (24 September 2026): amber
+ * is "not measured", and a figure that is measured and may still firm up is
+ * not that.
+ */
+export const RECENT_DAYS_NOTE = 'Recent days may still update.';
+
+export function ProvisionalHint({ className = '' }: { className?: string }) {
   return (
-    <Badge tone="warn" className={className}>
-      Provisional
-    </Badge>
+    <InfoTip label={RECENT_DAYS_NOTE} icon="clock" align="end" className={className}>
+      {RECENT_DAYS_NOTE}
+    </InfoTip>
   );
 }

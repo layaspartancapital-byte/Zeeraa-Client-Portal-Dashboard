@@ -37,9 +37,11 @@ export function RampScorecard({
   const partial = elapsedDays < monthDays;
   return (
     <Card span={12} id="ramp-scorecard" dataTour="scorecard">
+      {/* Named for its channel: the targets are contracted for one channel,
+          and "This month vs target" read as the whole business's month. */}
       <CardHeader
-        title="This month vs target"
-        subtitle={`${channel} · ${monthLabel}${
+        title={`${channel} vs target`}
+        subtitle={`${monthLabel}${
           partial ? ` · month to date, ${formatCount(elapsedDays)} of ${formatCount(monthDays)} days` : ''
         }${note}`}
       />

@@ -128,7 +128,7 @@ export function StackedBars({
         items={[
           ...channels.map((c) => ({ label: channelLabel(c), color: channelColor(c, channels) })),
           ...(hasUnattributed
-            ? [{ label: `${unattributedLabel} — not a channel`, color: UNATTRIBUTED }]
+            ? [{ label: unattributedLabel, color: UNATTRIBUTED }]
             : []),
         ]}
       />

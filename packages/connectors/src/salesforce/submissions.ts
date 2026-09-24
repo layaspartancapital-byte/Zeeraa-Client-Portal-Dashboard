@@ -1,3 +1,4 @@
+import { AWAITING_LENDER_ANSWER } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import type { SalesforceRecord } from './sync';
 
@@ -231,7 +232,7 @@ export function normalizeSubmissions(
       } else if (failed.has(key)) {
         undecidedReason = 'submission did not complete';
       } else if (open.has(key)) {
-        undecidedReason = 'awaiting a lender answer';
+        undecidedReason = AWAITING_LENDER_ANSWER;
       } else {
         // Neither a decision, nor known to be open, nor known to have failed.
         // Counted, so a picklist value added after this mapping was written

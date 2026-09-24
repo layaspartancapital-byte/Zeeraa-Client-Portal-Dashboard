@@ -9,7 +9,10 @@ import {
   formatRate,
   previousRange,
   rangeLengthDays,
+  ORGANIC_SEARCH,
+  platformLabel,
   trailingMonths,
+  UNPAID_REASON,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
@@ -29,6 +32,7 @@ import { monthName } from '@/components/RampCard';
 import { buildRampPanels, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
 import { callReport, monthlyPerformance } from '@/lib/reporting';
+import { AllFunded, type FundedSourceRow } from '@/components/AllFunded';
 import { platformLabel as platformName } from '@/lib/platform-labels';
 import {
   alowareConnectedThreshold,
@@ -275,12 +279,14 @@ export default async function ExecutiveBriefing({
     .filter((stage) => !current.stageStatus[stage.key]?.blocked)
     .map((stage) => ({ stage: stage.key, label: stage.label }));
 
+  // Paid channels by spend, then any unpaid source (organic search) beneath.
   const efficiencyRows: EfficiencyRow[] = [...current.channels]
-    .sort((a, b) => b.spend - a.spend)
+    .sort((a, b) => Number(b.paid) - Number(a.paid) || b.spend - a.spend)
     .map((channel) => ({
       platform: channel.platform,
       label: channel.label,
       spend: channel.spend,
+      unpaidReason: channel.paid ? undefined : UNPAID_REASON,
       cells: efficiencyColumns.map((column) => {
         const cost = channelCostPerDeal({
           channelSpend: channel.spend,
@@ -300,6 +306,34 @@ export default async function ExecutiveBriefing({
   const speedGate = metrics.population('speed_to_lead', calls.speed.called);
   const unattributedDeals = dealsIn(current.unattributed.stages);
   const totalDeals = dealsIn(current.total.stages);
+
+  /*
+   * Every funded deal by source: the report's own channel and unattributed
+   * rows, so the partition is the total's rather than a recount — paid
+   * channels by spend, then organic search, then the deals nobody can claim.
+   * Organic search is listed at zero only where the tenant can measure it.
+   */
+  const fundedRows: FundedSourceRow[] = [
+    ...[...current.channels]
+      .sort((a, b) => Number(b.paid) - Number(a.paid) || b.spend - a.spend)
+      .map((c) => ({
+        key: c.platform,
+        label: c.label,
+        deals: dealsIn(c.stages),
+        volume: c.valueVolume,
+        info: c.paid ? undefined : 'Deals whose lead came from an unpaid search result, with no ad click.',
+      })),
+    ...(current.organicMeasured && !current.channels.some((c) => c.platform === ORGANIC_SEARCH)
+      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), deals: 0, volume: 0 }]
+      : []),
+    {
+      key: 'unattributed',
+      label: current.unattributed.label,
+      deals: unattributedDeals,
+      volume: current.unattributed.valueVolume,
+      info: 'No ad click and no proof of an unpaid search visit: direct, referral, phone, outbound or repeat business.',
+    },
+  ];
   const degraded = connections.filter(
     (c) => c.status === 'degraded' || c.status === 'failing' || c.status === 'waiting_on_client',
   );
@@ -445,7 +479,7 @@ export default async function ExecutiveBriefing({
         'compare. A cost always shows its number with how many it was based on.',
     },
     {
-      heading: 'This month vs target',
+      heading: `${rampChannel} vs target`,
       body:
         `Each figure is ${rampChannel} alone: its spend, and the deals and approvals attributed to it. ` +
         'The target is the engagement model’s figure for this month of the ramp.',
@@ -559,6 +593,18 @@ export default async function ExecutiveBriefing({
       </PageMeta>
 
       <Grid>
+        {/* 0. The whole business's funded deals, before one channel's contract. */}
+        <AllFunded
+          title={isMonthToDate ? `All ${valueLabel.toLowerCase()} this month` : `All ${valueLabel.toLowerCase()}`}
+          periodLabel={`${mtdLabel}${crmNote}`}
+          valueLabel={valueLabel}
+          totalDeals={totalDeals}
+          totalVolume={current.total.valueVolume}
+          rows={fundedRows}
+          currency={currency}
+          notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
+        />
+
         {/* 1. The commitment: this month against it, and the one curve a
             client is judged on. The other curves are on Monthly performance. */}
         <RampScorecard
@@ -588,9 +634,9 @@ export default async function ExecutiveBriefing({
           context={
             crmUnmeasured
               ? undefined
-              : `${formatCount(attributedDeals(current))} attributed · ${formatCount(
+              : `${formatCount(attributedDeals(current))} with a source · ${formatCount(
                   unattributedDeals,
-                )} to no channel`
+                )} unattributed`
           }
           info="Deals reaching the value stage, renewals excluded. Shown for both periods and never subtracted: a count's difference is mostly the calendar."
         />

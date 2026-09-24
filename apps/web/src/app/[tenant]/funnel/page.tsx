@@ -11,6 +11,7 @@ import {
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { ButtonLink } from '@/components/ui/Button';
 import { Segmented, segments } from '@/components/ui/Segmented';
+import { AttributionModelToggle } from '@/components/AttributionModelToggle';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
 import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
@@ -38,7 +39,7 @@ import {
 } from '@/lib/reporting';
 import { DeclineCard } from '@/components/DeclineCard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows, type BreakdownRow } from '@/lib/breakdown';
-import { monthBars } from '@/lib/month-bars';
+import { monthBars, monthsOf } from '@/lib/month-bars';
 import { declineReasonSummary } from '@/lib/quality-measures';
 import { LenderOutcomes } from '@/components/LenderOutcomes';
 import { CallTracking } from '@/components/CallTracking';
@@ -123,30 +124,17 @@ export default async function Funnel({
   const crmNote = throughNote(cover.crm, 'Salesforce');
 
   /**
-   * Declines per month, for the timing.
+   * Declines per month, over the picked window and nothing else.
    *
-   * The series comes from the bucket query and the window total from
-   * `data.declines`, because `declined` is deliberately not a funnel stage —
-   * it is an outcome, not a step — so it never appears in `total.stages`. The
-   * total is a distinct count over the whole window rather than a sum of these
-   * bars: a deal declined in June and again in August is one deal in the
-   * window and a bar in each month.
+   * Each deal is placed once, in the month of its first decline inside the
+   * window (`declines.byMonth`), so the bars sum to the headline beside them.
+   * The first and last months are marked partial where the window cuts them.
    */
-  // Only months with declines recorded: the bars start when the lending
-  // package began recording lender decisions (its first submission), not
-  // with the stray older records before it; failing that, at the first month
-  // with a decline at all.
-  const declineMonths = buckets
-    .filter((b) => b.crmIngested)
-    .map((b) => ({ month: b.start.slice(0, 7), value: b.stages.declined ?? 0 }));
-  const packageFrom = submissions.from ?? null;
-  const firstDecline = packageFrom
-    ? declineMonths.findIndex((m) => m.month >= packageFrom.slice(0, 7))
-    : declineMonths.findIndex((m) => m.value > 0);
-  const declineBars = monthBars(firstDecline === -1 ? [] : declineMonths.slice(firstDecline), {
-    firstDay: packageFrom,
-    today,
-  });
+  const declinesByMonth = new Map(data.declines.byMonth.map((m) => [m.month, m.deals]));
+  const declineBars = monthBars(
+    monthsOf(range).map((month) => ({ month, value: declinesByMonth.get(month) ?? 0 })),
+    { firstDay: range.start, lastDay: range.end, today },
+  );
 
   const populations = [
     { key: 'all', label: 'All sources', counts: data.total.stages },
@@ -236,11 +224,7 @@ export default async function Funnel({
           active={population.key}
           options={segments(base, active, 'channel', populations)}
         />
-        <Segmented
-          label="Attribution model"
-          active={model}
-          options={segments(base, active, 'model', MODELS)}
-        />
+        <AttributionModelToggle active={model} options={segments(base, active, 'model', MODELS)} />
         <ButtonLink
           href={`/api/export/${slug}/funnel?${new URLSearchParams({ model, ...rangeParams(range) }).toString()}`}
         >
@@ -332,7 +316,12 @@ export default async function Funnel({
           </CardBody>
           </Card>
 
-          <DeclineCard bars={declineBars} total={data.declines.deals} range={range} reasons={declineReasons} />
+          <DeclineCard
+            bars={declineBars}
+            total={data.declines.deals}
+            range={range}
+            reasons={declineReasons}
+          />
           </>
           )}
         </div>

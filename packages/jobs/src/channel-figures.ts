@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { channelMonth, schema, type Database } from '@zeeraa/db';
-import type { MonthKey } from '@zeeraa/core';
+import { ORGANIC_SEARCH, type MonthKey } from '@zeeraa/core';
 
 /**
  * Every key figure for one month, per channel, from the ingestion side
@@ -15,7 +15,9 @@ import type { MonthKey } from '@zeeraa/core';
  * without saying why.
  *
  * `unattributed` is a channel here for its stage counts only: it has no spend,
- * so no volume share, CPA or cost per deal.
+ * so no volume share, CPA or cost per deal. `organic_search` has its stage
+ * counts and its funded volume, and no spend, CPA or cost per deal — it buys
+ * nothing, so those are null rather than zero.
  */
 export type ChannelFigure = { platform: string; metric: string; value: number | null };
 
@@ -62,5 +64,11 @@ export async function channelFigures(tx: Database, tenantId: string, month: Mont
     unattributed ??= Object.fromEntries(stages.map((s) => [s.key, cm.stages[s.key]?.unattributed ?? 0]));
   }
   for (const s of stages) out.push({ platform: UNATTRIBUTED, metric: stageMetric(s.key), value: unattributed?.[s.key] ?? 0 });
+
+  const organic = await channelMonth(tx, { tenantId, platform: ORGANIC_SEARCH, month, stages: dealStages, valueStage, leadStages });
+  if (stages.some((s) => (organic.stages[s.key]?.own ?? 0) > 0)) {
+    for (const s of stages) out.push({ platform: ORGANIC_SEARCH, metric: stageMetric(s.key), value: organic.stages[s.key]?.own ?? 0 });
+    out.push({ platform: ORGANIC_SEARCH, metric: 'funded_volume', value: valueStage ? organic.ownVolume : null });
+  }
   return out;
 }

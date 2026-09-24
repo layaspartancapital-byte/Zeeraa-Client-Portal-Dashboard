@@ -65,7 +65,7 @@ export function LenderOfferRateCard({
         withheld || overall.rate === null
           ? undefined
           : `${formatCount(overall.offered)} of ${formatCount(overall.decided)} decided · ` +
-            `${formatCount(overall.undecided)} awaiting an answer`
+            `${formatCount(report.pending.waiting)} waiting on a lender reply`
       }
       points={report.monthly.map((m) => ({
         label: m.label,

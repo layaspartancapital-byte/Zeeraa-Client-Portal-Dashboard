@@ -425,6 +425,64 @@ describe('the spend-to-funded join', () => {
     expect(touches.get('OPP-1')).toHaveLength(1);
   });
 
+  it('credits a deal with no paid touch to organic search only on its lead\'s proof', async () => {
+    const organicLead = (externalId: string, opportunityId: string, channel: string | null) =>
+      inTenant(async (tx) => {
+        await tx.insert(schema.opportunities).values({
+          tenantId,
+          externalId: opportunityId,
+          createdAt: new Date('2026-09-10T00:00:00Z'),
+          currentStage: 'funded',
+        });
+        await tx.insert(schema.leads).values({
+          tenantId,
+          externalId,
+          createdAt: new Date('2026-09-09T00:00:00Z'),
+          createdOn: '2026-09-08',
+          referrerUrl: 'https://www.google.com/',
+          channel,
+          convertedOpportunityId: opportunityId,
+        });
+      });
+    await organicLead('LEAD-O', 'OPP-O', 'organic_search');
+    await organicLead('LEAD-N', 'OPP-N', null);
+
+    await inTenant((tx) => buildAttribution(tx, tenantId));
+    const byDeal = async () =>
+      Object.fromEntries(
+        (await inTenant((tx) => tx.select().from(schema.attribution)))
+          .filter((r) => r.model === 'last_touch')
+          .map((r) => [r.opportunityExternalId, r.platform]),
+      );
+    // No proof, no row: the deal stays unattributed rather than organic.
+    expect(await byDeal()).toEqual({ 'OPP-O': 'organic_search' });
+
+    // Losing the proof removes the credit: the deal falls back to unattributed.
+    await inTenant((tx) => tx.update(schema.leads).set({ channel: null }).where(eq(schema.leads.externalId, 'LEAD-O')));
+    await inTenant((tx) => buildAttribution(tx, tenantId));
+    expect(await byDeal()).toEqual({});
+
+    // A paid touch outranks it, proof or not.
+    await inTenant((tx) =>
+      tx.update(schema.leads).set({ channel: 'organic_search' }).where(eq(schema.leads.externalId, 'LEAD-O')),
+    );
+    const campaigns = await seedCampaign();
+    await inTenant((tx) =>
+      upsertAdClicks(tx, tenantId, 'google_ads', [click('g9', '2026-09-12')], campaigns, syncRunId),
+    );
+    await inTenant((tx) =>
+      tx.insert(schema.opportunityClickIds).values({
+        tenantId,
+        opportunityExternalId: 'OPP-O',
+        platform: 'google_ads',
+        clickId: 'g9',
+        source: 'opportunity_field',
+      }),
+    );
+    await inTenant((tx) => buildAttribution(tx, tenantId));
+    expect(await byDeal()).toEqual({ 'OPP-O': 'google_ads' });
+  });
+
   it('is idempotent: rebuilding attribution does not duplicate rows', async () => {
     const campaigns = await seedCampaign();
     await inTenant((tx) =>

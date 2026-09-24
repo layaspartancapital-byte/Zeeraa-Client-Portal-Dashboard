@@ -6,7 +6,7 @@
  */
 import { sql } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withMaintenance, type Database } from '@zeeraa/db';
-import { monthRange, platformLabel as corePlatformLabel, tenantDay, type DateRange } from '@zeeraa/core';
+import { isPaidChannel, monthRange, platformLabel as corePlatformLabel, tenantDay, type DateRange } from '@zeeraa/core';
 import { channelFigures, UNATTRIBUTED } from '@zeeraa/jobs';
 import type { TenantSession } from '@/lib/tenant';
 import { monthlyPerformance, type MonthlyPerformance } from '@/lib/reporting';
@@ -67,8 +67,11 @@ export function fromMonthlyPerformance(mp: MonthlyPerformance): Figures {
   const value = mp.valueStageKey;
   for (const c of mp.channels) {
     for (const s of mp.stages) f.set(key(c.platform, `stage:${s.key}`), c.stages[s.key] ?? 0);
-    f.set(key(c.platform, 'spend'), c.spend);
     f.set(key(c.platform, 'funded_volume'), value ? c.valueVolume : null);
+    // An unpaid source (organic search) has counts and volume, and no money
+    // figures on any screen — the same keys `channelFigures` emits for it.
+    if (!isPaidChannel(c.platform)) continue;
+    f.set(key(c.platform, 'spend'), c.spend);
     f.set(key(c.platform, 'cpa'), cpa(c.spend, c.stages.uw_approved ?? 0));
     f.set(key(c.platform, 'cost_per_funded'), c.costPerDeal.value);
   }
@@ -82,9 +85,10 @@ export function fromBucket(b: WindowBucket, stages: { key: string }[], platforms
   for (const p of platforms) {
     const st = b.stagesByPlatform[p] ?? {};
     for (const s of stages) f.set(key(p, `stage:${s.key}`), st[s.key] ?? 0);
+    f.set(key(p, 'funded_volume'), value ? (b.valueVolumeByPlatform[p] ?? 0) : null);
+    if (!isPaidChannel(p)) continue;
     const spend = b.spendByPlatform[p] ?? 0;
     f.set(key(p, 'spend'), spend);
-    f.set(key(p, 'funded_volume'), value ? (b.valueVolumeByPlatform[p] ?? 0) : null);
     f.set(key(p, 'cpa'), cpa(spend, st.uw_approved ?? 0));
     f.set(key(p, 'cost_per_funded'), value ? cpa(spend, st[value] ?? 0) : null);
   }
@@ -97,6 +101,8 @@ export async function fromPlatformPages(t: Tenant, range: DateRange, mp: Monthly
   const f: Figures = new Map();
   const valueStage = mp.stages.find((s) => s.countsValue);
   for (const c of mp.channels) {
+    // Organic search has no platform page of its own; its traffic is GA4's.
+    if (!isPaidChannel(c.platform)) continue;
     const view = await platformView(t.session, c.platform, corePlatformLabel(c.platform), range, valueStage ? { key: valueStage.key, label: valueStage.label } : null, 'last_touch');
     f.set(key(c.platform, 'spend'), view.totals.spend);
     f.set(key(c.platform, 'cost_per_funded'), view.outcomes.cost.value);

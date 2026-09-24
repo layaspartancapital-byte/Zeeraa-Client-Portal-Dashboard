@@ -1,6 +1,6 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import * as schema from './schema/index';
-import { leadsCreatedIn, stageEventsIn } from './periods';
+import { leadChannel, leadsCreatedIn, stageEventsIn } from './periods';
 import type { Database } from './client';
 
 /**
@@ -107,7 +107,7 @@ export async function channelMonth(
 
   for (const stage of leadStages) {
     const rows = await tx
-      .select({ clickIdType: schema.leads.clickIdType, n: sql<number>`count(*)::int` })
+      .select({ clickIdType: leadChannel(), n: sql<number>`count(*)::int` })
       .from(schema.leads)
       .where(
         and(
@@ -116,7 +116,7 @@ export async function channelMonth(
           ...(stage.qualifiedOnly ? [eq(schema.leads.mqlVerdict, 'qualified')] : []),
         ),
       )
-      .groupBy(schema.leads.clickIdType);
+      .groupBy(leadChannel());
     const c = { own: 0, unattributed: 0, all: 0 };
     for (const row of rows) {
       c.all += Number(row.n);

@@ -15,6 +15,9 @@ export const PLATFORM_LABELS: Record<string, string> = {
   search_console: 'Search Console',
   semrush: 'Semrush',
   call_tracking: 'Call tracking',
+  // A source, not a connector: leads and deals proven to come from an unpaid
+  // search result (`leadChannel`).
+  organic_search: 'Organic/SEO',
 };
 
 export function platformLabel(platform: string): string {

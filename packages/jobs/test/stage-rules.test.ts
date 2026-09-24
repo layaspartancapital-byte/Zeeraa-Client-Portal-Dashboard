@@ -48,6 +48,7 @@ function opportunity(externalId: string, dealType: string | null): OpportunityRo
     declineReason: null,
     industry: null,
     state: null,
+    isClosed: true,
   };
 }
 

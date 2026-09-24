@@ -1,5 +1,5 @@
-import { formatCount, formatCurrency, formatRate } from '@zeeraa/core';
-import { Badge, NotMeasuredBadge } from '@/components/ui/Badge';
+import { formatCount, formatCurrency, formatRate, UNPAID_REASON } from '@zeeraa/core';
+import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
 import { coverageExplanation, coverageLine } from '@/components/CostPerDeal';
@@ -60,6 +60,43 @@ function stageCells(
       </td>
     );
   });
+}
+
+/**
+ * A source that buys nothing — organic search. Its counts and volume are real;
+ * spend, impressions, clicks, CTR, CPC and cost per deal do not apply, so
+ * they are one em dash with the reason rather than a row of zeroes.
+ */
+function UnpaidRow({
+  label,
+  stagesCells,
+  volume,
+}: {
+  label: string;
+  stagesCells: React.ReactNode;
+  volume: string;
+}) {
+  return (
+    <tr className="border-b border-border align-top transition-colors hover:bg-canvas">
+      <th scope="row" className="px-5 py-3 text-left text-[13px] font-medium text-text">
+        {label}
+      </th>
+      <td className="numeric px-3 py-3" colSpan={5}>
+        <span className="text-text-3">—</span>
+        <span className="ml-2 text-[12px] text-text-2">not paid for</span>
+      </td>
+      {stagesCells}
+      <td className="numeric px-3 py-3 tabular text-text">{volume}</td>
+      <td className="numeric px-5 py-3">
+        <span className="inline-flex items-center gap-1.5 text-text-3">
+          —
+          <InfoTip label={`Why ${label} has no cost per deal`} align="end">
+            {UNPAID_REASON}
+          </InfoTip>
+        </span>
+      </td>
+    </tr>
+  );
 }
 
 export function PerformanceTable({
@@ -151,7 +188,15 @@ export function PerformanceTable({
         </thead>
 
         <tbody>
-          {channels.map((row) => (
+          {[...channels].sort((a, b) => Number(b.paid) - Number(a.paid)).map((row) =>
+            !row.paid ? (
+              <UnpaidRow
+                key={row.platform}
+                label={row.label}
+                stagesCells={stageCells(stages, data.stageStatus, row.stages)}
+                volume={formatCurrency(row.valueVolume, currency)}
+              />
+            ) : (
             <tr
               key={row.platform}
               className="border-b border-border align-top transition-colors hover:bg-canvas"
@@ -211,7 +256,8 @@ export function PerformanceTable({
                 )}
               </td>
             </tr>
-          ))}
+            ),
+          )}
         </tbody>
 
         {/*
@@ -225,7 +271,6 @@ export function PerformanceTable({
               <th scope="row" className="px-5 py-3 text-left font-medium text-text">
                 <span className="flex flex-wrap items-center gap-2">
                   {unattributed.label}
-                  <Badge tone="neutral">Not a channel</Badge>
                   <InfoTip label="What unattributed means" align="start">
                     {unattributed.reason}
                   </InfoTip>

@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { addDays, monthRange, previousMonth, type DateRange } from '@zeeraa/core';
-import { monthlyPerformance } from '@/lib/reporting';
+import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
 import { fromBucket, fromIngestion, fromMonthlyPerformance, fromPlatformPages, same, tenants, type Figures } from './figures';
@@ -75,6 +75,40 @@ describe('the same figure on every screen', () => {
           const total = mp.total.stages[s.key] ?? 0;
           if (sum !== total) problems.push(`${t.slug} last 90 days, Breakdown by ${d.label}, ${s.key}: rows sum to ${sum}, funnel says ${total}`);
         }
+      }
+    }
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('the parts add up to the whole on Executive and Funnel (24 September 2026)', async () => {
+    const problems: string[] = [];
+    for (const t of await tenants()) {
+      for (const range of [
+        { start: addDays(t.today, -89), end: t.today },
+        { start: `${t.today.slice(0, 7)}-01`, end: t.today },
+      ]) {
+        const label = `${t.slug} ${range.start}–${range.end}`;
+        const mp = await monthlyPerformance(t.session, range, 'last_touch');
+        const v = mp.valueStageKey;
+        if (v) {
+          // All funded: one row per source, each deal in one, summing to the total.
+          const deals = mp.channels.reduce((n, c) => n + (c.stages[v] ?? 0), 0) + (mp.unattributed.stages[v] ?? 0);
+          const volume = mp.channels.reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
+          if (deals !== (mp.total.stages[v] ?? 0)) problems.push(`${label} All funded: rows ${deals}, total ${mp.total.stages[v]}`);
+          if (Math.abs(volume - mp.total.valueVolume) > 0.005) problems.push(`${label} All funded volume: rows ${volume}, total ${mp.total.valueVolume}`);
+        }
+        // Declines: the bars are the headline's deals, each in one month of the window.
+        const bars = mp.declines.byMonth.reduce((n, m) => n + m.deals, 0);
+        if (bars !== mp.declines.deals) problems.push(`${label} Declines: bars ${bars}, headline ${mp.declines.deals}`);
+        if (mp.declines.byMonth.some((m) => m.month < range.start.slice(0, 7) || m.month > range.end.slice(0, 7))) {
+          problems.push(`${label} Declines: a bar falls outside the window`);
+        }
+        // Lender outcomes: waiting + no reply before close + not completed is every undecided.
+        const s = await submissionReport(t.session, range);
+        const pending = s.pending.waiting + s.pending.closed_unanswered + s.pending.not_completed;
+        if (pending !== s.overall.undecided) problems.push(`${label} Lender outcomes: split ${pending}, undecided ${s.overall.undecided}`);
+        const byLender = s.lenders.reduce((n, l) => n + l.pending.waiting, 0);
+        if (byLender !== s.pending.waiting) problems.push(`${label} Lender outcomes: table waiting ${byLender}, headline ${s.pending.waiting}`);
       }
     }
     expect(problems, problems.join('\n')).toEqual([]);

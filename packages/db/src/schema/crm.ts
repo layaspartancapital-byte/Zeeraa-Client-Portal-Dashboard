@@ -52,6 +52,16 @@ export const leads = pgTable(
     utmContent: text('utm_content'),
     utmTerm: text('utm_term'),
     landingPage: text('landing_page'),
+    /** The page the lead arrived from, as the CRM recorded it. */
+    referrerUrl: text('referrer_url'),
+    /**
+     * The lead's source, resolved at ingest: its click's platform, else
+     * `organic_search` where the `organic_search_evidence` rule holds, else
+     * null — unattributed. Every lead-grain channel count reads this, never
+     * `click_id_type`, so the organic rule is applied in one place
+     * (`leadChannel` in core). See 0035.
+     */
+    channel: text('channel'),
     /** Monthly gross, as reported. Null when the form captured only an annual figure. */
     selfReportedRevenue: numeric('self_reported_revenue', { precision: 18, scale: 2 }),
     /** Annual gross, as reported. Normalised to a monthly basis at comparison time. */
@@ -140,6 +150,7 @@ export const leads = pgTable(
     // The call join runs over this on every speed-to-lead query.
     index('leads_tenant_phone_key_idx').on(t.tenantId, t.phoneKey),
     index('leads_tenant_converted_opp_idx').on(t.tenantId, t.convertedOpportunityId),
+    index('leads_tenant_channel_idx').on(t.tenantId, t.channel),
   ],
 );
 
@@ -166,6 +177,11 @@ export const opportunities = pgTable(
     declineReason: text('decline_reason'),
     industry: text('industry'),
     state: text('state'),
+    /**
+     * Salesforce's `IsClosed`: funded, declined or lost. Null until the deal
+     * is next read. A submission on a closed deal is not waiting on a lender.
+     */
+    isClosed: boolean('is_closed'),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

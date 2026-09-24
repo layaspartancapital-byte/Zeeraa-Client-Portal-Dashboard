@@ -396,6 +396,20 @@ export const spartan: TenantSeed = {
       value: { months: ['2026-09'], freezeAfterDays: 5 },
     },
     {
+      key: 'organic_search_evidence',
+      description:
+        'What proves a lead came from an unpaid search result, so it is credited ' +
+        'to Organic/SEO rather than left unattributed: the referrer is a search ' +
+        'results page on one of these hosts, and the lead has no click ID, no ' +
+        'utm_campaign and no utm_medium other than these. Anything less stays ' +
+        'unattributed. Checked by value sweep on 24 September 2026: 62 of 4,750 ' +
+        'inbound leads since June.',
+      value: {
+        searchHosts: ['google.*', 'bing.com', 'duckduckgo.com', 'search.yahoo.com', 'search.brave.com', 'ecosia.org'],
+        unpaidMediums: ['organic'],
+      },
+    },
+    {
       /*
        * Not `working_hours`, above. That row is Zeeraa's own availability to
        * the client under the brief's SLA (9–3 ET); this is when Spartan's desk
@@ -671,6 +685,14 @@ export const spartan: TenantSeed = {
             // `pi__url__c` is Account Engagement's own capture and the
             // best-covered field in the inventory.
             landingPage: 'pi__url__c', // 79.6%
+            /*
+             * The referring page, which is what proves an unpaid search visit
+             * (`organic_search_evidence`). Not `Referrer_Source__c`: 1,247 of
+             * the 1,313 leads it labels `google_organic` carry a gclid and
+             * `utm_medium=cpc` (value sweep, 24 September 2026) — it names the
+             * referring site, not whether the click was paid.
+             */
+            referrer: 'referral_url__c', // 51.0%
             /*
              * The join to the dialer, in priority order.
              *

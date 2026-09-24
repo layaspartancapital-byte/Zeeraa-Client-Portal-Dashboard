@@ -4,7 +4,6 @@ import {
   type ChannelCostPerDeal,
 } from '@zeeraa/core';
 import { Card, CardHeader, EmptyLine } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 
 export type EfficiencyCell = {
@@ -18,6 +17,11 @@ export type EfficiencyRow = {
   label: string;
   spend: number;
   cells: EfficiencyCell[];
+  /**
+   * Set for a source that buys nothing — organic search. Its row shows counts
+   * and an em dash with this reason where a paid channel shows costs.
+   */
+  unpaidReason?: string;
 };
 
 /**
@@ -37,9 +41,10 @@ export type EfficiencyRow = {
  * different degrees. A single coverage number for the row would average them
  * and hide exactly the thing worth seeing.
  *
- * Deals no channel can claim get a row group below a heavier rule, badged
- * `Not a channel`. They have a count and no spend, so every cost cell is an em
- * dash with the reason — never a zero.
+ * An unpaid source (organic search) and the deals no channel can claim both
+ * have counts and no spend, so every cost cell is an em dash with the reason
+ * and the count beneath — never a zero. Unattributed sits below a heavier
+ * rule, because it is what nobody can claim rather than a source.
  */
 export function EfficiencyTable({
   rows,
@@ -111,13 +116,26 @@ export function EfficiencyTable({
                     {row.label}
                   </th>
                   <td className="numeric px-3 py-3 align-top tabular text-text">
-                    {formatCurrency(row.spend, currency)}
+                    {row.unpaidReason ? (
+                      <span className="text-text-3" title={row.unpaidReason}>
+                        &mdash;
+                      </span>
+                    ) : (
+                      formatCurrency(row.spend, currency)
+                    )}
                   </td>
                   {columns.map((column) => {
                     const cell = row.cells.find((c) => c.stage === column.stage);
                     return (
                       <td key={column.stage} className="numeric px-3 py-3 align-top">
-                        {cell ? (
+                        {row.unpaidReason ? (
+                          <CountOnlyCell
+                            stage={column.stage}
+                            stageLabel={column.label}
+                            count={cell?.cost.attributedDeals ?? 0}
+                            reason={row.unpaidReason}
+                          />
+                        ) : cell ? (
                           <CostCell
                             cell={cell}
                             currency={currency}
@@ -138,34 +156,19 @@ export function EfficiencyTable({
               <tfoot>
                 <tr className="border-t-2 border-text-3/40 bg-canvas align-top">
                   <th scope="row" className="px-5 py-3 text-left font-medium text-text">
-                    <span className="flex flex-wrap items-center gap-2">
-                      {unattributed.label}
-                      <Badge tone="neutral">Not a channel</Badge>
-                    </span>
+                    {unattributed.label}
                   </th>
                   <td className="numeric px-3 py-3 text-text-3" title={unattributed.reason}>
                     &mdash;
                   </td>
                   {columns.map((column) => (
                     <td key={column.stage} className="numeric px-3 py-3">
-                      {/*
-                        A count and an em dash, on purpose. These records exist
-                        — that is the number — and no spend stands behind them,
-                        so the cost cell is a category error rather than a zero.
-                      */}
-                      <span className="inline-flex items-center gap-1.5 text-text-3">
-                        &mdash;
-                        <InfoTip
-                          label={`Why ${column.label} has no cost here`}
-                          align="end"
-                        >
-                          {unattributed.reason}
-                        </InfoTip>
-                      </span>
-                      <span className="mt-0.5 block text-[12px] tabular text-text-2">
-                        {formatCount(unattributed.counts[column.stage] ?? 0)}{' '}
-                        {countNoun(column.stage, unattributed.counts[column.stage] ?? 0)}
-                      </span>
+                      <CountOnlyCell
+                        stage={column.stage}
+                        stageLabel={column.label}
+                        count={unattributed.counts[column.stage] ?? 0}
+                        reason={unattributed.reason}
+                      />
                     </td>
                   ))}
                 </tr>
@@ -191,6 +194,37 @@ const COUNT_NOUNS: Record<string, readonly [string, string]> = {
 function countNoun(stage: string, n: number): string {
   const [one, many] = COUNT_NOUNS[stage] ?? (['deal', 'deals'] as const);
   return n === 1 ? one : many;
+}
+
+/**
+ * A count and an em dash, on purpose. These records exist — that is the
+ * number — and no spend stands behind them, so the cost cell is a category
+ * error rather than a zero.
+ */
+function CountOnlyCell({
+  stage,
+  stageLabel,
+  count,
+  reason,
+}: {
+  stage: string;
+  stageLabel: string;
+  count: number;
+  reason: string;
+}) {
+  return (
+    <>
+      <span className="inline-flex items-center gap-1.5 text-text-3">
+        &mdash;
+        <InfoTip label={`Why ${stageLabel} has no cost here`} align="end">
+          {reason}
+        </InfoTip>
+      </span>
+      <span className="mt-0.5 block text-[12px] tabular text-text-2">
+        {formatCount(count)} {countNoun(stage, count)}
+      </span>
+    </>
+  );
 }
 
 /**

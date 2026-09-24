@@ -44,7 +44,7 @@ export function MonthBars({
     <div className="crossfade">
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={bars} margin={{ top: 22, right: 4, bottom: 0, left: 4 }} barCategoryGap="22%">
+          <BarChart data={bars} margin={{ top: 24, right: 4, bottom: 0, left: 4 }} barCategoryGap="22%">
             <CartesianGrid stroke={BORDER} vertical={false} />
             {/* Direct children: the library finds axes by scanning them. */}
             <XAxis
@@ -96,12 +96,32 @@ export function MonthBars({
                   strokeDasharray={b.partial ? '3 2' : undefined}
                 />
               ))}
+              {/*
+                The count sits clear of the bar: 7px above its top, with a halo
+                in the card's own surface, so a partial month's dashed outline
+                cannot run through the number (24 September 2026).
+              */}
               <LabelList
                 dataKey="value"
-                position="top"
-                fontSize={11}
-                fill={TEXT_2}
-                formatter={(v: number) => formatCount(v)}
+                content={(props: { x?: number | string; y?: number | string; width?: number | string; value?: number | string }) => {
+                  const x = Number(props.x ?? 0) + Number(props.width ?? 0) / 2;
+                  const y = Number(props.y ?? 0) - 7;
+                  return (
+                    <text
+                      x={x}
+                      y={y}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fill={TEXT_2}
+                      stroke="var(--color-surface, #fff)"
+                      strokeWidth={3}
+                      paintOrder="stroke"
+                      className="tabular"
+                    >
+                      {formatCount(Number(props.value ?? 0))}
+                    </text>
+                  );
+                }}
               />
             </Bar>
           </BarChart>

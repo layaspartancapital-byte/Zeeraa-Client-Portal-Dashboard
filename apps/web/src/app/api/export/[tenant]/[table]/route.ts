@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core';
+import { resolveDateRange, tenantDay, UNPAID_REASON, type AttributionModel } from '@zeeraa/core';
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
 import { requireTenant } from '@/lib/tenant';
@@ -86,22 +86,43 @@ export async function GET(
         'Cost per deal range high',
         'Notes',
       ],
-      ...data.channels.map((channel): CsvCell[] => [
-        'channel',
-        channel.label,
-        spendCell(channel.spend),
-        spendCell(channel.impressions),
-        spendCell(channel.clicks),
-        spendCell(channel.ctr),
-        spendCell(channel.cpc),
-        ...stageCells(channel.stages),
-        crmCell(channel.valueVolume),
-        bothCell(channel.costPerDeal.value),
-        crmCell(channel.costPerDeal.attributedDeals),
-        bothCell(channel.costPerDeal.plausibleRange.low),
-        bothCell(channel.costPerDeal.plausibleRange.high),
-        '',
-      ]),
+      ...data.channels.map((channel): CsvCell[] =>
+        channel.paid
+          ? [
+              'channel',
+              channel.label,
+              spendCell(channel.spend),
+              spendCell(channel.impressions),
+              spendCell(channel.clicks),
+              spendCell(channel.ctr),
+              spendCell(channel.cpc),
+              ...stageCells(channel.stages),
+              crmCell(channel.valueVolume),
+              bothCell(channel.costPerDeal.value),
+              crmCell(channel.costPerDeal.attributedDeals),
+              bothCell(channel.costPerDeal.plausibleRange.low),
+              bothCell(channel.costPerDeal.plausibleRange.high),
+              '',
+            ]
+          : [
+              // Organic search: counts and volume, and blanks — not zeroes —
+              // where a paid channel has spend and costs.
+              'source',
+              channel.label,
+              null,
+              null,
+              null,
+              null,
+              null,
+              ...stageCells(channel.stages),
+              crmCell(channel.valueVolume),
+              null,
+              crmCell(channel.costPerDeal.attributedDeals),
+              null,
+              null,
+              UNPAID_REASON,
+            ],
+      ),
       [
         'unattributed',
         data.unattributed.label,

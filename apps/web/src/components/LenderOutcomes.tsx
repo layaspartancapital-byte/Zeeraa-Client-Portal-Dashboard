@@ -1,6 +1,5 @@
-import { formatCount, formatRate, type PopulationVerdict } from '@zeeraa/core';
+import { formatCount, formatRangeLabel, formatRate, type PopulationVerdict } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { SubmissionReport } from '@/lib/reporting';
 
@@ -18,9 +17,13 @@ import type { SubmissionReport } from '@/lib/reporting';
  *     channel metrics follow. Summing offers across lenders over one lender's
  *     decisions would make a lender look better when a different one had a good
  *     month.
- *   - **Undecided submissions are on the card, not in a caption.** They are the
- *     majority at any moment, so a reader who assumes the denominator is every
- *     submission is out by a factor of two. They are never a soft no.
+ *   - **Undecided submissions are on the card, not in a caption**, split by
+ *     where they stand (`pendingState` in core): waiting on a lender, no reply
+ *     before the deal closed, and not completed. Only the first is anybody
+ *     waiting, and the headline and the table's Waiting total are the same
+ *     number. None of them is a soft no.
+ *
+ * Every figure is the picked period's, by submission date.
  */
 export function LenderOutcomes({
   report,
@@ -36,22 +39,15 @@ export function LenderOutcomes({
    */
   gateFor?: (decided: number) => PopulationVerdict;
 }) {
-  const { overall, lenders, undecided } = report;
-  // Waiting on a lender is the pipeline working; anything else undecided is a
-  // submission that never went through, and is said separately.
-  const waiting = undecided.find((u) => u.reason === 'awaiting a lender answer')?.count ?? 0;
-  const incomplete = overall.undecided - waiting;
+  const { overall, lenders, pending } = report;
+  const submissionNoun = (n: number) => (n === 1 ? 'submission' : 'submissions');
 
   return (
     <Card span={span}>
       <CardHeader
         title="Lender outcomes"
         subtitle="One row per lender. Each rate is that lender's own offers over its own decisions."
-        controls={
-          report.from ? (
-            <span className="text-[12px] tabular text-text-3">from {report.from}</span>
-          ) : undefined
-        }
+        controls={<span className="text-[12px] tabular text-text-3">{formatRangeLabel(report.range)}</span>}
       />
 
       {report.empty ? (
@@ -79,20 +75,36 @@ export function LenderOutcomes({
               </div>
 
               <div>
-                <p className="text-[13px] font-medium text-text-2">Not answered yet</p>
-                <p className="mt-1 text-[28px] font-semibold leading-[1.15] tabular text-text-2">
-                  {formatCount(waiting)}
+                <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
+                  Waiting on a lender reply
+                  <InfoTip label="What waiting on a lender reply counts" align="start">
+                    Submissions a lender has not answered, on deals still open in Salesforce. A
+                    submission on a deal already funded, declined or lost is not waiting on anybody.
+                  </InfoTip>
+                </p>
+                <p className="mt-1 text-[28px] font-semibold leading-[1.15] tabular text-text">
+                  {formatCount(pending.waiting)}
                 </p>
                 <p className="mt-1 text-[13px] leading-snug text-text-2">
-                  {formatCount(waiting)} waiting on a lender reply
-                  {incomplete > 0 ? ` · ${formatCount(incomplete)} not completed` : ''}
+                  {formatCount(pending.waiting)} {submissionNoun(pending.waiting)} on open deals
                 </p>
               </div>
+
+              <ul className="space-y-1 text-[13px] leading-snug text-text-2">
+                <li>
+                  <span className="font-semibold tabular text-text">{formatCount(pending.closed_unanswered)}</span>{' '}
+                  got no reply before the deal closed
+                </li>
+                <li>
+                  <span className="font-semibold tabular text-text">{formatCount(pending.not_completed)}</span>{' '}
+                  {pending.not_completed === 1 ? 'was' : 'were'} not completed
+                </li>
+              </ul>
             </div>
           </CardBody>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-0 border-collapse text-[13px]">
+          <div className="scroll-x min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-y border-border text-left text-text-2">
                   <th scope="col" className="px-5 py-2 font-medium">
@@ -107,8 +119,14 @@ export function LenderOutcomes({
                   <th scope="col" className="px-3 py-2 text-right font-medium">
                     Offer rate
                   </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    Waiting
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    No reply, deal closed
+                  </th>
                   <th scope="col" className="px-5 py-2 text-right font-medium">
-                    No answer yet
+                    Not completed
                   </th>
                 </tr>
               </thead>
@@ -144,8 +162,14 @@ export function LenderOutcomes({
                         formatRate(lender.offers.rate)
                       )}
                     </td>
+                    <td className="px-3 py-2 text-right tabular text-text">
+                      {formatCount(lender.pending.waiting)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular text-text-2">
+                      {formatCount(lender.pending.closed_unanswered)}
+                    </td>
                     <td className="px-5 py-2 text-right tabular text-text-2">
-                      {formatCount(lender.offers.undecided)}
+                      {formatCount(lender.pending.not_completed)}
                     </td>
                   </tr>
                 ))}
@@ -169,8 +193,14 @@ export function LenderOutcomes({
                   <td className="px-3 py-2 text-right font-semibold tabular text-text">
                     {overall.rate === null || (gateFor && !gateFor(overall.decided).sufficient) ? '—' : formatRate(overall.rate)}
                   </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular text-text">
+                    {formatCount(pending.waiting)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular text-text-2">
+                    {formatCount(pending.closed_unanswered)}
+                  </td>
                   <td className="px-5 py-2 text-right font-semibold tabular text-text-2">
-                    {formatCount(overall.undecided)}
+                    {formatCount(pending.not_completed)}
                   </td>
                 </tr>
               </tbody>

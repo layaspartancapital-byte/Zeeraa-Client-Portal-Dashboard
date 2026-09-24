@@ -1,4 +1,4 @@
-import { and, gte, isNull, lte, type SQL } from 'drizzle-orm';
+import { and, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import * as schema from './schema/index';
 
 /**
@@ -61,4 +61,18 @@ export function submissionsIn(range: DayRange): SQL {
     // A renewal's submissions are real and not counted, like its stage events.
     isNull(schema.submissions.excludedReason),
   )!;
+}
+
+/**
+ * A lead's source, as every lead-grain channel count must read it.
+ *
+ * `leads.channel` is resolved at ingest (`leadChannel` in core): the click's
+ * platform, else `organic_search`, else null. `click_id_type` is the fallback
+ * for a row written before the column existed; wherever a click is present the
+ * two are equal, so the fallback never changes a lead's channel — it only
+ * keeps a not-yet-backfilled row in its paid channel instead of dropping it to
+ * unattributed.
+ */
+export function leadChannel(): SQL<string | null> {
+  return sql<string | null>`coalesce(${schema.leads.channel}, ${schema.leads.clickIdType})`;
 }

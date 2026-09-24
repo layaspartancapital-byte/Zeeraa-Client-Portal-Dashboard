@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
-import { leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
+import { leadChannel, leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
   formatCount,
@@ -469,7 +469,7 @@ export async function windowBuckets(
       tx
         .select({
           day: sql<string>`to_char(${schema.leads.createdOn}, 'YYYY-MM-DD')`,
-          clickIdType: schema.leads.clickIdType,
+          clickIdType: leadChannel(),
           verdict: schema.leads.mqlVerdict,
           count: sql<number>`count(*)::int`,
         })
@@ -480,7 +480,7 @@ export async function windowBuckets(
             leadsCreatedIn(range),
           ),
         )
-        .groupBy(sql`1`, schema.leads.clickIdType, schema.leads.mqlVerdict),
+        .groupBy(sql`1`, leadChannel(), schema.leads.mqlVerdict),
 
       tx
         .select({ day: sql<string | null>`min(${schema.dailyMetrics.date})::text` })

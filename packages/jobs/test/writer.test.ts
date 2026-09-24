@@ -50,6 +50,8 @@ function lead(overrides: Partial<LeadRow> = {}): LeadRow {
     utmContent: null,
     utmTerm: null,
     landingPage: null,
+    referrerUrl: null,
+    channel: 'google_ads',
     selfReportedRevenue: 25_000,
     selfReportedAnnualRevenue: null,
     selfReportedTimeInBusiness: 36,
@@ -77,6 +79,7 @@ function opportunity(overrides: Partial<OpportunityRow> = {}): OpportunityRow {
     declineReason: null,
     industry: null,
     state: 'NY',
+    isClosed: false,
     ...overrides,
   };
 }
