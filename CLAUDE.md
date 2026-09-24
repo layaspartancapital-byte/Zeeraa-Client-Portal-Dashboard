@@ -193,6 +193,11 @@ commit history and get it wrong.
   (**FOR SELECT** — membership reads, it does not write), `tenant_admin_write`
   (FOR ALL, `effective_role() = 'zeeraa_admin'`), `job_tenant_isolation` if a
   sync writes it, and `maintenance_access` policies. See migration 0028.
+- **A per-user preference is its own table, never a column on `users`.** The
+  account row admits no self-update outside the change-password flow, and a UI
+  flag is not a reason to open it. `product_tours` (migration 0033) is the
+  shape: keyed on `user_id`, one policy admitting `user_id =
+  app.current_user_id()`, no DELETE grant, and a mutation for each.
 - Functions that answer authorisation from inside a policy must be SECURITY
   DEFINER with a pinned `search_path`, and must read `app.membership_index`
   rather than `public.memberships`. As invoker-rights functions they would be

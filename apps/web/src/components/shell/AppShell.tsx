@@ -3,6 +3,7 @@
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { ShellProvider, useShell } from '@/components/shell/shell-state';
 import { Sidebar } from '@/components/shell/Sidebar';
+import { TourProvider } from '@/components/shell/ProductTour';
 
 /**
  * Sidebar, canvas and the content column.
@@ -20,6 +21,7 @@ export function AppShell({
   generatedAt,
   platforms,
   logo = null,
+  tour,
   children,
 }: {
   viewer: Viewer;
@@ -30,16 +32,20 @@ export function AppShell({
   generatedAt: string;
   /** Connected ad platforms, resolved server-side in the tenant layout. */
   platforms?: { key: string; label: string }[];
+  /** The product tour: whether it starts on its own, and how completion is recorded. */
+  tour: { autoStart: boolean; onComplete: () => Promise<void> };
   children: React.ReactNode;
 }) {
   return (
     <ShellProvider>
-      <div className="min-h-dvh bg-canvas">
-        <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} />
-        <Content tenant={tenant} generatedAt={generatedAt}>
-          {children}
-        </Content>
-      </div>
+      <TourProvider slug={tenant.slug} autoStart={tour.autoStart} onComplete={tour.onComplete}>
+        <div className="min-h-dvh bg-canvas">
+          <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} />
+          <Content tenant={tenant} generatedAt={generatedAt}>
+            {children}
+          </Content>
+        </div>
+      </TourProvider>
     </ShellProvider>
   );
 }

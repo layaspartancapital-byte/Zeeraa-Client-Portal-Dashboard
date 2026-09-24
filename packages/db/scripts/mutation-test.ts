@@ -460,6 +460,24 @@ const MUTATIONS: Mutation[] = [
       to: "set_config('app.current_tenant_id', ${ctx.tenantId}, false)",
     },
   },
+  {
+    /*
+     * The tour row is the one table guarded by "is this mine" rather than by a
+     * tenant. A policy written as tenant-shaped, or as `true` for a UI flag
+     * nobody thinks is sensitive, lets a colleague read who has been shown
+     * what — and write it on their behalf.
+     */
+    name: 'product-tours-anyone',
+    description: 'Let any application session read and write every product_tours row',
+    sql: `drop policy own_tours on public.product_tours;
+          create policy own_tours on public.product_tours
+            as permissive for all to zeeraa_app using (true) with check (true)`,
+  },
+  {
+    name: 'product-tours-delete',
+    description: 'Grant DELETE on product_tours, so a completion can be erased',
+    sql: 'grant delete on public.product_tours to zeeraa_app',
+  },
 ];
 
 const env = {

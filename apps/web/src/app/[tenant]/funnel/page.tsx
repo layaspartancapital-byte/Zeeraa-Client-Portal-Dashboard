@@ -263,7 +263,7 @@ export default async function Funnel({
       </PageMeta>
 
       <Grid>
-        <Card span={12}>
+        <Card span={12} dataTour="funnel">
           <CardHeader
             title="Stage flow"
             subtitle={`${population.label} · ${range.start} to ${range.end} · ${

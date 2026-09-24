@@ -401,6 +401,7 @@ export default async function Performance({
           options={segments(base, active, 'model', MODELS)}
         />
         <ButtonLink
+          data-tour="export-csv"
           href={`/api/export/${slug}/performance?${new URLSearchParams({ model, ...rangeParams(range) }).toString()}`}
         >
           <Download aria-hidden="true" className="h-4 w-4" />
@@ -631,7 +632,7 @@ export default async function Performance({
           </CardBody>
         </Card>
 
-        <Card span={12}>
+        <Card span={12} dataTour="performance-table">
           <CardHeader
             title="All platforms"
             subtitle={`${range.start} to ${range.end} · ${

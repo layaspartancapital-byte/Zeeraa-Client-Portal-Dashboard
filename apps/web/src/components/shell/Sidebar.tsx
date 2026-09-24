@@ -17,7 +17,9 @@ import {
   Share2,
   TrendingUp,
   X,
+  Compass,
 } from 'lucide-react';
+import { useTour } from '@/components/shell/ProductTour';
 import {
   canAdministerTenant,
   canManageUsers,
@@ -375,6 +377,7 @@ export function UserMenu({
   const wrap = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const showSwitcher = canSwitchTenant(tenant.role);
+  const tour = useTour();
 
   useEffect(() => {
     if (!open) return;
@@ -482,6 +485,20 @@ export function UserMenu({
                 ))}
               </ul>
             </>
+          )}
+          {tour && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                tour.start();
+              }}
+              className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[13px] text-text-2 hover:bg-canvas hover:text-text"
+            >
+              <Compass aria-hidden="true" className="h-3.5 w-3.5" />
+              Take the tour
+            </button>
           )}
           <Link
             href="/signout"

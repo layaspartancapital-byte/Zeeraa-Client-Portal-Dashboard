@@ -46,7 +46,7 @@ export function SourceFreshness({
   const oldest = synced.sort((a, b) => a.at!.getTime() - b.at!.getTime())[0] ?? null;
 
   return (
-    <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-3">
+    <p data-tour="freshness" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-3">
       <span className="font-medium text-text-2">Sources</span>
       {sources.map((source) => (
         <SourceChip key={source.platform} source={source} now={now} timezone={timezone} />

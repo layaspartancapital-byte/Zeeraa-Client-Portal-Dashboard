@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { AppShell } from '@/components/shell/AppShell';
 import { reportingPlatforms } from '@/lib/platforms';
 import { requireTenant, tenantLogo } from '@/lib/tenant';
+import { hasCompletedTour, recordTourCompleted } from '@/lib/tour';
 
 /**
  * The browser tab title leads with the tenant name. Two tabs open on two
@@ -28,7 +29,17 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const [platforms, logo] = await Promise.all([reportingPlatforms(session), tenantLogo(session)]);
+  const [platforms, logo, toured] = await Promise.all([
+    reportingPlatforms(session),
+    tenantLogo(session),
+    hasCompletedTour(session),
+  ]);
+
+  // Finished or skipped, recorded for this user wherever they sign in next.
+  async function completeTour(): Promise<void> {
+    'use server';
+    await recordTourCompleted(await requireTenant(slug));
+  }
 
   return (
     <AppShell
@@ -37,6 +48,7 @@ export default async function TenantLayout({
       logo={logo}
       platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
+      tour={{ autoStart: !toured, onComplete: completeTour }}
     >
       {children}
     </AppShell>

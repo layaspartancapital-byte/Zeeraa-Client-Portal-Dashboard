@@ -2,8 +2,10 @@ import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -137,6 +139,24 @@ export const sessions = pgTable('sessions', {
   expires: timestamp('expires', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * The product tour, finished or skipped, per user and tour version (migration
+ * 0033). Its own table because the account row admits no self-update outside
+ * the change-password flow; readable and writable only by its own user.
+ */
+export const productTours = pgTable(
+  'product_tours',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tour: text('tour').notNull(),
+    version: integer('version').notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.tour, t.version] })],
+);
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   memberships: many(memberships),

@@ -36,7 +36,7 @@ export function RampScorecard({
 }) {
   const partial = elapsedDays < monthDays;
   return (
-    <Card span={12} id="ramp-scorecard">
+    <Card span={12} id="ramp-scorecard" dataTour="scorecard">
       <CardHeader
         title="This month vs target"
         subtitle={`${channel} · ${monthLabel}${
@@ -156,7 +156,7 @@ export function RampCostChart({ panel }: { panel: RampPanel }) {
   const timeline = panel.timeline;
   const render = renderer(panel);
   return (
-    <Card span={12} id="ramp-chart">
+    <Card span={12} id="ramp-chart" dataTour="cost-chart">
       <CardHeader title={`${panel.channel} ${panel.label.toLowerCase()}`} subtitle={timeline ? phases(timeline) : undefined} />
       <CardBody>
         {!panel.series.contracted || !timeline ? (

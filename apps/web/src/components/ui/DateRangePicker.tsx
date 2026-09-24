@@ -53,7 +53,7 @@ export function DateRangePicker({
   const days = rangeLengthDays(range);
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 print-hidden">
+    <div data-tour="date-range" className="flex min-w-0 flex-col gap-1.5 print-hidden">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <form method="GET" className="flex shrink-0 items-center gap-1.5">
           {Object.entries(preserve).map(([name, value]) => (

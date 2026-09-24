@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (production domain).**
+**Last updated: 24 September 2026 (executive ramp simplified; product tour).**
 
 ---
 
@@ -53,6 +53,26 @@ is `https://zeeraa.cloud/api/webhooks/aloware/spartan`, bearer
 through the real form on both hosts and ended on `zeeraa.cloud` with the generic
 message, and Aloware was delivering: 46 of 48 accepted by 14:16Z, the other two
 unauthenticated.
+
+**The executive ramp is a scorecard and one chart, deployed 24 September 2026.**
+"This month vs target" (cost per funded deal, CPA, funded deals, spend — Google
+Ads) judged by `scorecardVerdict` in core, and Google Ads cost per funded deal
+with its baseline and the M1–M8 target. The Google Ads budget-pacing card is
+gone; the scorecard's Spend replaces it. CPA, budget, approvals, funded deals and
+volume are charted on Monthly performance. Every target renders in whole dollars
+(`formatTargetCurrency`). Until October the scorecard shows each target as
+"Target from Oct 2026", because M1 has not begun — the on-target and behind
+states are tested and first appear in October. The partial-month rule is in
+`docs/brief-amendments.md`.
+
+**A first-login product tour, 24 September 2026.** Eight steps across
+Executive, Funnel and Monthly performance (`components/shell/tour-steps.ts`),
+started on its own until the user finishes or skips it, and replayed from
+"Take the tour" in the avatar menu. Completion is `product_tours` (migration
+0033): per user and tour version, its own row only (`own_tours`), no DELETE.
+Raise `TOUR_VERSION` in `lib/tour.ts` to show a revised tour to everybody once.
+`apps/web/test/product-tour.test.ts` fails if a step names a `data-tour`
+element nothing renders.
 
 ## Done
 

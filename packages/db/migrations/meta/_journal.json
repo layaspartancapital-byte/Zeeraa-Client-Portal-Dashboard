@@ -232,6 +232,13 @@
       "when": 1790090000000,
       "tag": "0032_reconciliation_and_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790100000000,
+      "tag": "0033_product_tours",
+      "breakpoints": true
     }
   ]
 }

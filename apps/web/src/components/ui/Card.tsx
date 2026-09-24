@@ -16,6 +16,7 @@ export function Card({
   selfStart = false,
   as: Tag = 'section',
   id,
+  dataTour,
 }: {
   children: ReactNode;
   className?: string;
@@ -32,10 +33,13 @@ export function Card({
   as?: 'section' | 'div' | 'li' | 'article';
   /** For an anchor target, so a redirect can bring a card into view. */
   id?: string;
+  /** Where the product tour spotlights this card (`ProductTour`). */
+  dataTour?: string;
 }) {
   return (
     <Tag
       id={id}
+      data-tour={dataTour}
       className={`card print-full flex min-w-0 flex-col ${
         interactive ? 'card-lift' : ''
       } ${selfStart ? 'self-start' : ''} ${span ? SPAN[span] : ''} ${className}`}

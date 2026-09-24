@@ -44,6 +44,7 @@ export function MethodDrawer({ notes, title }: { notes: MethodNote[]; title: str
     <>
       <button
         type="button"
+        data-tour="how-measured"
         onClick={() => setOpen(true)}
         className="link inline-flex items-center gap-1.5 text-[13px] print-hidden"
       >
