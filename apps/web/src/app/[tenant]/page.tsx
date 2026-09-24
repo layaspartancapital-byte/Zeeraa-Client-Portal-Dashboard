@@ -1,6 +1,5 @@
 import {
   briefingPeriods,
-  budgetPacing,
   canAdministerTenant,
   channelCostPerDeal,
   formatCount,
@@ -8,20 +7,10 @@ import {
   formatDuration,
   formatRangeLabel,
   formatRate,
-  improvementDirectionFor,
-  monthKeyOf,
   previousRange,
   rangeLengthDays,
-  rampMonthKey,
-  rampSeries,
-  rampTimeline,
-  channelMonthActuals,
-  rangeCoverage,
-  RAMP_METRICS,
-  type MonthActual,
   trailingMonths,
   type AttributionModel,
-  type RampMetricKey,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
@@ -35,9 +24,10 @@ import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { EfficiencyTable, type EfficiencyRow } from '@/components/EfficiencyTable';
 import { NeedsAttention, type Finding } from '@/components/NeedsAttention';
-import { RampCard, type RampPanel } from '@/components/RampCard';
+import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
+import { monthName } from '@/components/RampCard';
+import { buildRampPanels, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
-import { SpendPacingCard } from '@/components/SpendPacingCard';
 import { callReport, monthlyPerformance } from '@/lib/reporting';
 import { platformLabel as platformName } from '@/lib/platform-labels';
 import {
@@ -59,7 +49,6 @@ import {
   notMeasuredReason,
   sourcesThrough,
   throughNote,
-  unreadLabel,
 } from '@/lib/coverage';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange, type RangeQuery } from '@/lib/range';
@@ -92,8 +81,8 @@ export const revalidate = 600;
  *   * **every measured figure** covers the picked range, with a comparison
  *     beside it: the last whole month while the range is month to date, and
  *     otherwise the period of the same length immediately before;
- *   * **pacing** is this calendar month's, whatever is picked, because a budget
- *     is contracted per month;
+ *   * **the scorecard** is this calendar month's, whatever is picked, because a
+ *     target is contracted per month;
  *   * **the findings** are current state, and not a period at all.
  *
  * A *count* in one period is never subtracted from a count in the other —
@@ -234,308 +223,37 @@ export default async function ExecutiveBriefing({
    * curve would put a number on screen that no contract states. Where several
    * are contracted this takes the first, and the card names which.
    */
-  const rampPlatform = [...ramp.byPlatform.keys()][0] ?? 'google_ads';
-  const rampTargets = ramp.byPlatform.get(rampPlatform) ?? [];
-
-  /**
-   * A month's bucket, but only once the month is over.
-   *
-   * **The ramp contracts a monthly figure, so only a finished month has an
-   * actual.** September is three weeks old and holds one deal attributed to
-   * Google Ads; dividing the month's spend so far by it gives $18,792 against a
-   * $3,321 target, and the card would report the engagement as catastrophically
-   * behind plan on the strength of a month that has not happened yet. By the
-   * 30th the same month may land near target.
-   *
-   * The current month is not missing from the briefing — it is the three KPI
-   * cards directly below this one, labelled as month to date. What it is not is
-   * a point on a curve of monthly results.
-   */
-  const completedBucketFor = (month: string) =>
-    month >= periods.currentMonth
-      ? null
-      : (buckets.find((b) => monthKeyOf(b.start) === month) ?? null);
-
-  /**
-   * A month's cost, or nothing where the month's denominator is too small to
-   * carry one.
-   *
-   * The same gate the efficiency table uses, applied a second time because a
-   * point on a chart is a stronger claim than a cell in a table: a reader takes
-   * a line as a trajectory. A month in which one deal was attributed produces a
-   * cost per deal that is a fact about that deal, and joining it to the month
-   * either side of it draws a shape that is not in the data.
-   */
-  const gatedCost = (spend: number, attributed: number, formulaKey: string) => {
-    if (!metrics.population(formulaKey, attributed).sufficient) return null;
-    return channelCostPerDeal({ channelSpend: spend, attributedDeals: attributed }).value;
-  };
-
-  /**
-   * What actually happened in a calendar month, per contracted metric.
-   *
-   * Every one of these takes both halves from the contracted channel. A ramp
-   * signed for Google Ads is kept or missed by Google Ads' own spend over
-   * Google Ads' own deals; measuring it against the account total would let the
-   * engagement look on track because a different channel had a good month.
-   */
-  const actualFor: Record<RampMetricKey, (month: string) => number | null> = {
-    costPerFundedDeal: (month) => {
-      const bucket = completedBucketFor(month);
-      if (!bucket || !bucket.spendIngested || !valueKey) return null;
-      return gatedCost(
-        bucket.spendByPlatform[rampPlatform] ?? 0,
-        bucket.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0,
-        'cost_per_funded_deal',
-      );
-    },
-    cpa: (month) => {
-      const bucket = completedBucketFor(month);
-      if (!bucket || !bucket.spendIngested) return null;
-      /*
-       * **The model's "A" is an approval, and this is the denominator that
-       * proves it.**
-       *
-       * The engagement model computes its own CPA column as budget ÷ approvals,
-       * and reproduces it to the dollar in all eight months — $30,000 ÷ 40 =
-       * $750, $316,241 ÷ 603.8 = $524. So the actual has to divide by
-       * underwriting approvals or it is not comparable to the curve it is drawn
-       * against.
-       *
-       * This was cost per *application* until the model file was read, which
-       * would have understated the actual by roughly threefold — 121
-       * applications against 41 approvals in September — and drawn the
-       * engagement as comfortably ahead of a target it is behind. The word CPA
-       * means at least three different things across this engagement's
-       * paperwork; `cpa_definition` in `blocked_dependencies` carries that
-       * disagreement, and the ramp is exempt from it only because the model
-       * defines its own column from its own two columns.
-       */
-      return gatedCost(
-        bucket.spendByPlatform[rampPlatform] ?? 0,
-        bucket.stagesByPlatform[rampPlatform]?.uw_approved ?? 0,
-        'cpa',
-      );
-    },
-    budget: (month) => {
-      const bucket = completedBucketFor(month);
-      return bucket?.spendIngested ? (bucket.spendByPlatform[rampPlatform] ?? 0) : null;
-    },
-    approvals: (month) => {
-      const bucket = completedBucketFor(month);
-      return bucket?.crmIngested ? (bucket.stagesByPlatform[rampPlatform]?.uw_approved ?? 0) : null;
-    },
-    fundedDeals: (month) => {
-      const bucket = completedBucketFor(month);
-      if (!bucket || !bucket.crmIngested || !valueKey) return null;
-      return bucket.stagesByPlatform[rampPlatform]?.[valueKey] ?? 0;
-    },
-    // The model's Funded Amount is the contracted channel's volume, so the
-    // actual is that channel's attributed deals only — never the account total.
-    fundedAmount: (month) => {
-      const bucket = completedBucketFor(month);
-      if (!bucket || !bucket.crmIngested || !valueKey) return null;
-      return bucket.valueVolumeByPlatform[rampPlatform] ?? 0;
-    },
-  };
-
-  /**
-   * One month of each contracted metric for the calendar ramp, with the reason
-   * where there is none.
-   *
-   * A frozen month comes from its snapshot (`baseline_snapshots`), so a later
-   * re-sync cannot move the audited baseline. Every other month is computed
-   * by `channelMonthActuals` in core from the ramp channel's bucket — the same
-   * function the freeze used, so a frozen month is what this showed for it.
-   */
-  const rampChannel = platformName(rampPlatform);
-  const frozen = new Map(
-    [...frozenAll]
-      .filter(([key]) => key.startsWith(`${rampPlatform}|`))
-      .map(([key, value]) => [key.slice(rampPlatform.length + 1), value]),
-  );
-  const liveMonth = (month: string): Record<RampMetricKey, MonthActual> => {
-    const bucket = buckets.find((b) => monthKeyOf(b.start) === month);
-    const stage = (key: string) => ({
-      own: bucket?.stagesByPlatform[rampPlatform]?.[key] ?? 0,
-      unattributed: bucket?.unattributedStages[key] ?? 0,
-      all: bucket?.stages[key] ?? 0,
-    });
-    return channelMonthActuals(
-      {
-        spend: bucket?.spendByPlatform[rampPlatform] ?? 0,
-        stages: {
-          uw_approved: stage('uw_approved'),
-          ...(valueKey ? { [valueKey]: stage(valueKey) } : {}),
-        },
-        ownVolume: bucket?.valueVolumeByPlatform[rampPlatform] ?? 0,
-        spendCoverage: bucket?.spendCoverage[rampPlatform] ?? rangeCoverage({ start: `${month}-01`, end: `${month}-01` }, null),
-        crmRead: bucket?.crmIngested ?? false,
-      },
-      {
-        month,
-        currentMonth: periods.currentMonth,
-        channel: rampChannel,
-        valueStage: valueKey,
-        approvalStage: 'uw_approved',
-        renderFloor: metrics.floors.render,
-      },
-    );
-  };
-  const monthActualFor = Object.fromEntries(
-    RAMP_METRICS.map((metric) => [
-      metric,
-      (month: string): MonthActual => frozen.get(`${month}|${metric}`) ?? liveMonth(month)[metric],
-    ]),
-  ) as Record<RampMetricKey, (month: string) => MonthActual>;
-
-  const panelFor = (
-    metric: RampMetricKey,
-    label: string,
-    formulaKey: string,
-    format: RampPanel['format'],
-    missing: string,
-    basis: string,
-  ): RampPanel => {
-    // The direction comes from the formula, exactly as every delta's does. A
-    // ramp panel never states which way is better.
-    const direction = improvementDirectionFor(formulaKey);
-    return {
-      metric,
-      label,
-      format,
-      direction,
-      missing,
-      series: rampSeries(rampTargets, metric, {
-        startMonth: ramp.startMonth,
-        actualFor: actualFor[metric],
-        direction,
-      }),
-      channel: rampChannel,
-      basis,
-      // On the calendar once the start is recorded, with the months before it
-      // as the baseline; on the M1–Mn axis until then.
-      timeline:
-        ramp.startMonth === null
-          ? null
-          : rampTimeline(rampTargets, metric, {
-              startMonth: ramp.startMonth,
-              baselineMonths: RAMP_BASELINE_MONTHS,
-              currentMonth: periods.currentMonth,
-              readActual: monthActualFor[metric],
-              direction,
-            }),
-    };
-  };
-
-  const AWAITING_MODEL =
-    'The engagement model contracts this month by month. The figures have not been entered ' +
-    'in the engagement targets yet, so there is no curve to track against.';
-
   /*
-   * The basis of each actual, stated on its chart. Every column of the model
-   * is the ramp channel's own — its budget, its approvals, its funded deals —
-   * so every actual is that channel's own too, and the chart says which
-   * channel so that nobody reads a Google Ads curve as the account.
+   * The ramp's panels and months, built once (`lib/ramp-panels.ts`) so this
+   * screen and Monthly performance read the same months the same way. The
+   * baseline starts where the ramp channel's spend record does.
    */
-  const deals = `${valueLabel.toLowerCase()} deals`;
-  const rampPrimary = panelFor(
-    'costPerFundedDeal',
-    `Cost per ${valueLabel.toLowerCase()} deal`,
-    'cost_per_funded_deal',
-    { kind: 'currency', currency },
-    AWAITING_MODEL,
-    `${rampChannel} spend ÷ ${deals} attributed to ${rampChannel}`,
-  );
-  const rampSecondary = panelFor(
-    'cpa',
-    'CPA · cost per approval',
-    'cpa',
-    { kind: 'currency', currency },
-    AWAITING_MODEL,
-    `${rampChannel} spend ÷ UW approvals attributed to ${rampChannel}`,
-  );
-  const rampCompact: RampPanel[] = [
-    panelFor(
-      'budget',
-      'Budget',
-      'paid_media_spend',
-      { kind: 'currency', currency },
-      'Only M1 of the budget curve has been entered, so later months have nothing to pace against.',
-      `${rampChannel} spend`,
-    ),
-    panelFor(
-      'approvals',
-      'Approvals',
-      'stage_count',
-      { kind: 'projection' },
-      AWAITING_MODEL,
-      `UW approvals attributed to ${rampChannel}`,
-    ),
-    // Kept beside CPA deliberately: they share a denominator, and a reader who
-    // wonders what the "A" is can see it one line down.
-    panelFor(
-      'fundedDeals',
-      `${valueLabel} deals`,
-      'stage_count',
-      { kind: 'projection' },
-      AWAITING_MODEL,
-      `${valueLabel} deals attributed to ${rampChannel}`,
-    ),
-    panelFor(
-      'fundedAmount',
-      `${valueLabel} volume`,
-      'funded_volume',
-      { kind: 'currency', currency },
-      AWAITING_MODEL,
-      `${valueLabel} volume attributed to ${rampChannel}`,
-    ),
-  ];
+  const rampPanels = buildRampPanels({
+    buckets,
+    metrics,
+    ramp,
+    frozen: frozenAll,
+    through,
+    valueKey,
+    valueLabel,
+    currency,
+    currentMonth: periods.currentMonth,
+  });
+  const rampPlatform = rampPanels.platform;
+  const rampChannel = rampPanels.channel;
+  const scorecard = scorecardRows(rampPanels, {
+    currentMonth: periods.currentMonth,
+    elapsed: periods.elapsed,
+    metrics,
+    valueLabel,
+  });
 
-  /* ----------------------------------------------------------------------- */
-  /* Pacing                                                                  */
-  /* ----------------------------------------------------------------------- */
-
-  /**
-   * This month's contracted budget, which needs both halves of the ramp.
-   *
-   * The budget sits on a ramp month, and knowing which calendar month that is
-   * needs the start month. They are two pieces of the same missing
-   * configuration, so the card names the one that is absent rather than
-   * reporting "no budget" for two different reasons.
-   */
-  const currentRampMonth =
-    ramp.startMonth === null
-      ? null
-      : (rampTargets.find(
-          (t) => rampMonthKey(ramp.startMonth!, t.monthIndex) === periods.currentMonth,
-        ) ?? null);
-
-  // This calendar month's spend, whatever range is picked: a budget is
-  // contracted per month, so pacing is always this month's. The ramp
-  // channel's own spend: the budget is Google Ads' alone, and pacing it
-  // against every channel's spend would count Meta against Google's budget.
-  const monthSpend =
-    buckets.find((b) => b.start === periods.monthToDate.start)?.spendByPlatform[rampPlatform] ?? 0;
-  const monthSpendCoverage = cover.of(rampPlatform, periods.monthToDate);
-
-  const pacing =
-    currentRampMonth?.budget == null
-      ? null
-      : budgetPacing({
-          spent: monthSpend,
-          budget: currentRampMonth.budget,
-          elapsed: periods.elapsed,
-        });
-
-  const budgetMissing =
-    ramp.startMonth === null
-      ? 'No contracted budget applies: the engagement start month is not recorded, so no ramp month lands on this one.'
-      : periods.currentMonth < ramp.startMonth
-        ? `No contracted budget applies yet: the engagement starts in ${monthLabel(ramp.startMonth)}.`
-        : currentRampMonth === null
-        ? `This month falls outside the contracted ramp, which runs M1 to M${formatCount(rampTargets.length)}.`
-        : 'No budget is recorded for this month of the ramp.';
+  // The scorecard is this calendar month whatever range is picked, so its
+  // sources are asked about this month: Google Ads for spend and costs,
+  // Salesforce for the deals and approvals.
+  const scorecardNote =
+    throughNote(cover.of(rampPlatform, periods.monthToDate), rampChannel) +
+    throughNote(cover.of('salesforce', periods.monthToDate), 'Salesforce');
 
   /* ----------------------------------------------------------------------- */
   /* Efficiency                                                              */
@@ -728,23 +446,37 @@ export default async function ExecutiveBriefing({
     {
       heading: 'What period this briefing covers',
       body:
-        'The ramp covers the engagement and its six-month baseline, and ignores the picked range. Every ' +
-        'measured figure covers the picked range; pacing is always this month. Findings are current state.',
+        'The scorecard is always this calendar month, and the cost per deal chart covers the ' +
+        'engagement; neither reads the picked range. Every other figure covers the picked range.',
       detail:
         `The range is ${mtdLabel}, compared with ${lastMonthLabel}. A count from one is never ` +
         'subtracted from a count in the other, so those sit as two figures. Rates and costs do ' +
         'compare, and each is withheld below its own minimum population.',
     },
     {
-      heading: 'The engagement ramp',
+      heading: 'This month vs target',
+      body:
+        `Each figure is ${rampChannel} alone: its spend, and the deals and approvals attributed to it. ` +
+        'The target is the engagement model’s figure for this month of the ramp.',
+      detail:
+        'A month in progress is judged against pace — a count or a spend against the target times the share ' +
+        'of the month gone, a cost as it stands once it has enough deals under it. Within 5% of target is on ' +
+        'target; spend is stated as over or under, never as behind.',
+    },
+    {
+      heading: `${rampChannel} cost per ${valueLabel.toLowerCase()} deal, by month`,
       body:
         ramp.startMonth === null
-          ? 'The contract commits a figure for each month of the engagement; until the start month is recorded the ramp is drawn on an M1–M8 axis.'
-          : `Drawn on the calendar: six baseline months before M1 (${ramp.startMonth}), then each ${rampChannel} target against ${rampChannel}'s own actuals.`,
+          ? 'The contract commits a figure for each month of the engagement; until the start month is recorded the curve is drawn on an M1–M8 axis.'
+          : `The months before M1 (${monthName(ramp.startMonth)}) are the baseline, from the first month ${rampChannel} spend was read; the dashed line is the contracted target.`,
       detail:
-        ramp.startMonth === null
-          ? 'The start month is not recorded, so no ramp month maps to a calendar month and no actual is plotted against the curve. The commitment itself is fully specified and is drawn.'
-          : 'A month in progress is partial and never compared with its monthly target. A month with too few deals, or with days its source was not read, is Not measured with the reason.',
+        'A solid point is a finished month. The hollow point is the month so far, never compared with a target. ' +
+        'A month with too few deals, or with days its source was not read, is left as a gap; hover it for why.',
+    },
+    {
+      heading: 'CPA',
+      body: `${rampChannel} spend divided by the UW approvals attributed to ${rampChannel} — cost per approval.`,
+      detail: 'The full CPA, approvals, budget and volume curves are on Monthly performance.',
     },
     {
       heading: 'Cost per stage',
@@ -837,14 +569,18 @@ export default async function ExecutiveBriefing({
       </PageMeta>
 
       <Grid>
-        {/* 1. The commitment — the only thing here that is not a measurement. */}
-        <RampCard
-          platformLabel={platformName(rampPlatform)}
-          primary={rampPrimary}
-          secondary={rampSecondary}
-          compact={rampCompact}
-          startMonth={ramp.startMonth}
+        {/* 1. The commitment: this month against it, and the one curve a
+            client is judged on. The other curves are on Monthly performance. */}
+        <RampScorecard
+          channel={rampChannel}
+          rows={scorecard}
+          monthLabel={monthName(periods.currentMonth)}
+          elapsedDays={periods.elapsedDays}
+          monthDays={periods.monthDays}
+          currency={currency}
+          note={scorecardNote}
         />
+        <RampCostChart panel={rampPanels.primary} />
 
         {/* 2. The outcome, and the spend that bought it. */}
         <TwoPeriodKpi
@@ -880,32 +616,6 @@ export default async function ExecutiveBriefing({
           priorLabel={lastMonthLabel}
           context="Every source, attributed or not"
           info="The funded amount on every deal reaching the value stage, from any source. Not a channel figure: no spend is divided into it."
-        />
-        <SpendPacingCard
-          title={`${rampChannel} spend`}
-          spent={monthSpend}
-          pacing={pacing}
-          currency={currency}
-          periodLabel={`${formatRangeLabel(periods.monthToDate)} · month to date${throughNote(
-            monthSpendCoverage,
-            rampChannel,
-          )}`}
-          notMeasured={
-            isUnmeasured(monthSpendCoverage) ? notMeasuredReason(monthSpendCoverage, rampChannel) : undefined
-          }
-          budgetMissing={budgetMissing}
-          elapsedDays={periods.elapsedDays}
-          monthDays={periods.monthDays}
-          points={buckets.map((bucket) => {
-            const own = bucket.spendCoverage[rampPlatform];
-            const read = own && (own.state === 'full' || own.state === 'partial') && own.missing.length === 0;
-            return {
-              label: bucket.label,
-              value: read ? (bucket.spendByPlatform[rampPlatform] ?? 0) : null,
-              provisional: bucket.provisional,
-            };
-          })}
-          span={6}
         />
 
         {/* 3. The funnel, every stage and the rate between each pair. */}
@@ -979,24 +689,6 @@ export default async function ExecutiveBriefing({
  * sparkline under two periods invites a reader to compare three things at
  * different grains at once.
  */
-/**
- * Calendar months drawn before M1 on the ramp, as the baseline.
- *
- * Six: long enough to show where the client was before Zeeraa, short enough
- * that fourteen months fit a phone. Months before a source was synced inside
- * the window render as Not measured, not as a shorter chart.
- */
-const RAMP_BASELINE_MONTHS = 6;
-
-/** `Oct 2026`, from `2026-10`. */
-function monthLabel(month: string): string {
-  const [year, m] = month.split('-').map(Number);
-  return new Date(Date.UTC(year!, m! - 1, 1)).toLocaleDateString('en-US', {
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 /** The comparison's named state; a sentinel so it can never be formatted as a number. */
 const NOT_MEASURED = 'Not measured';

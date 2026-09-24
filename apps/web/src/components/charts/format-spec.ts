@@ -1,4 +1,4 @@
-import { formatCount, formatProjection, formatRate } from '@zeeraa/core';
+import { formatCount, formatProjection, formatRate, formatTargetCurrency } from '@zeeraa/core';
 
 /**
  * How a chart axis, label and tooltip format their numbers.
@@ -56,6 +56,18 @@ export function formatter(spec: FormatSpec): (value: number) => string {
  * reads as a different number, and a clipped number is worse than a rounded
  * one. The tooltip and the figures under the chart keep the full value.
  */
+/**
+ * How a contracted target is written: as `formatter`, but whole dollars for
+ * money (`formatTargetCurrency`).
+ */
+export function targetFormatter(spec: FormatSpec): (value: number) => string {
+  if (spec.kind === 'currency') {
+    const { currency } = spec;
+    return (value) => formatTargetCurrency(value, currency);
+  }
+  return formatter(spec);
+}
+
 export function axisFormatter(spec: FormatSpec): (value: number) => string {
   const full = formatter(spec);
   if (spec.kind !== 'currency' && spec.kind !== 'count' && spec.kind !== 'projection') return full;

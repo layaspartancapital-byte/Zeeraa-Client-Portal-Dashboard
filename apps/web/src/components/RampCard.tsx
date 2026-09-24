@@ -2,6 +2,7 @@ import {
   formatCount,
   formatCurrency,
   formatProjection,
+  formatTargetCurrency,
   type ImprovementDirection,
   type RampMetricKey,
   type RampSeries,
@@ -13,7 +14,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { RampChart } from '@/components/charts/RampChart';
-import { RampTimelineChart, type RampTimelineChartPoint } from '@/components/charts/RampTimelineChart';
+import { RampLegend, RampTimelineChart, type RampTimelineChartPoint } from '@/components/charts/RampTimelineChart';
 import type { FormatSpec } from '@/components/charts/format-spec';
 
 export type RampPanel = {
@@ -39,46 +40,44 @@ export type RampPanel = {
 /**
  * The engagement ramp — what this client signed, and where they are against it.
  *
- * This is the top of the briefing because it is the only thing on the screen
- * that is a *commitment* rather than a measurement. Everything below reports
- * what happened; this reports what was promised and whether it is being kept.
+ * The one thing on the briefing that is a *commitment* rather than a
+ * measurement. Kept quiet on purpose: one legend for the section, not one per
+ * chart; a month with no figure is a hollow marker on the axis with its reason
+ * on hover and one footnote line, not a stack of badges. Monthly performance
+ * draws it; the executive screen draws `RampScorecard` and `RampCostChart`
+ * instead, from the same panels.
  *
- * **Every contracted metric gets a panel, including the four with no curve.**
- * The engagement model contracts budget, CPA, approvals, cost per funded deal
- * and funded deals; only cost per funded deal has been entered, and M1's budget.
- * Rendering the other three as absent panels rather than omitting them is the
- * difference between a visible dependency somebody can close and a feature
- * nobody knows exists — the same argument the data-quality card makes, applied
- * to the contract instead of to the data.
- *
- * The two named metrics get full charts; the rest get a one-line summary,
- * because a chart of a curve nobody has entered is a large empty rectangle.
+ * Before the start month is recorded the curves are drawn on an M1–Mn axis
+ * and the other metrics summarised in a line each, because a curve with
+ * nothing against it is a large empty rectangle.
  */
 export function RampCard({
+  title = 'Engagement ramp',
   platformLabel,
-  primary,
-  secondary,
-  compact,
+  panels,
   startMonth,
+  compactWhenUnstarted = [],
   span = 12,
 }: {
+  title?: string;
   platformLabel: string;
-  /** Cost per funded deal: the north star, and the only fully contracted curve. */
-  primary: RampPanel;
-  /** CPA, tracked the same way. */
-  secondary: RampPanel;
-  /** Budget, approvals, funded deals — one line each. */
-  compact: RampPanel[];
-  /** `2026-06`, or null while the contract start is unrecorded. */
+  /** The curves drawn as charts. */
+  panels: RampPanel[];
+  /** `2026-10`, or null while the contract start is unrecorded. */
   startMonth: string | null;
+  /** Summarised in a line each while there is no start month. */
+  compactWhenUnstarted?: RampPanel[];
   span?: 8 | 12;
 }) {
-  const months = primary.series.points.length || secondary.series.points.length;
+  const months = panels[0]?.series.points.length ?? 0;
+  const charted = startMonth !== null && panels.some((p) => p.timeline && p.series.contracted);
+  const anyPartial = panels.some((p) => p.timeline?.points.some((x) => x.status === 'partial'));
+  const anyUnmeasured = panels.some((p) => p.timeline?.points.some((x) => x.status === 'not_measured'));
 
   return (
     <Card span={span}>
       <CardHeader
-        title="Engagement ramp"
+        title={title}
         subtitle={
           months > 0
             ? `${platformLabel} · M1–M${months} of the contracted model`
@@ -95,30 +94,27 @@ export function RampCard({
           <InfoTip label="How the ramp is tracked" align="start">
             {startMonth === null
               ? 'The contract commits a figure for each month of the engagement, so the axis is M1–M8 until the start month is recorded; nothing else says which calendar month M1 is.'
-              : `Each target is ${platformLabel} only, from the engagement model, and each actual is ${platformLabel}'s own spend and attributed deals. The six months before M1 are the baseline, measured the same way.`}
+              : `Each target is ${platformLabel} only, from the engagement model, and each actual is ${platformLabel}'s own spend and attributed deals. The baseline runs from the first month ${platformLabel} spend was read.`}
           </InfoTip>
         }
       />
 
-      {/*
-        On the calendar every contracted metric gets the full chart: the
-        baseline is the argument for each of them, and a one-line summary has
-        no baseline to show. Before the start month they stay compact, because
-        a curve with nothing against it is a large empty rectangle.
-      */}
-      <div className="grid gap-px border-t border-border bg-border lg:grid-cols-2">
-        <RampPanelBody panel={primary} startMonth={startMonth} />
-        <RampPanelBody panel={secondary} startMonth={startMonth} />
-        {startMonth !== null &&
-          compact.map((panel) => (
-            <RampPanelBody key={panel.metric} panel={panel} startMonth={startMonth} />
-          ))}
+      {charted && (
+        <div className="border-t border-border px-5 py-3">
+          <RampLegend channel={platformLabel} partial={anyPartial} unmeasured={anyUnmeasured} />
+        </div>
+      )}
+
+      <div className={`grid gap-px bg-border ${charted ? '' : 'border-t border-border'} lg:grid-cols-2`}>
+        {panels.map((panel) => (
+          <RampPanelBody key={panel.metric} panel={panel} startMonth={startMonth} />
+        ))}
       </div>
 
-      {startMonth === null && compact.length > 0 && (
+      {startMonth === null && compactWhenUnstarted.length > 0 && (
         <CardBody className="border-t border-border pt-4">
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
-            {compact.map((panel) => (
+            {compactWhenUnstarted.map((panel) => (
               <div key={panel.metric} className="min-w-0">
                 <dt className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
                   {panel.label}
@@ -129,13 +125,7 @@ export function RampCard({
                   )}
                 </dt>
                 <dd className="mt-1 text-[13px] leading-snug tabular text-text-3">
-                  {panel.series.contracted ? (
-                    <CurveSummary panel={panel} />
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Badge tone="warn">Not recorded</Badge>
-                    </span>
-                  )}
+                  {panel.series.contracted ? <CurveSummary panel={panel} /> : <Badge tone="warn">Not recorded</Badge>}
                 </dd>
               </div>
             ))}
@@ -143,6 +133,15 @@ export function RampCard({
         </CardBody>
       )}
     </Card>
+  );
+}
+
+/** The quiet Not measured mark, matching the one on the chart axis. */
+function HollowMarker() {
+  return (
+    <svg width="10" height="10" aria-label="Not measured" role="img">
+      <circle cx="5" cy="5" r="3.5" fill="none" stroke="var(--color-warn)" strokeWidth="1.5" />
+    </svg>
   );
 }
 
@@ -159,7 +158,7 @@ function RampPanelBody({ panel, startMonth }: { panel: RampPanel; startMonth: st
   const { series } = panel;
 
   return (
-    <section className="flex min-w-0 flex-col gap-2 bg-surface px-5 py-4">
+    <section className="flex min-w-0 flex-col gap-2 bg-surface px-5 py-4 lg:odd:last:col-span-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-[13px] font-semibold text-text">
           {panel.label}
@@ -248,6 +247,7 @@ function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTim
         channel={panel.channel}
         caption={panel.label}
         height={panel.metric === 'costPerFundedDeal' || panel.metric === 'cpa' ? 232 : 208}
+        showLegend={false}
       />
 
       {timeline.finished.length === 0 ? (
@@ -280,7 +280,7 @@ function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTim
                   : 'on target';
             return (
               <li key={p.month}>
-                M{p.monthIndex} {render(gap.actual)} vs {render(gap.target)}{' '}
+                M{p.monthIndex} {render(gap.actual)} vs {targetRenderer(panel)(gap.target)}{' '}
                 <span className={tone}>
                   {arrow} {sign}
                   {render(money ? Math.round(Math.abs(gap.absolute)) : Math.abs(gap.absolute))} {word}
@@ -295,27 +295,38 @@ function TimelineBody({ panel, timeline }: { panel: RampPanel; timeline: RampTim
         </ul>
       )}
 
-      {partial && (
-        <p className="text-[12px] leading-snug text-text-3">
-          {monthName(partial.month)} is partial, month to date, and is not compared with a target.
-        </p>
-      )}
-      {unmeasured.map(({ months, reason }) => (
-        <p key={reason} className="flex flex-wrap items-center gap-1.5 text-[12px] leading-snug text-text-3">
-          <Badge tone="warn">Not measured</Badge>
+      {/* One footnote, not a stack of badges: the months with no figure and
+          why, and the partial month if it has one. */}
+      {(unmeasured.length > 0 || partial) && (
+        <p className="flex items-start gap-1.5 text-[12px] leading-snug text-text-3">
+          {unmeasured.length > 0 && (
+            <span className="mt-[3px] shrink-0">
+              <HollowMarker />
+            </span>
+          )}
           <span>
-            {months
-              .map((m) => (m === inProgressUnmeasured?.month ? `${shortMonth(m)} (partial, to date)` : shortMonth(m)))
-              .join(', ')}{' '}
-            · {reason}
+            {unmeasured.length > 0 && (
+              <>
+                Not measured:{' '}
+                {unmeasured
+                  .flatMap(({ months }) => months)
+                  .map((m) => (m === inProgressUnmeasured?.month ? `${shortMonth(m)} (partial)` : shortMonth(m)))
+                  .join(', ')}
+                <InfoTip label="Why these months are not measured" align="start" className="ml-1 align-middle">
+                  {unmeasured.map(({ months, reason }) => `${months.map(shortMonth).join(', ')}: ${reason}`).join(' ')}
+                </InfoTip>
+                {partial ? ' · ' : ''}
+              </>
+            )}
+            {partial ? `${shortMonth(partial.month)} is partial, not compared with a target.` : ''}
           </span>
         </p>
-      ))}
+      )}
     </>
   );
 }
 
-function chartPoint(p: TimelinePoint, previous: TimelinePoint | undefined): RampTimelineChartPoint {
+export function chartPoint(p: TimelinePoint, previous: TimelinePoint | undefined): RampTimelineChartPoint {
   const [year, m] = p.month.split('-');
   // The year on the first tick only: `Jan ’27` is wide enough that the axis
   // drops it at 1440, and the tooltip carries the full date.
@@ -344,7 +355,7 @@ function chartPoint(p: TimelinePoint, previous: TimelinePoint | undefined): Ramp
  * was divided by, what it was not, and how far the uncredited deals could
  * move it. The line every cost per deal carries.
  */
-function costCoverage(cost: ChannelCostPerDeal, render: (v: number) => string): string {
+export function costCoverage(cost: ChannelCostPerDeal, render: (v: number) => string): string {
   const parts = [
     `${formatCount(cost.attributedDeals)} attributed`,
     `${formatCount(cost.unattributedDeals)} to no channel`,
@@ -386,7 +397,7 @@ function CurveSummary({ panel }: { panel: RampPanel }) {
   const { first, last, points } = panel.series;
   if (first === null) return <>Not recorded</>;
 
-  const render = renderer(panel);
+  const render = targetRenderer(panel);
   const contracted = points.filter((p) => p.target !== null);
   if (contracted.length < points.length) {
     const months = contracted.map((p) => p.label).join(', ');
@@ -420,7 +431,7 @@ function latestGapLine(panel: RampPanel): string {
   if (point.gap.assessment === 'level') return `${point.label} landed on its target.`;
   const side = point.gap.absolute > 0 ? 'above' : 'below';
   const verdict = point.gap.assessment === 'ahead' ? 'ahead of plan' : 'behind plan';
-  return `${point.label} came in ${distance} ${side} the ${render(point.gap.target)} target — ${verdict}.`;
+  return `${point.label} came in ${distance} ${side} the ${targetRenderer(panel)(point.gap.target)} target — ${verdict}.`;
 }
 
 /**
@@ -444,12 +455,21 @@ function toneFor(
 /**
  * How a panel's figures are written, from its own `FormatSpec`.
  *
- * Shared by the summary and the gap line so the two cannot disagree — and so a
- * contracted 7.5 funded deals is never rounded to 8 in one of them. That
- * rounding is the exact thing migration 0021 exists to prevent, and it would be
- * undone here by a default.
+ * Shared by every ramp surface so they cannot disagree — and so a contracted
+ * 7.5 funded deals is never rounded to 8 in one of them. That rounding is the
+ * exact thing migration 0021 exists to prevent, and it would be undone here by
+ * a default.
  */
-function renderer(panel: RampPanel): (value: number) => string {
+/** A contracted figure: as `renderer`, but whole dollars for money. */
+export function targetRenderer(panel: RampPanel): (value: number) => string {
+  if (panel.format.kind === 'currency') {
+    const { currency } = panel.format;
+    return (value) => formatTargetCurrency(value, currency);
+  }
+  return renderer(panel);
+}
+
+export function renderer(panel: RampPanel): (value: number) => string {
   if (panel.format.kind === 'currency') {
     const { currency } = panel.format;
     return (value) => formatCurrency(value, currency);
@@ -459,7 +479,7 @@ function renderer(panel: RampPanel): (value: number) => string {
 }
 
 /** `Jun 2026`, from `2026-06`. */
-function monthName(month: string): string {
+export function monthName(month: string): string {
   const [year, m] = month.split('-').map(Number);
   return new Date(Date.UTC(year!, m! - 1, 1)).toLocaleDateString('en-US', {
     month: 'short',

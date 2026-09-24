@@ -27,7 +27,7 @@ import {
   WARN,
   useFirstLoad,
 } from '@/components/charts/chart-kit';
-import { axisFormatter, formatter, type FormatSpec } from '@/components/charts/format-spec';
+import { axisFormatter, formatter, targetFormatter, type FormatSpec } from '@/components/charts/format-spec';
 
 export type RampTimelineChartPoint = {
   /** `2026-10`. The category key. */
@@ -69,9 +69,10 @@ type Row = RampTimelineChartPoint & {
  * actual is a solid line with filled dots, the target is dashed with hollow
  * dots, and each is named on the chart. A month in progress is a hollow dot on
  * a dotted link, never joined to the solid line — it is three weeks of a
- * monthly figure. A month that happened with no figure is a hatched band with
- * its reason in the tooltip and under the chart, so a gap in the line reads as
- * "not measured" rather than as a quiet month.
+ * monthly figure. A month that happened with no figure carries a hollow
+ * marker under its label on the axis — never a point on the line, so it cannot
+ * read as zero — with its reason in the tooltip and one footnote under the
+ * chart.
  *
  * The gap to target is a bar from the actual to the target on each finished
  * engagement month, green where the metric's direction calls it ahead and red
@@ -84,6 +85,8 @@ export function RampTimelineChart({
   channel,
   caption,
   height = 232,
+  showLegend = true,
+  labelActual = false,
 }: {
   id: string;
   points: RampTimelineChartPoint[];
@@ -97,12 +100,23 @@ export function RampTimelineChart({
   /** What the chart is, for the table behind it. */
   caption: string;
   height?: number;
+  /**
+   * Draw the key above the chart. Off where several ramp charts share one
+   * key (`RampLegend`), so the section carries it once.
+   */
+  showLegend?: boolean;
+  /**
+   * Name the actual line on the chart itself, beside its last point. With the
+   * target already named at its end, this is what lets a chart stand without
+   * a key. Both labels drop the channel: a chart drawn this way names it in
+   * its title, and at 390 pixels the longer label runs into the axis.
+   */
+  labelActual?: boolean;
 }) {
   const animate = useFirstLoad(id);
   const format = formatter(spec);
+  const formatTarget = targetFormatter(spec);
   const axis = axisFormatter(spec);
-  // One per chart: six ramps share a page, and an SVG id is document-wide.
-  const hatch = `${id}-not-measured`;
 
   const rows: Row[] = points.map((p, i) => {
     const previous = points[i - 1];
@@ -121,27 +135,17 @@ export function RampTimelineChart({
   const engagement = rows.filter((r) => r.phase === 'engagement');
   const start = engagement[0];
   const lastTargetIndex = rows.reduce((last, r, i) => (r.target !== null ? i : last), -1);
+  const lastActualIndex = rows.reduce((last, r, i) => (r.actual !== null ? i : last), -1);
   const anyPartial = rows.some((r) => r.status === 'partial');
   const anyUnmeasured = rows.some((r) => r.status === 'not_measured');
 
   return (
     <div className="crossfade">
-      <TimelineLegend channel={channel} hatch={hatch} partial={anyPartial} unmeasured={anyUnmeasured} />
+      {showLegend && <RampLegend channel={channel} partial={anyPartial} unmeasured={anyUnmeasured} />}
 
       <div className="mt-3" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 36, right: 12, bottom: 0, left: 0 }}>
-            <defs>
-              <pattern
-                id={hatch}
-                width="6"
-                height="6"
-                patternUnits="userSpaceOnUse"
-                patternTransform="rotate(45)"
-              >
-                <line x1="0" y1="0" x2="0" y2="6" stroke={WARN} strokeWidth="1.5" strokeOpacity="0.45" />
-              </pattern>
-            </defs>
 
             <CartesianGrid stroke={BORDER} vertical={false} />
             {/* Direct children, never grouped in a fragment: the library finds
@@ -150,27 +154,17 @@ export function RampTimelineChart({
                 start can sit on its edge. */}
             <XAxis
               dataKey="key"
-              tickFormatter={(key: string) => labelFor(rows, key)}
               {...AXIS}
-              interval="preserveStartEnd"
-              minTickGap={2}
-              dy={4}
+              // Every month gets a tick, so every unmeasured month gets its
+              // marker; the label is thinned inside the tick instead.
+              interval={0}
+              height={34}
+              tick={(props: { x: number; y: number; index: number; payload: { value: string } }) => (
+                <MonthTick {...props} rows={rows} labelEvery={rows.length > 7 ? 2 : 1} />
+              )}
             />
             <YAxis {...AXIS} width={56} tickFormatter={(v: number) => axis(v)} />
 
-            {rows
-              .filter((r) => r.status === 'not_measured')
-              .map((r) => (
-                <ReferenceArea
-                  key={`nm-${r.key}`}
-                  x1={r.key}
-                  x2={r.key}
-                  fill={`url(#${hatch})`}
-                  fillOpacity={1}
-                  strokeOpacity={0}
-                  ifOverflow="extendDomain"
-                />
-              ))}
 
             {baseline.length > 0 && (
               <ReferenceArea
@@ -212,7 +206,7 @@ export function RampTimelineChart({
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const row = payload[0]!.payload as Row;
-                return <TooltipCard title={row.title} rows={tooltipRows(row, format, channel)} />;
+                return <TooltipCard title={row.title} rows={tooltipRows(row, format, formatTarget, channel)} />;
               }}
             />
 
@@ -247,7 +241,7 @@ export function RampTimelineChart({
                     // Below and left of the last point: a rising curve ends at
                     // the top of the plot, where the labels above it already are.
                     <text x={Number(x) - 6} y={Number(y) + 16} textAnchor="end" fontSize={11} fill={TEXT_2}>
-                      {channel} target
+                      {labelActual ? 'Target' : `${channel} target`}
                     </text>
                   );
                 }}
@@ -264,7 +258,24 @@ export function RampTimelineChart({
               activeDot={{ r: 5 }}
               connectNulls={false}
               isAnimationActive={animate}
-            />
+            >
+              {labelActual && (
+                <LabelList
+                  dataKey="actual"
+                  content={(props) => {
+                    const { x, y, index } = props as { x?: number; y?: number; index?: number };
+                    if (index !== lastActualIndex || x == null || y == null) return null;
+                    return (
+                      // To the right, into the month after it, which has no
+                      // finished figure by construction.
+                      <text x={Number(x) + 8} y={Number(y) + 4} textAnchor="start" fontSize={11} fill={TEXT_2}>
+                        Actual
+                      </text>
+                    );
+                  }}
+                />
+              )}
+            </Line>
 
             {/* The month in progress: dotted, hollow, never part of the line. */}
             <Line
@@ -295,7 +306,7 @@ export function RampTimelineChart({
         columns={['Month', 'Target', 'Actual', 'Gap']}
         rows={rows.map((r) => [
           r.title,
-          r.target === null ? '—' : format(r.target),
+          r.target === null ? '—' : formatTarget(r.target),
           r.status === 'complete'
             ? format(r.actual!)
             : r.status === 'partial'
@@ -327,12 +338,17 @@ function signed(value: number, format: (v: number) => string): string {
   return `${sign}${format(Math.abs(value))}`;
 }
 
-function tooltipRows(row: Row, format: (v: number) => string, channel: string) {
+function tooltipRows(
+  row: Row,
+  format: (v: number) => string,
+  formatTarget: (v: number) => string,
+  channel: string,
+) {
   const out: { label: string; value: string; color?: string }[] = [];
   if (row.phase === 'engagement') {
     out.push({
       label: `${channel} target`,
-      value: row.target === null ? 'none this month' : format(row.target),
+      value: row.target === null ? 'none this month' : formatTarget(row.target),
       color: TEXT_3,
     });
   }
@@ -357,19 +373,19 @@ function tooltipRows(row: Row, format: (v: number) => string, channel: string) {
 }
 
 /**
- * The key, by line style and marker as well as by colour: solid with a filled
- * dot, dashed with a hollow one, dotted with a hollow one, and a hatch.
+ * The ramp's key, by line style and marker as well as by colour: solid with a
+ * filled dot, dashed with a hollow one, dotted with a hollow one, and the
+ * hollow axis marker for a month with no figure. Rendered once per ramp
+ * section, not once per chart.
  */
-function TimelineLegend({
+export function RampLegend({
   channel,
-  hatch,
-  partial,
-  unmeasured,
+  partial = true,
+  unmeasured = true,
 }: {
   channel: string;
-  hatch: string;
-  partial: boolean;
-  unmeasured: boolean;
+  partial?: boolean;
+  unmeasured?: boolean;
 }) {
   return (
     <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-text-2">
@@ -398,23 +414,50 @@ function TimelineLegend({
       )}
       {unmeasured && (
         <li className="flex items-center gap-1.5">
-          <svg width="12" height="12" aria-hidden="true">
-            <rect width="12" height="12" rx="2" fill={`url(#${hatch}-legend)`} stroke={WARN} strokeOpacity="0.5" />
-            <defs>
-              <pattern
-                id={`${hatch}-legend`}
-                width="4"
-                height="4"
-                patternUnits="userSpaceOnUse"
-                patternTransform="rotate(45)"
-              >
-                <line x1="0" y1="0" x2="0" y2="4" stroke={WARN} strokeWidth="1.5" strokeOpacity="0.6" />
-              </pattern>
-            </defs>
+          <svg width="10" height="10" aria-hidden="true">
+            <circle cx="5" cy="5" r="3.5" fill="none" stroke={WARN} strokeWidth="1.5" />
           </svg>
           Not measured
         </li>
       )}
     </ul>
+  );
+}
+
+/**
+ * An axis label, with a hollow marker beneath it for a month that happened
+ * and has no figure. On the axis rather than in the plot, so nothing about it
+ * can be read as a value.
+ */
+function MonthTick({
+  x,
+  y,
+  index,
+  payload,
+  rows,
+  labelEvery,
+}: {
+  x: number;
+  y: number;
+  index: number;
+  payload: { value: string };
+  rows: Row[];
+  labelEvery: number;
+}) {
+  const row = rows.find((r) => r.key === payload.value);
+  const unmeasured = row?.status === 'not_measured';
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {index % labelEvery === 0 && (
+        <text dy={14} textAnchor="middle" fontSize={11} fill={TEXT_3}>
+          {labelFor(rows, payload.value)}
+        </text>
+      )}
+      {unmeasured && (
+        <circle cy={25} r={3.5} fill="none" stroke={WARN} strokeWidth={1.5}>
+          <title>{`Not measured${row?.reason ? ` — ${row.reason}` : ''}`}</title>
+        </circle>
+      )}
+    </g>
   );
 }

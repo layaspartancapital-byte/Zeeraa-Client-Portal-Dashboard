@@ -3160,3 +3160,36 @@ role that bypasses row level security. A correction is the next version with a
 reason. The ramp reads a frozen month from the snapshot; the figures are
 computed by `channelMonthActuals` in core, the same function the live ramp
 uses, so a frozen month is what the ramp showed.
+
+## §12 — the executive ramp is a scorecard and one chart (24 September 2026)
+
+**The client found the ramp section too complex, and it is replaced.** The
+executive screen now draws a four-figure scorecard for this month against its
+target — cost per funded deal, CPA, funded deals and spend, all Google Ads —
+and one chart: Google Ads cost per funded deal, its baseline months, then the
+M1–M8 target. There is no legend on it, no basis line and no badge stack. The
+chart names its own lines ("Actual", "Target"), a month with no figure is a
+gap with its reason on hover, and every definition is in the page's one "How
+this is measured" drawer. CPA, budget, approvals, funded deals and funded
+volume are drawn in full on Monthly performance, from the same panels
+(`lib/ramp-panels.ts`).
+
+**This departs from "the month in progress is never compared with a monthly
+target"** for the scorecard only. A client asked what this month says against
+its target is owed an answer, so the scorecard gives one, and it is fair to the
+partial month rather than silent about it:
+
+- a **count or a spend** is judged against pace — the target times the share of
+  the month gone, the straight line `budgetPacing` already uses — and withheld
+  as "too early" below a quarter of the month;
+- a **cost** needs no pro-rating, because it is already per deal, but it is
+  judged only above its comparison floor (`metrics.comparable`), so a cost
+  over two deals is never "behind by $4,000";
+- **within 5% is on target** (`PACING_TOLERANCE`), and ahead of target also
+  reads "on target", because these screens are a record rather than a report
+  card;
+- **spend is over or under, never behind**: it declares no direction.
+
+The rule is `scorecardVerdict` in `packages/core`, tested there. The chart is
+unchanged in this respect: its partial month is still drawn apart and never
+assessed.

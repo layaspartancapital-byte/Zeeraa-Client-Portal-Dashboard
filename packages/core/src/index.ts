@@ -6,6 +6,7 @@ export * from './metric-direction';
 export * from './population';
 export * from './ramp';
 export * from './pacing';
+export * from './scorecard';
 export * from './dates';
 export * from './date-range';
 export * from './decline-reasons';

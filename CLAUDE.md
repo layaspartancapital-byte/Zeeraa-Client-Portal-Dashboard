@@ -136,7 +136,9 @@ commit history and get it wrong.
   the targets on their calendar months (reversed 23 September 2026; see
   `docs/brief-amendments.md`). **A ramp actual is a completed calendar month**,
   gated on its own denominator like any other ratio; the month in progress is
-  drawn apart as partial and never compared with a monthly target, and a
+  drawn apart as partial and never compared with a monthly target (the
+  executive scorecard alone judges it, against pace, through `scorecardVerdict`
+  in core — see `docs/brief-amendments.md`), and a
   month with no figure is `Not measured` with its reason, never a zero. Each
   ramp chart names the channel its target is contracted for.
 - **A ratio has a minimum population, and the metric declares it.** Whether a

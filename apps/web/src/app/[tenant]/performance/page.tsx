@@ -1,7 +1,10 @@
 import { Download } from 'lucide-react';
+import { RampCard } from '@/components/RampCard';
+import { buildRampPanels } from '@/lib/ramp-panels';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
   addDays,
+  formatTargetCurrency,
   canAdministerTenant,
   delta,
   formatCount,
@@ -45,6 +48,8 @@ import { MonthSelect } from '@/components/MonthSelect';
 import { monthlyPerformance, platformLabel, submissionReport } from '@/lib/reporting';
 import {
   covers,
+  engagementRamp,
+  frozenBaseline,
   dataQuality,
   firstSentence,
   ingestionStart,
@@ -130,6 +135,8 @@ export default async function Performance({
     quality,
     submissions,
     through,
+    ramp,
+    frozen,
   ] = await Promise.all([
     monthlyPerformance(session, range, model),
     monthlyPerformance(session, baseline, model),
@@ -138,6 +145,8 @@ export default async function Performance({
     dataQuality(session),
     submissionReport(session, range),
     sourcesThrough(session),
+    engagementRamp(session),
+    frozenBaseline(session),
   ]);
 
   /*
@@ -547,6 +556,34 @@ export default async function Performance({
           gate={metrics.population('submission_offer_rate', submissions.overall.decided)}
         />
 
+        {/*
+          The ramp's other curves — CPA, budget, approvals, funded deals and
+          volume — moved here from the executive screen, which keeps a
+          this-month scorecard and cost per funded deal. Same months, same
+          arithmetic (`lib/ramp-panels.ts`).
+        */}
+        {(() => {
+          const panels = buildRampPanels({
+            buckets,
+            metrics,
+            ramp,
+            frozen,
+            through,
+            valueKey,
+            valueLabel,
+            currency,
+            currentMonth: today.slice(0, 7),
+          });
+          return panels.startMonth === null ? null : (
+            <RampCard
+              title="Engagement ramp"
+              platformLabel={panels.channel}
+              panels={[panels.secondary, ...panels.compact]}
+              startMonth={panels.startMonth}
+            />
+          );
+        })()}
+
         <Card span={8}>
           <CardHeader
             title="Spend over time"
@@ -651,7 +688,7 @@ export default async function Performance({
                 metrics.target('cost_per_funded_deal') !== null
                   ? {
                       value: metrics.target('cost_per_funded_deal')!,
-                      label: `Target ${money(metrics.target('cost_per_funded_deal')!)}`,
+                      label: `Target ${formatTargetCurrency(metrics.target('cost_per_funded_deal')!, currency)}`,
                     }
                   : null
               }

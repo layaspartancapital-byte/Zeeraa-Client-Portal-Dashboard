@@ -29,6 +29,22 @@ export function currencyFormatterFor(
   return (value: number) => fmt.format(value);
 }
 
+/**
+ * A contracted target in money: whole dollars, always.
+ *
+ * `currencyFormatterFor` shows cents below $1,000, which is right for a
+ * measured cost and wrong for a commitment — "$750.00" claims a precision the
+ * engagement model never had, and sits beside "$4,000" on the same card.
+ */
+export function formatTargetCurrency(value: number, currency = 'USD', locale = 'en-US'): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(value));
+}
+
 /** Single figure outside a column context (e.g. the north-star number). */
 export function formatCurrency(value: number, currency = 'USD', locale = 'en-US'): string {
   return currencyFormatterFor([value], currency, locale)(value);

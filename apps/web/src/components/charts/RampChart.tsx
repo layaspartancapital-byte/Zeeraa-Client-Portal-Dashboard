@@ -21,7 +21,7 @@ import {
   UP,
   useFirstLoad,
 } from '@/components/charts/chart-kit';
-import { formatter, type FormatSpec } from '@/components/charts/format-spec';
+import { formatter, targetFormatter, type FormatSpec } from '@/components/charts/format-spec';
 
 export type RampChartPoint = {
   /** `M3`. */
@@ -72,6 +72,7 @@ export function RampChart({
 }) {
   const animate = useFirstLoad(id);
   const format = formatter(spec);
+  const formatTarget = targetFormatter(spec);
   const stroke = tone === 'ahead' ? UP : tone === 'shortfall' ? DOWN : PLOT;
   const anyActual = points.some((p) => p.actual !== null);
 
@@ -102,7 +103,7 @@ export function RampChart({
                 const rows: { label: string; value: string; color?: string }[] = [
                   {
                     label: targetLabel,
-                    value: point.target === null ? 'none this month' : format(point.target),
+                    value: point.target === null ? 'none this month' : formatTarget(point.target),
                     color: TEXT_3,
                   },
                 ];
@@ -169,7 +170,7 @@ export function RampChart({
         columns={['Month', targetLabel, actualLabel]}
         rows={points.map((p) => [
           p.month ? `${p.label} (${p.month})` : p.label,
-          p.target === null ? 'none' : format(p.target),
+          p.target === null ? 'none' : formatTarget(p.target),
           p.actual === null ? 'not measured' : format(p.actual),
         ])}
       />

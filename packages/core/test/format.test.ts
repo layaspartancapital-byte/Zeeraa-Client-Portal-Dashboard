@@ -89,3 +89,12 @@ describe('tenant dates', () => {
     expect(previousMonth('2026-01')).toBe('2025-12');
   });
 });
+
+describe('formatTargetCurrency', () => {
+  it('writes a target in whole dollars at every size', async () => {
+    const { formatTargetCurrency } = await import('../src/format');
+    expect(formatTargetCurrency(750)).toBe('$750');
+    expect(formatTargetCurrency(524.4)).toBe('$524');
+    expect(formatTargetCurrency(30000)).toBe('$30,000');
+  });
+});
