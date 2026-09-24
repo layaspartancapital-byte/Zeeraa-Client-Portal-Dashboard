@@ -434,7 +434,8 @@ export async function correctChannelFigures(options: {
       if (!figures.has(key)) continue;
       const after = figures.get(key) ?? null;
       const before = current.value === null ? null : Number(current.value);
-      const same = before === null || after === null ? before === after : Math.abs(before - after) < 1e-6;
+      // To four places, as the value is stored and as the number check compares it.
+      const same = before === null || after === null ? before === after : Math.abs(Math.round(before * 1e4) - Math.round(after * 1e4)) <= 1;
       if (same) continue;
       const version = current.version + 1;
       if (!options.dryRun) {
