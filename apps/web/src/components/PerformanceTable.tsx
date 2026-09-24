@@ -1,4 +1,4 @@
-import { formatCount, formatCurrency, formatRate, UNPAID_REASON } from '@zeeraa/core';
+import { formatCount, formatCurrency, formatRate, noSpendNote, noSpendReason, sourceDescription } from '@zeeraa/core';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
@@ -63,27 +63,38 @@ function stageCells(
 }
 
 /**
- * A source that buys nothing — organic search. Its counts and volume are real;
- * spend, impressions, clicks, CTR, CPC and cost per deal do not apply, so
- * they are one em dash with the reason rather than a row of zeroes.
+ * A source with no ingested spend — SEO/Organic, or a lead vendor paid outside
+ * the ad platforms. Its counts and volume are real; spend, impressions, clicks,
+ * CTR, CPC and cost per deal do not apply, so they are one em dash with the
+ * reason rather than a row of zeroes.
  */
 function UnpaidRow({
+  platform,
   label,
   stagesCells,
   volume,
 }: {
+  platform: string;
   label: string;
   stagesCells: React.ReactNode;
   volume: string;
 }) {
+  const about = sourceDescription(platform);
   return (
     <tr className="border-b border-border align-top transition-colors hover:bg-canvas">
       <th scope="row" className="px-5 py-3 text-left text-[13px] font-medium text-text">
-        {label}
+        <span className="inline-flex items-center gap-1.5">
+          {label}
+          {about && (
+            <InfoTip label={`What ${label} means`} align="start">
+              {about}
+            </InfoTip>
+          )}
+        </span>
       </th>
       <td className="numeric px-3 py-3" colSpan={5}>
         <span className="text-text-3">—</span>
-        <span className="ml-2 text-[12px] text-text-2">not paid for</span>
+        <span className="ml-2 text-[12px] text-text-2">{noSpendNote(platform)}</span>
       </td>
       {stagesCells}
       <td className="numeric px-3 py-3 tabular text-text">{volume}</td>
@@ -91,7 +102,7 @@ function UnpaidRow({
         <span className="inline-flex items-center gap-1.5 text-text-3">
           —
           <InfoTip label={`Why ${label} has no cost per deal`} align="end">
-            {UNPAID_REASON}
+            {noSpendReason(platform)}
           </InfoTip>
         </span>
       </td>
@@ -188,10 +199,11 @@ export function PerformanceTable({
         </thead>
 
         <tbody>
-          {[...channels].sort((a, b) => Number(b.paid) - Number(a.paid)).map((row) =>
+          {channels.map((row) =>
             !row.paid ? (
               <UnpaidRow
                 key={row.platform}
+                platform={row.platform}
                 label={row.label}
                 stagesCells={stageCells(stages, data.stageStatus, row.stages)}
                 volume={formatCurrency(row.valueVolume, currency)}

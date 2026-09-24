@@ -108,15 +108,32 @@ describe('lead normalisation', () => {
     expect(normalizeLead({ ...record, MasterRecordId: '00Q9' }, SPARTAN).mergedInto).toBe('00Q9');
   });
 
-  it('stores the referrer and resolves the channel at ingest', () => {
-    const mapping = { ...SPARTAN, lead: { ...SPARTAN.lead, referrer: 'referral_url__c' } };
-    const rule = { searchHosts: ['google.*'], unpaidMediums: ['organic'] };
+  it('stores the source evidence and resolves the channel at ingest', () => {
+    const mapping = {
+      ...SPARTAN,
+      lead: { ...SPARTAN.lead, referrer: 'referral_url__c', leadSource: 'LeadSource', braids: ['Gbraid__c', 'Wbraid__c'] },
+    };
+    const rules = {
+      utmSources: { google_ads: ['google', '100a00'], meta: ['fb'] },
+      markerSources: { google_ads: ['100a00'] },
+      paidMediums: ['cpc'],
+      unpaidMediums: ['organic'],
+      leadSourceChannels: { 'meta ads': 'meta' },
+      vendors: { popcrumbs: 'Popcrumbs' },
+      organicHosts: ['google.*'],
+    };
     const unpaid = { ...record, GCLID__c: null, UTM_Source__c: null, referral_url__c: 'https://www.google.com/' };
-    const organic = normalizeLead(unpaid, mapping, undefined, undefined, rule);
+    const organic = normalizeLead(unpaid, mapping, undefined, undefined, rules);
     expect(organic).toMatchObject({ referrerUrl: 'https://www.google.com/', clickIdType: null, channel: 'organic_search' });
-    // The same visit with a gclid is Google Ads, whatever the referrer says.
-    expect(normalizeLead({ ...unpaid, GCLID__c: 'g1' }, mapping, undefined, undefined, rule).channel).toBe('google_ads');
-    // With no rule configured, nothing is credited to organic.
+    // The same visit with a gclid, or a gbraid, is Google Ads, whatever the referrer says.
+    expect(normalizeLead({ ...unpaid, GCLID__c: 'g1' }, mapping, undefined, undefined, rules).channel).toBe('google_ads');
+    const ios = normalizeLead({ ...unpaid, Wbraid__c: 'w1' }, mapping, undefined, undefined, rules);
+    expect(ios).toMatchObject({ braid: 'w1', channel: 'google_ads' });
+    expect(normalizeLead({ ...unpaid, LeadSource: 'popcrumbs' }, mapping, undefined, undefined, rules)).toMatchObject({
+      leadSource: 'popcrumbs',
+      channel: 'vendor:Popcrumbs',
+    });
+    // With no rules configured, only a click ID credits a source.
     expect(normalizeLead(unpaid, mapping).channel).toBeNull();
   });
 

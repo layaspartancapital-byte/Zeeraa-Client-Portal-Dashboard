@@ -396,17 +396,37 @@ export const spartan: TenantSeed = {
       value: { months: ['2026-09'], freezeAfterDays: 5 },
     },
     {
-      key: 'organic_search_evidence',
+      key: 'lead_source_rules',
       description:
-        'What proves a lead came from an unpaid search result, so it is credited ' +
-        'to Organic/SEO rather than left unattributed: the referrer is a search ' +
-        'results page on one of these hosts, and the lead has no click ID, no ' +
-        'utm_campaign and no utm_medium other than these. Anything less stays ' +
-        'unattributed. Checked by value sweep on 24 September 2026: 62 of 4,750 ' +
-        'inbound leads since June.',
+        'Which source a lead with no click ID is credited to, applied in this order ' +
+        '(leadChannel in core): a gbraid/wbraid or utm_source 100A00 is Google Ads; ' +
+        'Lead Source "Meta Ads" (Meta lead forms) is Meta; a paid UTM goes to the ' +
+        'channel its utm_source names; a lead vendor is its own named source; a lead ' +
+        'referred from the Spartan website or a search results page with no paid ' +
+        'signal is SEO/Organic; everything else is Direct & other. Set from value ' +
+        'sweeps of Salesforce and GA4 on 24 September 2026.',
       value: {
-        searchHosts: ['google.*', 'bing.com', 'duckduckgo.com', 'search.yahoo.com', 'search.brave.com', 'ecosia.org'],
+        utmSources: {
+          google_ads: ['google', 'adwords', '100a00'],
+          // Meta's own placement names for {{site_source_name}}: fb, ig, an, msg, th.
+          meta: ['fb', 'facebook', 'meta', 'ig', 'instagram', 'an', 'msg', 'th'],
+        },
+        // GA4 shows 100A00 sessions landing from Google Ads links carrying
+        // gad_source/gbraid and no gclid.
+        markerSources: { google_ads: ['100a00'] },
+        paidMediums: ['cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'search', 'display', 'web_ad'],
         unpaidMediums: ['organic'],
+        leadSourceChannels: { 'Meta Ads': 'meta', 'Google AdWords': 'google_ads' },
+        vendors: { popcrumbs: 'Popcrumbs', lendfax: 'Lendfax', leadpop: 'Leadpop', lendingtree: 'LendingTree' },
+        organicHosts: [
+          'spartancapitalgroup.com',
+          'google.*',
+          'bing.com',
+          'duckduckgo.com',
+          'search.yahoo.com',
+          'search.brave.com',
+          'ecosia.org',
+        ],
       },
     },
     {
@@ -686,13 +706,17 @@ export const spartan: TenantSeed = {
             // best-covered field in the inventory.
             landingPage: 'pi__url__c', // 79.6%
             /*
-             * The referring page, which is what proves an unpaid search visit
-             * (`organic_search_evidence`). Not `Referrer_Source__c`: 1,247 of
+             * The referring page, which is what proves an unpaid visit from the
+             * website or a search result (`lead_source_rules`). Not `Referrer_Source__c`: 1,247 of
              * the 1,313 leads it labels `google_organic` carry a gclid and
              * `utm_medium=cpc` (value sweep, 24 September 2026) — it names the
              * referring site, not whether the click was paid.
              */
             referrer: 'referral_url__c', // 51.0%
+            // Names Meta lead forms, lead vendors and outbound lists.
+            leadSource: 'LeadSource',
+            // Google's iOS click IDs, where no gclid is sent.
+            braids: ['Gbraid__c', 'Wbraid__c'],
             /*
              * The join to the dialer, in priority order.
              *

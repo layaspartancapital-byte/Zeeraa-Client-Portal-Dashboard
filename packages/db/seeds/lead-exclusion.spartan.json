@@ -4,7 +4,9 @@
     {
       "key": "cold_outreach_owner",
       "label": "Owned by the cold-outreach holding queue",
-      "ownerNames": ["Cold Outreach Holding"]
+      "ownerNames": [
+        "Cold Outreach Holding"
+      ]
     },
     {
       "key": "bulk_load_2026_09_08",
@@ -14,6 +16,13 @@
         "to": "2026-09-09T00:00:00Z"
       },
       "requireNullLeadSource": true
+    },
+    {
+      "key": "outbound_zoominfo",
+      "label": "Outbound: ZoomInfo prospect lists, cold outreach under another name",
+      "leadSources": [
+        "Zoominfo"
+      ]
     }
   ],
   "inboundSignalFields": [

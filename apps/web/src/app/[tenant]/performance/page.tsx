@@ -423,7 +423,7 @@ export default async function Performance({
               ? undefined
               : `${formatCount(
                   data.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0),
-                )} with a source · ${formatCount(dealsIn(data.unattributed.stages))} unattributed${throughNote(
+                )} with a source · ${formatCount(dealsIn(data.unattributed.stages))} direct & other${throughNote(
                   cover.crm,
                   'Salesforce',
                 )}`
@@ -571,7 +571,7 @@ export default async function Performance({
         <Card span={4}>
           <CardHeader
             title={`${valueLabel} deals by channel`}
-            subtitle="Unattributed is its own segment"
+            subtitle="Direct & other is its own segment"
           />
           <CardBody className="flex-1">
             <StackedBars

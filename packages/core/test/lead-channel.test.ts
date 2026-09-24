@@ -1,72 +1,97 @@
 import { describe, expect, it } from 'vitest';
 import {
   ORGANIC_SEARCH,
-  isOrganicSearch,
+  isPaidChannel,
   leadChannel,
-  parseOrganicSearchRule,
+  parseLeadSourceRules,
   type LeadSourceEvidence,
 } from '../src/lead-channel';
+import { platformLabel } from '../src/platform-labels';
 
-const rule = parseOrganicSearchRule({
-  searchHosts: ['google.*', 'bing.com', 'duckduckgo.com', 'search.yahoo.com'],
+const rules = parseLeadSourceRules({
+  utmSources: { google_ads: ['google', '100a00'], meta: ['fb', 'facebook', 'ig'] },
+  markerSources: { google_ads: ['100a00'] },
+  paidMediums: ['cpc', 'paid', 'paid_social', 'search'],
   unpaidMediums: ['organic'],
+  leadSourceChannels: { 'Meta Ads': 'meta' },
+  vendors: { popcrumbs: 'Popcrumbs', lendfax: 'Lendfax' },
+  organicHosts: ['spartancapitalgroup.com', 'google.*', 'search.yahoo.com'],
 })!;
 
 const lead = (over: Partial<LeadSourceEvidence>): LeadSourceEvidence => ({
   clickIdType: null,
-  referrerUrl: 'https://www.google.com/',
+  braid: null,
+  referrerUrl: null,
+  utmSource: null,
   utmMedium: null,
   utmCampaign: null,
+  leadSource: 'Web',
   ...over,
 });
 
-describe('isOrganicSearch', () => {
-  it('holds for a search-results referrer with no paid signal', () => {
-    expect(isOrganicSearch(lead({}), rule)).toBe(true);
-    expect(isOrganicSearch(lead({ referrerUrl: 'https://search.yahoo.com/' }), rule)).toBe(true);
-    expect(isOrganicSearch(lead({ referrerUrl: 'https://www.google.co.uk/' }), rule)).toBe(true);
-    expect(isOrganicSearch(lead({ utmMedium: 'organic' }), rule)).toBe(true);
-  });
-
-  it('does not hold for a paid click that arrived from google.com', () => {
-    expect(isOrganicSearch(lead({ clickIdType: 'google_ads' }), rule)).toBe(false);
-    expect(isOrganicSearch(lead({ utmMedium: 'cpc' }), rule)).toBe(false);
-    expect(isOrganicSearch(lead({ utmCampaign: 'SCG_Search_Qualified_v1' }), rule)).toBe(false);
-  });
-
-  it('does not treat Google properties that are not search as search', () => {
-    for (const url of [
-      'https://mail.google.com/',
-      'android-app://com.google.android.gm/',
-      'https://tagassistant.google.com/',
-      'https://ads.google.com/',
-    ]) {
-      expect(isOrganicSearch(lead({ referrerUrl: url }), rule), url).toBe(false);
-    }
-  });
-
-  it('leaves direct, social and unreadable referrers unattributed', () => {
-    for (const url of [null, 'https://www.spartancapitalgroup.com/', 'https://l.facebook.com/', 'not a url']) {
-      expect(isOrganicSearch(lead({ referrerUrl: url }), rule), String(url)).toBe(false);
-    }
-  });
-});
-
 describe('leadChannel', () => {
-  it('is the click platform, else organic search, else nobody', () => {
-    expect(leadChannel(lead({ clickIdType: 'meta' }), rule)).toBe('meta');
-    expect(leadChannel(lead({}), rule)).toBe(ORGANIC_SEARCH);
-    expect(leadChannel(lead({ referrerUrl: null }), rule)).toBeNull();
+  it('credits a click ID first, whatever else the lead says', () => {
+    expect(leadChannel(lead({ clickIdType: 'meta', utmSource: 'google', leadSource: 'popcrumbs' }), rules)).toBe('meta');
   });
 
-  it('has no organic source for a tenant without the rule', () => {
-    expect(leadChannel(lead({}), null)).toBeNull();
+  it('credits Google Ads for a gbraid/wbraid or the 100A00 marker', () => {
+    expect(leadChannel(lead({ braid: 'wbraid-1', referrerUrl: 'https://www.google.com/' }), rules)).toBe('google_ads');
+    expect(leadChannel(lead({ utmSource: '100A00', referrerUrl: 'https://www.google.com/' }), rules)).toBe('google_ads');
+  });
+
+  it('credits Meta for its own lead forms', () => {
+    expect(leadChannel(lead({ leadSource: 'Meta Ads' }), rules)).toBe('meta');
+  });
+
+  it('credits a paid UTM to the channel its source names', () => {
+    expect(leadChannel(lead({ utmSource: 'google', utmMedium: 'cpc' }), rules)).toBe('google_ads');
+    expect(leadChannel(lead({ utmSource: 'fb', utmMedium: 'paid' }), rules)).toBe('meta');
+    expect(leadChannel(lead({ utmSource: 'ig', utmCampaign: '120249615797590176' }), rules)).toBe('meta');
+    // Paid, but provably neither channel.
+    expect(leadChannel(lead({ utmSource: 'debanked', utmMedium: 'paid' }), rules)).toBeNull();
+  });
+
+  it('names a lead vendor as its own source', () => {
+    const vendor = leadChannel(lead({ leadSource: 'popcrumbs' }), rules)!;
+    expect(vendor).toBe('vendor:Popcrumbs');
+    expect(platformLabel(vendor)).toBe('Popcrumbs');
+    expect(isPaidChannel(vendor)).toBe(false);
+  });
+
+  it('credits SEO/Organic for the website or a search result, with no paid signal', () => {
+    expect(leadChannel(lead({ referrerUrl: 'https://www.spartancapitalgroup.com/resources/funding-guide' }), rules)).toBe(
+      ORGANIC_SEARCH,
+    );
+    expect(leadChannel(lead({ referrerUrl: 'https://www.google.com/' }), rules)).toBe(ORGANIC_SEARCH);
+    expect(leadChannel(lead({ referrerUrl: 'https://www.google.co.uk/', utmMedium: 'organic' }), rules)).toBe(ORGANIC_SEARCH);
+    expect(leadChannel(lead({ referrerUrl: 'https://search.yahoo.com/' }), rules)).toBe(ORGANIC_SEARCH);
+  });
+
+  it('keeps anything less in Direct & other', () => {
+    for (const over of [
+      {},
+      { referrerUrl: 'https://mail.google.com/' },
+      { referrerUrl: 'android-app://com.google.android.gm/' },
+      { referrerUrl: 'https://tagassistant.google.com/' },
+      { referrerUrl: 'https://apply.spartancapitalgroup.com/' },
+      { referrerUrl: 'https://l.facebook.com/' },
+      { referrerUrl: 'https://www.google.com/', utmMedium: 'email' },
+      { referrerUrl: 'https://www.google.com/', utmCampaign: 'spring-promo' },
+    ] satisfies Partial<LeadSourceEvidence>[]) {
+      expect(leadChannel(lead(over), rules), JSON.stringify(over)).toBeNull();
+    }
+  });
+
+  it('credits only click IDs for a tenant with no rules', () => {
+    expect(leadChannel(lead({ clickIdType: 'google_ads' }), null)).toBe('google_ads');
+    expect(leadChannel(lead({ referrerUrl: 'https://www.google.com/', leadSource: 'Meta Ads' }), null)).toBeNull();
   });
 });
 
-describe('parseOrganicSearchRule', () => {
-  it('refuses a row without hosts', () => {
-    expect(parseOrganicSearchRule({ searchHosts: [] })).toBeNull();
-    expect(parseOrganicSearchRule(null)).toBeNull();
+describe('parseLeadSourceRules', () => {
+  it('refuses a malformed row', () => {
+    expect(parseLeadSourceRules(null)).toBeNull();
+    expect(parseLeadSourceRules({ paidMediums: 'cpc' })).toBeNull();
+    expect(parseLeadSourceRules({ vendors: { popcrumbs: '' } })).toBeNull();
   });
 });

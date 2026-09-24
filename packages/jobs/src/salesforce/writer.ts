@@ -133,6 +133,8 @@ export async function upsertLeads(
           utmTerm: row.utmTerm,
           landingPage: row.landingPage,
           referrerUrl: row.referrerUrl,
+          leadSource: row.leadSource,
+          braid: row.braid,
           channel: row.channel,
           selfReportedRevenue: row.selfReportedRevenue?.toFixed(2) ?? null,
           selfReportedAnnualRevenue:
@@ -172,6 +174,8 @@ export async function upsertLeads(
           utmTerm: sql`excluded.utm_term`,
           landingPage: sql`excluded.landing_page`,
           referrerUrl: sql`excluded.referrer_url`,
+          leadSource: sql`excluded.lead_source`,
+          braid: sql`excluded.braid`,
           channel: sql`excluded.channel`,
           selfReportedRevenue: sql`excluded.self_reported_revenue`,
           selfReportedAnnualRevenue: sql`excluded.self_reported_annual_revenue`,

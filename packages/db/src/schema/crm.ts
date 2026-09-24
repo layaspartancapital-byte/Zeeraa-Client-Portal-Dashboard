@@ -54,10 +54,14 @@ export const leads = pgTable(
     landingPage: text('landing_page'),
     /** The page the lead arrived from, as the CRM recorded it. */
     referrerUrl: text('referrer_url'),
+    /** The CRM's lead source picklist value, verbatim (0036). */
+    leadSource: text('lead_source'),
+    /** A Google iOS click ID (gbraid or wbraid), where no gclid was sent (0036). */
+    braid: text('braid'),
     /**
      * The lead's source, resolved at ingest: its click's platform, else
-     * `organic_search` where the `organic_search_evidence` rule holds, else
-     * null — unattributed. Every lead-grain channel count reads this, never
+     * `organic_search` or a `vendor:<Name>` by `lead_source_rules`, else null —
+     * Direct & other. Every lead-grain channel count reads this, never
      * `click_id_type`, so the organic rule is applied in one place
      * (`leadChannel` in core). See 0035.
      */

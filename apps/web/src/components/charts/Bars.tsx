@@ -98,7 +98,7 @@ export function StackedBars({
   format: spec,
   height = 260,
   layout = 'vertical-bars',
-  unattributedLabel = 'Unattributed',
+  unattributedLabel = 'Direct & other',
 }: {
   id: string;
   rows: StackRow[];
@@ -312,7 +312,7 @@ export function RangeBars({
                         value: `${format(d.low)} – ${format(d.confirmed)}`,
                         color: PLOT_SOFT,
                       },
-                      { label: 'Unattributed', value: `${d.unattributedDeals} deals` },
+                      { label: 'Direct & other', value: `${d.unattributedDeals} deals` },
                     ]}
                   />
                 );

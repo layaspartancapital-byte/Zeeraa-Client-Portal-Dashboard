@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { channelMonth, schema, type Database } from '@zeeraa/db';
-import { ORGANIC_SEARCH, type MonthKey } from '@zeeraa/core';
+import { channelMonth, leadChannel, schema, type Database } from '@zeeraa/db';
+import { isPaidChannel, type MonthKey } from '@zeeraa/core';
 
 /**
  * Every key figure for one month, per channel, from the ingestion side
@@ -15,9 +15,9 @@ import { ORGANIC_SEARCH, type MonthKey } from '@zeeraa/core';
  * without saying why.
  *
  * `unattributed` is a channel here for its stage counts only: it has no spend,
- * so no volume share, CPA or cost per deal. `organic_search` has its stage
- * counts and its funded volume, and no spend, CPA or cost per deal — it buys
- * nothing, so those are null rather than zero.
+ * so no volume share, CPA or cost per deal. A source with no ingested spend —
+ * SEO/Organic, a lead vendor — has its stage counts and funded volume and no
+ * money figures, which are absent rather than zero.
  */
 export type ChannelFigure = { platform: string; metric: string; value: number | null };
 
@@ -65,10 +65,34 @@ export async function channelFigures(tx: Database, tenantId: string, month: Mont
   }
   for (const s of stages) out.push({ platform: UNATTRIBUTED, metric: stageMetric(s.key), value: unattributed?.[s.key] ?? 0 });
 
-  const organic = await channelMonth(tx, { tenantId, platform: ORGANIC_SEARCH, month, stages: dealStages, valueStage, leadStages });
-  if (stages.some((s) => (organic.stages[s.key]?.own ?? 0) > 0)) {
-    for (const s of stages) out.push({ platform: ORGANIC_SEARCH, metric: stageMetric(s.key), value: organic.stages[s.key]?.own ?? 0 });
-    out.push({ platform: ORGANIC_SEARCH, metric: 'funded_volume', value: valueStage ? organic.ownVolume : null });
+  // Sources with no spend, found from the month's own records: a lead's
+  // channel, or a deal's attribution.
+  const monthStart = `${month}-01`;
+  const [y, mo] = month.split('-').map(Number);
+  const monthEnd = new Date(Date.UTC(y!, mo!, 0)).toISOString().slice(0, 10);
+  const leadSources = await tx
+    .selectDistinct({ channel: leadChannel() })
+    .from(schema.leads)
+    .where(and(eq(schema.leads.tenantId, tenantId), sql`${schema.leads.createdOn} between ${monthStart} and ${monthEnd}`));
+  const dealSources = await tx
+    .selectDistinct({ channel: schema.attribution.platform })
+    .from(schema.attribution)
+    .innerJoin(
+      schema.stageEvents,
+      and(
+        eq(schema.stageEvents.tenantId, schema.attribution.tenantId),
+        eq(schema.stageEvents.opportunityExternalId, schema.attribution.opportunityExternalId),
+      ),
+    )
+    .where(and(eq(schema.attribution.tenantId, tenantId), sql`${schema.stageEvents.occurredOn} between ${monthStart} and ${monthEnd}`));
+  const unpaid = [...new Set([...leadSources, ...dealSources].map((r) => r.channel))]
+    .filter((c): c is string => c !== null && !isPaidChannel(c))
+    .sort();
+  for (const channel of unpaid) {
+    const cm = await channelMonth(tx, { tenantId, platform: channel, month, stages: dealStages, valueStage, leadStages });
+    if (!stages.some((s) => (cm.stages[s.key]?.own ?? 0) > 0)) continue;
+    for (const s of stages) out.push({ platform: channel, metric: stageMetric(s.key), value: cm.stages[s.key]?.own ?? 0 });
+    out.push({ platform: channel, metric: 'funded_volume', value: valueStage ? cm.ownVolume : null });
   }
   return out;
 }

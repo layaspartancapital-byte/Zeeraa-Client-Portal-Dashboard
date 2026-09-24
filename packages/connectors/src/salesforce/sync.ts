@@ -1,4 +1,4 @@
-import { leadChannel, qualifyLead, readPhone, type OrganicSearchRule, type QualificationBar } from '@zeeraa/core';
+import { leadChannel, qualifyLead, readPhone, type LeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
 import { judgeQualificationBands, readRevenueBand } from './qualification-bands';
@@ -26,9 +26,13 @@ export type LeadRow = {
   utmTerm: string | null;
   landingPage: string | null;
   referrerUrl: string | null;
+  /** The CRM's lead source picklist value, verbatim. */
+  leadSource: string | null;
+  /** A gbraid or wbraid, where the lead carries one. */
+  braid: string | null;
   /**
-   * The lead's source (`leadChannel` in core): its click's platform, else
-   * `organic_search` where the rule proves it, else null.
+   * The lead's source (`leadChannel` in core, by `lead_source_rules`): a
+   * platform, `organic_search`, `vendor:<Name>`, or null for Direct & other.
    */
   channel: string | null;
   selfReportedRevenue: number | null;
@@ -171,26 +175,31 @@ export function normalizeLead(
    * band fields; omitted, it stays null and nothing downstream claims one.
    */
   bar?: QualificationBar,
-  /** The tenant's `organic_search_evidence` rule; null credits nothing to organic. */
-  organicSearch: OrganicSearchRule | null = null,
+  /** The tenant's `lead_source_rules`; null credits only click IDs. */
+  sourceRules: LeadSourceRules | null = null,
 ): LeadRow {
   const { clickId, clickIdType } = pickClickId(record, mapping.lead.clickIds, platformPriority);
   const referrerUrl = str(record, mapping.lead.referrer);
+  const utmSource = str(record, mapping.lead.utmSource);
   const utmMedium = str(record, mapping.lead.utmMedium);
   const utmCampaign = str(record, mapping.lead.utmCampaign);
+  const leadSource = str(record, mapping.lead.leadSource);
+  const braid = (mapping.lead.braids ?? []).map((f) => str(record, f)).find((v) => v !== null) ?? null;
   return {
     externalId: String(record.Id),
     createdAt: date(record, 'CreatedDate') ?? new Date(0),
     clickId,
     clickIdType,
-    utmSource: str(record, mapping.lead.utmSource),
+    utmSource,
     utmMedium,
     utmCampaign,
     utmContent: str(record, mapping.lead.utmContent),
     utmTerm: str(record, mapping.lead.utmTerm),
     landingPage: str(record, mapping.lead.landingPage),
     referrerUrl,
-    channel: leadChannel({ clickIdType, referrerUrl, utmMedium, utmCampaign }, organicSearch),
+    leadSource,
+    braid,
+    channel: leadChannel({ clickIdType, braid, referrerUrl, utmSource, utmMedium, utmCampaign, leadSource }, sourceRules),
     selfReportedRevenue: num(record, mapping.lead.selfReportedRevenue),
     selfReportedAnnualRevenue: num(record, mapping.lead.selfReportedAnnualRevenue),
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),

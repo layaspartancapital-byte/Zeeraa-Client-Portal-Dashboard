@@ -139,7 +139,7 @@ export default async function Funnel({
   const populations = [
     { key: 'all', label: 'All sources', counts: data.total.stages },
     ...data.channels.map((c) => ({ key: c.platform, label: c.label, counts: c.stages })),
-    { key: 'unattributed', label: 'Unattributed', counts: data.unattributed.stages },
+    { key: 'unattributed', label: data.unattributed.label, counts: data.unattributed.stages },
   ];
   const population = populations.find((p) => p.key === query.channel) ?? populations[0]!;
 
@@ -294,7 +294,7 @@ export default async function Funnel({
           <Card selfStart className="w-full">
           <CardHeader
             title="Stage by channel"
-            subtitle="Unattributed is its own segment, never folded into a channel"
+            subtitle="Direct & other is its own segment, never folded into a source"
           />
           <CardBody className="flex-1">
             <StackedBars

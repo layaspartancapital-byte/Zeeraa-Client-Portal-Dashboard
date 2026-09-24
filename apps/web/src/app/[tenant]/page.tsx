@@ -12,7 +12,10 @@ import {
   ORGANIC_SEARCH,
   platformLabel,
   trailingMonths,
-  UNPAID_REASON,
+  DIRECT_AND_OTHER_DESCRIPTION,
+  noSpendReason,
+  sourceDescription,
+  sourceRank,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
@@ -281,12 +284,12 @@ export default async function ExecutiveBriefing({
 
   // Paid channels by spend, then any unpaid source (organic search) beneath.
   const efficiencyRows: EfficiencyRow[] = [...current.channels]
-    .sort((a, b) => Number(b.paid) - Number(a.paid) || b.spend - a.spend)
+    .sort((a, b) => sourceRank(a.platform) - sourceRank(b.platform) || b.spend - a.spend)
     .map((channel) => ({
       platform: channel.platform,
       label: channel.label,
       spend: channel.spend,
-      unpaidReason: channel.paid ? undefined : UNPAID_REASON,
+      unpaidReason: channel.paid ? undefined : noSpendReason(channel.platform),
       cells: efficiencyColumns.map((column) => {
         const cost = channelCostPerDeal({
           channelSpend: channel.spend,
@@ -309,29 +312,29 @@ export default async function ExecutiveBriefing({
 
   /*
    * Every funded deal by source: the report's own channel and unattributed
-   * rows, so the partition is the total's rather than a recount — paid
-   * channels by spend, then organic search, then the deals nobody can claim.
-   * Organic search is listed at zero only where the tenant can measure it.
+   * rows, so the partition is the total's rather than a recount — ad channels
+   * by spend, then SEO/Organic and the lead vendors, then Direct & other.
+   * SEO/Organic is listed at zero only where the tenant can measure it.
    */
   const fundedRows: FundedSourceRow[] = [
     ...[...current.channels]
-      .sort((a, b) => Number(b.paid) - Number(a.paid) || b.spend - a.spend)
+      .sort((a, b) => sourceRank(a.platform) - sourceRank(b.platform) || b.spend - a.spend)
       .map((c) => ({
         key: c.platform,
         label: c.label,
         deals: dealsIn(c.stages),
         volume: c.valueVolume,
-        info: c.paid ? undefined : 'Deals whose lead came from an unpaid search result, with no ad click.',
+        info: sourceDescription(c.platform) ?? undefined,
       })),
     ...(current.organicMeasured && !current.channels.some((c) => c.platform === ORGANIC_SEARCH)
-      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), deals: 0, volume: 0 }]
+      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), deals: 0, volume: 0, info: sourceDescription(ORGANIC_SEARCH) ?? undefined }]
       : []),
     {
       key: 'unattributed',
       label: current.unattributed.label,
       deals: unattributedDeals,
       volume: current.unattributed.valueVolume,
-      info: 'No ad click and no proof of an unpaid search visit: direct, referral, phone, outbound or repeat business.',
+      info: DIRECT_AND_OTHER_DESCRIPTION,
     },
   ];
   const degraded = connections.filter(
@@ -636,7 +639,7 @@ export default async function ExecutiveBriefing({
               ? undefined
               : `${formatCount(attributedDeals(current))} with a source · ${formatCount(
                   unattributedDeals,
-                )} unattributed`
+                )} direct & other`
           }
           info="Deals reaching the value stage, renewals excluded. Shown for both periods and never subtracted: a count's difference is mostly the calendar."
         />

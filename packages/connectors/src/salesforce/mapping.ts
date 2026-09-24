@@ -20,11 +20,19 @@ export type SalesforceFieldMapping = {
     utmTerm?: string;
     landingPage?: string;
     /**
-     * The page the lead arrived from. What `organic_search_evidence` reads a
-     * search result from; a label that classifies the referrer is no
-     * substitute, because it cannot tell a paid Google click from an unpaid one.
+     * The page the lead arrived from. What `lead_source_rules` reads a search
+     * result or the tenant's own website from; a label that classifies the
+     * referrer is no substitute, because it cannot tell a paid Google click
+     * from an unpaid one.
      */
     referrer?: string;
+    /** The CRM's lead source picklist: vendors, Meta lead forms, outbound. */
+    leadSource?: string;
+    /**
+     * Fields holding Google's iOS click IDs (gbraid, wbraid), read in order.
+     * Evidence of a Google Ads click where no gclid was sent.
+     */
+    braids?: string[];
     /** Monthly gross. */
     selfReportedRevenue?: string;
     /** Annual gross. Either may be present; both are read, monthly wins. */
@@ -207,6 +215,9 @@ function collect(mapping: SalesforceFieldMapping) {
   }
   // Also a list the string loop above steps over, and an unselected phone
   // field is a lead the dialer can never be joined to.
+  for (const field of mapping.lead.braids ?? []) {
+    lead.push([field, 'Google iOS click ID (gbraid/wbraid)']);
+  }
   for (const field of mapping.lead.phones ?? []) {
     lead.push([field, 'phone number']);
   }

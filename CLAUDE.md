@@ -333,13 +333,15 @@ assumes they are comparable.
   `Not a channel` badge went on 24 September 2026): it has deals but no spend
   and no cost per deal, and those cells render as an em dash with the reason in
   an ⓘ, never as zero.
-- **Organic/SEO is a source only on proof.** A lead's source is `leads.channel`,
-  resolved at ingest by `leadChannel` in core: its click's platform, else
-  `organic_search` where the `organic_search_evidence` row holds (a
-  search-results referrer and no paid signal at all), else unattributed. Read it
-  through `leadChannel()` in `@zeeraa/db`, never `click_id_type`. A deal is
-  organic only with no paid touch and an organic lead. Organic buys nothing, so
-  every spend and cost cell is an em dash with `UNPAID_REASON`, never $0.
+- **A lead's source is decided once, at ingest, in a fixed order.** `leads.channel`
+  is resolved by `leadChannel` in core from the `lead_source_rules` row: click
+  ID; gbraid/wbraid or `utm_source=100A00` (Google Ads); a Lead Source naming a
+  channel (Meta lead forms); a paid UTM by its source; a named lead vendor
+  (`vendor:<Name>`); SEO/Organic (the Spartan website or a search referrer,
+  with no paid signal); otherwise Direct & other. Read it through
+  `leadChannel()` in `@zeeraa/db`, never `click_id_type`. A deal with no click
+  touch takes its lead's source. SEO/Organic and vendors have no ingested
+  spend, so their cost cells are an em dash with `noSpendReason`, never $0.
 - **No total mixes them.** A totals row sums what is summable — spend across
   channels, deals across every source — and renders nothing where the sum would
   be a category error. Blended cost per deal is one of those until every channel

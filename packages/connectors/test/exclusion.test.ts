@@ -6,6 +6,7 @@ import {
   inboundClause,
   inboundSignalClause,
   LeadExclusionConfigError,
+  leadSourceExclusion,
   negatedRuleClause,
   noInboundSignalClause,
   notExcludedClause,
@@ -275,5 +276,19 @@ describe('buildIncrementalQuery', () => {
 
   it('emits no WHERE clause at all with no watermark and no exclusion', () => {
     expect(buildIncrementalQuery(mapping, 'Lead', null)).not.toContain('WHERE');
+  });
+});
+
+describe('a Lead Source rule (ZoomInfo, 24 September 2026)', () => {
+  const rule = { key: 'outbound_zoominfo', label: 'Outbound', leadSources: ['Zoominfo'] };
+  it('excludes by Lead Source and keeps leads with none', () => {
+    expect(ruleClause(rule)).toBe("LeadSource IN ('Zoominfo')");
+    expect(negatedRuleClause(rule)).toBe("(LeadSource = null OR LeadSource NOT IN ('Zoominfo'))");
+  });
+  it('applies to stored leads only when Lead Source is its sole criterion', () => {
+    const config = { enabled: true, rules: [rule], inboundSignalFields: ['LeadSource'] };
+    expect(leadSourceExclusion(config, 'Zoominfo')?.key).toBe('outbound_zoominfo');
+    expect(leadSourceExclusion(config, 'Web')).toBeNull();
+    expect(leadSourceExclusion({ ...config, rules: [{ ...rule, ownerNames: ['x'] }] }, 'Zoominfo')).toBeNull();
   });
 });

@@ -3341,3 +3341,37 @@ for all three cards: funded deals before it thin to one a month, which is how
 **Executive.** "All funded this month" sits above the scorecard, one row per
 source, adding to the total. The scorecard is titled for its channel ("Google
 Ads vs target"), because the targets are contracted for one channel.
+
+
+### The source rules, as approved (24 September 2026, same day)
+
+The first cut credited SEO/Organic from a search referrer alone, and GA4's
+landing-page property (534284278) showed why that was wrong. Sessions tagged
+`utm_source=100A00` land from Google Ads links that carry `gbraid` and no
+gclid, and 48 of the 62 "organic" leads carried it. The rules are now
+`lead_source_rules`, applied in this order by `leadChannel` in core:
+
+1. A click ID: that platform.
+2. gbraid / wbraid (`Gbraid__c`, `Wbraid__c`): Google Ads.
+3. `utm_source=100A00`: Google Ads.
+4. Lead Source `Meta Ads` (Meta's own lead forms, no fbclid): Meta.
+5. A paid UTM: the channel its `utm_source` names.
+6. A lead vendor (Popcrumbs, Lendfax, Leadpop, LendingTree): its own named source.
+7. SEO/Organic: referred from www.spartancapitalgroup.com or a search results
+   page, with no paid signal. "Leads that came through the Spartan website or
+   from Google search, not from ads."
+8. Otherwise Direct & other. The label replaces "Unattributed".
+
+ZoomInfo is outbound and is excluded like cold outreach: a `leadSources` rule
+in `lead_exclusion`, applied to stored leads by `leadSourceExclusion`. A deal
+with no click touch takes its lead's source, so Google Ads gains the deals
+whose leads carry `100A00` or a gbraid. The frozen June–August figures are
+restated as new versions, with the reclassification as the reason.
+
+Production, June–September:
+- **Leads.** Google Ads 1,298 → 1,654. Meta 618 → 1,751, most of the gain in
+  September (45 → 1,140), when Meta's lead forms began. Popcrumbs 645, Lendfax 157, Leadpop 32 and
+  LendingTree 1 are new sources. SEO/Organic is 59. Unattributed 2,834 becomes
+  Direct & other 399, and 52 ZoomInfo leads are excluded.
+- **Funded deals.** Google Ads 10 → 18, SEO/Organic 2, Popcrumbs 1, Meta 1,
+  and Unattributed 12 becomes Direct & other 1.

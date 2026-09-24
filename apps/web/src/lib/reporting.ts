@@ -16,8 +16,9 @@ import {
   channelCostPerDeal,
   clockLabel,
   isPaidChannel,
+  sourceRank,
   parseBusinessHours,
-  parseOrganicSearchRule,
+  parseLeadSourceRules,
   previousMonth,
   rankReasonCitations,
   reasonCoverageByPeriod,
@@ -108,7 +109,8 @@ export type ChannelRow = {
   /**
    * Whether the channel buys its traffic. Organic search does not: it has no
    * spend, CTR, CPC or cost per deal, and those cells render an em dash with
-   * `UNPAID_REASON` (core), never $0 (`isPaidChannel` in core).
+   * `noSpendReason` (core), never $0 (`isPaidChannel` in core). A lead vendor
+   * is paid, but outside the ad platforms, and its spend is not ingested.
    */
   paid: boolean;
   spend: number;
@@ -178,9 +180,9 @@ export type MonthlyPerformance = {
   unattributed: UnattributedRow;
   total: TotalRow;
   /**
-   * Whether this tenant can credit anything to organic search at all — it has
-   * a readable `organic_search_evidence` row. Without one, an Organic/SEO row
-   * of zero would claim a measurement nobody made.
+   * Whether this tenant can credit anything to SEO/Organic at all — it has a
+   * readable `lead_source_rules` row. Without one, an SEO/Organic row of zero
+   * would claim a measurement nobody made.
    */
   organicMeasured: boolean;
   /** Completion time of the most recent sync feeding this. Null when none has run. */
@@ -266,10 +268,10 @@ const BLENDED_NOT_COMPUTED =
   'under a broader name.';
 
 const UNATTRIBUTED_REASON =
-  'These deals carry no click from any connected channel and no proof of an ' +
-  'unpaid search visit. They came from direct, referral, outbound and repeat ' +
-  'business as well as, possibly, paid media that was never tagged. Nothing in ' +
-  'the data says which, so no channel may count them and no spend stands behind them.';
+  'No ad click, no lead vendor and no website or search referrer: direct visits, ' +
+  'referrals, phone and repeat business, and possibly paid media that was never ' +
+  'tagged. Nothing in the data says which, so no channel may count them and no ' +
+  'spend stands behind them.';
 
 export async function monthlyPerformance(
   session: TenantSession,
@@ -613,7 +615,7 @@ export async function monthlyPerformance(
     const [organicRule] = await tx
       .select({ value: schema.tenantConfig.value })
       .from(schema.tenantConfig)
-      .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'organic_search_evidence')))
+      .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'lead_source_rules')))
       .limit(1);
 
     const [latestSync] = await tx
@@ -668,7 +670,10 @@ export async function monthlyPerformance(
         ...byPlatform.keys(),
         ...[...leadCounts.values()].flatMap((c) => [...c.byPlatform.keys()]),
       ]),
-    ].sort((a, b) => platformLabel(a).localeCompare(platformLabel(b)));
+    ]
+      // Ad channels first, so they keep the first chart colours whatever
+      // vendors a period happens to have; then the sources with no spend.
+      .sort((a, b) => sourceRank(a) - sourceRank(b) || platformLabel(a).localeCompare(platformLabel(b)));
 
     const unattributedDealCount = unattributedValueDeals.size;
 
@@ -759,7 +764,7 @@ export async function monthlyPerformance(
       channels,
       unattributed: {
         kind: 'unattributed',
-        label: 'Unattributed',
+        label: 'Direct & other',
         stages: unattributedStages,
         valueVolume: sumAmounts(unattributedValueDeals),
         reason: UNATTRIBUTED_REASON,
@@ -778,7 +783,7 @@ export async function monthlyPerformance(
         costPerDeal: null,
         costPerDealAbsentBecause: BLENDED_NOT_COMPUTED,
       },
-      organicMeasured: parseOrganicSearchRule(organicRule?.value) !== null,
+      organicMeasured: parseLeadSourceRules(organicRule?.value) !== null,
       dataThrough: latestSync?.finishedAt ?? null,
       declines: {
         deals: Number(declineRow?.deals ?? 0),

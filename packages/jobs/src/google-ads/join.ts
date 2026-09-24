@@ -1,9 +1,8 @@
-import { and, eq, gte, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import { schema, stageEventsIn, type Database } from '@zeeraa/db';
 import {
   attributionCoverage,
   channelCostPerDeal,
-  ORGANIC_SEARCH,
   resolveBothModels,
   type AttributionCoverage,
   type AttributionModel,
@@ -161,41 +160,49 @@ export async function buildAttribution(
     }
   }
 
-  // Organic search, for a deal with no paid touch at all: its converted lead
-  // carries the proof (`leads.channel`, resolved at ingest by `leadChannel`).
-  // Credited under both models, because with no click there is nothing for
-  // the two to disagree about. A deal that later gains a paid touch is
-  // overwritten by the upsert; one whose lead no longer proves organic loses
-  // the row below and falls back to unattributed.
-  const organicDeals = await tx
-    .selectDistinct({ opportunityExternalId: schema.leads.convertedOpportunityId })
+  // A deal with no click touch is credited to the source its converted lead
+  // proves (`leads.channel`, resolved at ingest by `leadChannel`): Google Ads
+  // by gbraid or marker, Meta by its own lead form, a lead vendor, or
+  // SEO/Organic. Nothing proven, no row — the deal is Direct & other. With
+  // several leads, first touch takes the earliest and last touch the latest.
+  // A deal that later gains a click touch is overwritten by the upsert; one
+  // whose leads no longer prove anything loses its lead-derived row below.
+  // Lead-derived rows are the ones with no click id.
+  const provenLeads = await tx
+    .select({
+      opportunityExternalId: schema.leads.convertedOpportunityId,
+      channel: schema.leads.channel,
+      createdAt: schema.leads.createdAt,
+    })
     .from(schema.leads)
     .where(
       and(
         eq(schema.leads.tenantId, tenantId),
-        eq(schema.leads.channel, ORGANIC_SEARCH),
+        isNotNull(schema.leads.channel),
         isNotNull(schema.leads.convertedOpportunityId),
+        isNull(schema.leads.excludedReason),
       ),
-    );
-  const organic = new Set(
-    organicDeals
-      .map((r) => r.opportunityExternalId!)
-      .filter((id) => !touchesByOpportunity.has(id)),
-  );
-  for (const opportunityExternalId of organic) {
-    for (const model of ['first_touch', 'last_touch'] as const) {
-      rows.push({ tenantId, opportunityExternalId, model, platform: ORGANIC_SEARCH, campaignId: null, clickId: null });
-    }
+    )
+    .orderBy(schema.leads.createdAt);
+  const byDeal = new Map<string, { first: string; last: string }>();
+  for (const lead of provenLeads) {
+    const id = lead.opportunityExternalId!;
+    if (touchesByOpportunity.has(id)) continue;
+    const seen = byDeal.get(id);
+    byDeal.set(id, { first: seen?.first ?? lead.channel!, last: lead.channel! });
+  }
+  for (const [opportunityExternalId, { first, last }] of byDeal) {
+    rows.push({ tenantId, opportunityExternalId, model: 'first_touch', platform: first, campaignId: null, clickId: null });
+    rows.push({ tenantId, opportunityExternalId, model: 'last_touch', platform: last, campaignId: null, clickId: null });
   }
   await tx
     .delete(schema.attribution)
     .where(
       and(
         eq(schema.attribution.tenantId, tenantId),
-        eq(schema.attribution.platform, ORGANIC_SEARCH),
-        organic.size > 0
-          ? notInArray(schema.attribution.opportunityExternalId, [...organic])
-          : sql`true`,
+        isNull(schema.attribution.clickId),
+        isNotNull(schema.attribution.platform),
+        byDeal.size > 0 ? notInArray(schema.attribution.opportunityExternalId, [...byDeal.keys()]) : sql`true`,
       ),
     );
 

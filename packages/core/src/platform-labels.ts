@@ -15,11 +15,13 @@ export const PLATFORM_LABELS: Record<string, string> = {
   search_console: 'Search Console',
   semrush: 'Semrush',
   call_tracking: 'Call tracking',
-  // A source, not a connector: leads and deals proven to come from an unpaid
-  // search result (`leadChannel`).
-  organic_search: 'Organic/SEO',
+  // A source, not a connector (`leadChannel`): the tenant's website or a search
+  // result, with no ad behind it.
+  organic_search: 'SEO/Organic',
 };
 
 export function platformLabel(platform: string): string {
+  // A lead vendor carries its display name in its key: `vendor:Popcrumbs`.
+  if (platform.startsWith('vendor:')) return platform.slice('vendor:'.length);
   return PLATFORM_LABELS[platform] ?? platform;
 }

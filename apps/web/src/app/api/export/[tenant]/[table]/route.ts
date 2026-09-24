@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { resolveDateRange, tenantDay, UNPAID_REASON, type AttributionModel } from '@zeeraa/core';
+import { noSpendReason, resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core';
 import { csvResponse, type CsvCell } from '@/lib/csv';
 import { monthlyPerformance } from '@/lib/reporting';
 import { requireTenant } from '@/lib/tenant';
@@ -105,8 +105,8 @@ export async function GET(
               '',
             ]
           : [
-              // Organic search: counts and volume, and blanks — not zeroes —
-              // where a paid channel has spend and costs.
+              // SEO/Organic or a lead vendor: counts and volume, and blanks —
+              // not zeroes — where an ad channel has spend and costs.
               'source',
               channel.label,
               null,
@@ -120,7 +120,7 @@ export async function GET(
               crmCell(channel.costPerDeal.attributedDeals),
               null,
               null,
-              UNPAID_REASON,
+              noSpendReason(channel.platform),
             ],
       ),
       [

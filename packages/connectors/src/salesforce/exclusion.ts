@@ -49,6 +49,11 @@ export type LeadExclusionRule = {
    * on 8 September 2026 that was roughly one lead in ten.
    */
   requireNullLeadSource?: boolean;
+  /**
+   * Matches `LeadSource` exactly — an outbound list bought in, like ZoomInfo,
+   * which is cold outreach under another name (24 September 2026).
+   */
+  leadSources?: string[];
 };
 
 export type LeadExclusionConfig = {
@@ -121,6 +126,9 @@ export function ruleClause(rule: LeadExclusionRule): string {
   if (rule.requireNullLeadSource) {
     parts.push('LeadSource = null');
   }
+  if (rule.leadSources?.length) {
+    parts.push(`LeadSource IN (${rule.leadSources.map(literal).join(', ')})`);
+  }
 
   if (parts.length === 0) {
     // A rule with no criteria matches every lead. Silently dropping it would
@@ -161,6 +169,10 @@ export function negatedRuleClause(rule: LeadExclusionRule): string {
   }
   if (rule.requireNullLeadSource) {
     parts.push('LeadSource != null');
+  }
+  if (rule.leadSources?.length) {
+    // `NOT IN` alone would say nothing about a lead with no source at all.
+    parts.push(`(LeadSource = null OR LeadSource NOT IN (${rule.leadSources.map(literal).join(', ')}))`);
   }
 
   if (parts.length === 0) {
@@ -352,4 +364,26 @@ export function parseLeadExclusion(value: unknown): LeadExclusionConfig {
   }
 
   return config;
+}
+
+/**
+ * The rule a stored lead falls under by its Lead Source alone, or null.
+ *
+ * For a rule added after leads were ingested: the sync never reads those leads
+ * again, so the ones already stored are marked excluded by this instead of
+ * lingering as inbound. Only a rule whose sole criterion is `leadSources` can
+ * be applied from the stored value.
+ */
+export function leadSourceExclusion(config: LeadExclusionConfig, leadSource: string | null): LeadExclusionRule | null {
+  if (!config.enabled || leadSource === null) return null;
+  return (
+    config.rules.find(
+      (r) =>
+        r.leadSources?.includes(leadSource) &&
+        !r.ownerNames?.length &&
+        !r.ownerIds?.length &&
+        !r.createdBetween &&
+        !r.requireNullLeadSource,
+    ) ?? null
+  );
 }

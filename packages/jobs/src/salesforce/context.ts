@@ -6,7 +6,7 @@ import {
   type JwtConfig,
   type SalesforceFieldMapping,
 } from '@zeeraa/connectors';
-import { DEFAULT_REVENUE_TOLERANCE, parseOrganicSearchRule, type QualificationBar } from '@zeeraa/core';
+import { DEFAULT_REVENUE_TOLERANCE, parseLeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import {
   decryptCredentials,
   getMaintenanceDb,
@@ -112,9 +112,9 @@ export async function resolveSalesforceContext(
       stageExclusions: parseStageExclusions(byKey.get('stage_exclusions')),
       stageCorrections: parseStageCorrections(byKey.get('stage_corrections')),
       lenderExclusions: parseLenderExclusions(byKey.get('lender_exclusions')),
-      // Absent or malformed, nothing is credited to organic search: every
-      // unpaid lead stays unattributed rather than being guessed into a channel.
-      organicSearch: parseOrganicSearchRule(byKey.get('organic_search_evidence')),
+      // Absent or malformed, only a click ID credits a source: every other lead
+      // is Direct & other rather than guessed into a channel.
+      leadSources: parseLeadSourceRules(byKey.get('lead_source_rules')),
     } satisfies SyncContext;
   });
 }

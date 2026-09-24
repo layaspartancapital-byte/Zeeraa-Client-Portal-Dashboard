@@ -373,28 +373,15 @@ secret (`67e4309c2482`, which still fails every credential).
   database was 120 MB against the Free plan's 0.5 GB on 24 September
   (`search_console_metrics` 60 MB, `calls` 24 MB).
 
-- **Organic source and six client fixes (24 September 2026) — committed, NOT
-  deployed.** See `docs/brief-amendments.md`, "§8 and §12 — organic search as
-  a source". Built and tested locally, with screenshots at 1440 and 390 on
-  local data. The production migration was refused by the session's permission
-  classifier, and the code reads 0035's columns, so **nothing may be pushed
-  until step 1 has run.** In order:
-  1. `DATABASE_URL_OWNER="$NEON_DIRECT_URL" pnpm --filter @zeeraa/db migrate`
-     (0035: two lead columns, one opportunity column and an index, all
-     additive; the live code is unaffected), then preflight.
-  2. Run the number checks locally against production (read-only), then push
-     `main`. The deploy runs preflight and numbers. Before the backfill they
-     should pass unchanged: `leadChannel()` falls back to `click_id_type`.
-  3. `packages/db/scripts/apply-organic-source.ts --dry-run`, then for real
-     (the referrer mapping and the `organic_search_evidence` row).
-  4. `pnpm --filter @zeeraa/jobs backfill-lead-channel spartan --dry-run`, then
-     for real: referrers, channels, `is_closed`, attribution.
-  5. `freeze-baseline spartan 2026-06 2026-07 2026-08 --correct-channel-figures
-     --by … --reason "Organic search split out of unattributed"`, then
-     `--channel-figures` for the same months to freeze organic's own figures.
-     Re-run the number checks: they must pass with no exceptions listed.
-  Locally the backfill found 102 organic leads and 6 organic deals over the
-  whole record, and 602 of 720 opportunities closed.
+- **Lead sources and six client fixes (24 September 2026).** See
+  `docs/brief-amendments.md`, "§8 and §12" and "The source rules, as approved".
+  Go-live order, as run: (1) migrate 0035 and 0036, then preflight; (2) run the
+  number checks read-only against production, then push `main`; (3)
+  `apply-lead-sources.ts` with `--dry-run`, then for real; (4)
+  `backfill-lead-channel spartan` with `--dry-run`, then for real; (5) restate
+  June–August: `freeze-baseline --correct` for the ramp's six metrics,
+  `--correct-channel-figures`, then `--channel-figures` for the new sources;
+  (6) re-run the number checks.
 - **Salesforce cron re-registration** (deployed `67c41b5`): confirmed firing
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.

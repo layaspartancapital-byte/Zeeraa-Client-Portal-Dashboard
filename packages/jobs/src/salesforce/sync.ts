@@ -19,7 +19,7 @@ import {
   type SalesforceFieldMapping,
   type SalesforceRecord,
 } from '@zeeraa/connectors';
-import { qualifyLead, type OrganicSearchRule, type QualificationBar } from '@zeeraa/core';
+import { qualifyLead, type LeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
 import { resolveCallLeads } from '../aloware/writer';
 import {
@@ -60,8 +60,8 @@ export type SyncContext = {
   leadExclusion?: LeadExclusionConfig;
   /** Which funnel stage MQL corresponds to, if any. */
   mqlStageKey?: string;
-  /** `organic_search_evidence`: what proves a lead came from unpaid search. */
-  organicSearch?: OrganicSearchRule | null;
+  /** `lead_source_rules`: which source a lead with no click ID is credited to. */
+  leadSources?: LeadSourceRules | null;
   /** Events that are real but not counted — renewals reaching Funded. */
   stageExclusions?: StageExclusionRule[];
   /** Test lenders, from `lender_exclusions`. */
@@ -243,7 +243,7 @@ export async function runSalesforceSync(
         buildIncrementalQuery(context.mapping, 'Lead', since, exclusion, omitLead),
       );
       const leads = leadRecords.map((r) =>
-        normalizeLead(r, context.mapping, context.clickIdPriority, context.bar, context.organicSearch ?? null),
+        normalizeLead(r, context.mapping, context.clickIdPriority, context.bar, context.leadSources ?? null),
       );
       result.leads = await upsertLeads(tx, context.tenantId, leads, syncRunId, context.bar);
 
