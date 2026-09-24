@@ -391,6 +391,22 @@ secret (`67e4309c2482`, which still fails every credential).
     until the form writes them.
   - Popcrumbs, the seventh source, repeats Google Ads' chart colour: the
     palette has six validated series.
+- **`100A00` corrected — LIVE (24 September 2026, `a0d91ef`).** The shared
+  ad landing page sets `utm_source=100A00`, so it credits no channel and rules
+  out SEO/Organic (`unknownPaidSources`). Google Ads needs a gclid,
+  gbraid/wbraid, `gad_source` on the referring URL or a Google UTM. Loaded,
+  backfilled (582 leads changed source), and June–August restated with this as
+  the reason (13 ramp and 60 channel-figure versions); number checks pass.
+  Jun–Sep now: funded Google Ads 11, Direct & other 7, Meta 2, SEO/Organic 2,
+  Popcrumbs 1.
+  - **Found on the way: every sync un-excluded ZoomInfo.** `applyStageExclusions`
+    clears every lead's `excluded_reason` before re-applying the renewal rules.
+    `applyLeadSourceExclusions` now re-marks outbound leads straight after; the
+    21:00 sync kept all 52 excluded.
+  - **Open, the same pattern:** leads marked `merged` by `applyReconciliation`
+    are cleared by the next sync's `applyStageExclusions` and not re-marked
+    unless the merge is read again. Not changed here; it needs its own fix and
+    number check.
 - **Salesforce cron re-registration** (deployed `67c41b5`): confirmed firing
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.
