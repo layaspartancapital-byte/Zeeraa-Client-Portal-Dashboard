@@ -218,6 +218,8 @@ export const adClicks = pgTable(
     uniqueIndex('ad_clicks_upsert_key').on(t.tenantId, t.platform, t.clickId),
     index('ad_clicks_tenant_platform_date_idx').on(t.tenantId, t.platform, t.reportedDate),
     index('ad_clicks_tenant_campaign_idx').on(t.tenantId, t.campaignId),
+    // A click by its id alone, for the Breakdown's lead → click join (0037).
+    index('ad_clicks_tenant_click_idx').on(t.tenantId, t.clickId),
   ],
 );
 

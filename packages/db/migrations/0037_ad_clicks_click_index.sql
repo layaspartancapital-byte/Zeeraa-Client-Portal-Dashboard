@@ -1,0 +1,11 @@
+-- Look a click up by its id alone (24 September 2026).
+--
+-- The Breakdown joins `leads.click_id` to `ad_clicks` on (tenant, click id)
+-- without a platform, which the upsert key (tenant, platform, click id) cannot
+-- serve. The planner, estimating 20 leads where there are 3,910 because row
+-- level security hides the filter's selectivity, chose a nested loop and read
+-- every click once per lead: 1.9 seconds for one statement on the Funnel page.
+-- With this index the same loop is one index lookup per lead.
+--
+-- Small table (about 4,000 rows), so a plain build rather than CONCURRENTLY.
+CREATE INDEX IF NOT EXISTS "ad_clicks_tenant_click_idx" ON "ad_clicks" ("tenant_id", "click_id");

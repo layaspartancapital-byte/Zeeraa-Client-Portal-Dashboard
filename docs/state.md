@@ -407,6 +407,12 @@ secret (`67e4309c2482`, which still fails every credential).
     day): `applyStageExclusions` re-marks every lead with a `merged_into`
     straight after clearing, and production had all 61 excluded. A deploy-time
     number check now fails if any merged or outbound lead is counted.
+- **Dashboard speed (24 September 2026).** Cached between syncs by data
+  version, index 0037, slow sections streamed. Measured locally against a
+  proxy adding production's 16 ms round trip (production page timings need a
+  signed-in session, which was declined): warm 1.4–2.7 s → 0.4 s, first view
+  after a sync 1.4–2.7 s → about 1.5 s. The cold path stays above one second,
+  as its reports contend for one Node thread and one round of queries.
 - **Salesforce cron re-registration** (deployed `67c41b5`): confirmed firing
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.

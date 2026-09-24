@@ -3407,3 +3407,27 @@ Production, June–September:
 **Spartan's `Gbraid__c` and `Wbraid__c` are empty.** The apply form has those
 values in its URL but doesn't write them, so an iPhone Google Ads click whose
 landing URL isn't the referrer falls in Direct & other.
+
+
+## §12 — the dashboard is cached between syncs and streamed (24 September 2026)
+
+Pages were 1.4–2.7 s: every report was recomputed on every request, and the
+Funnel's Breakdown ran one 1.9-second statement after the main batch. Now:
+
+- **A between-syncs cache** (`apps/web/src/lib/report-cache.ts`). A result is
+  keyed by tenant, role, local day, arguments and the tenant's data version,
+  the newest write any report can read. It is served only to a request that
+  has passed `requireTenant` for that tenant and role, so isolation still rests
+  on row level security at computation time and on membership at serving time.
+  A sync that finishes moves the version, so the next request recomputes. An
+  entry also expires after ten minutes, as a backstop for a config edit in
+  place that nothing timestamps.
+- **An index**, `ad_clicks (tenant_id, click_id)` (0037), for the Breakdown's
+  lead → click join. The planner misestimates under row level security (20
+  rows for 3,910) and chose a nested loop. It now does index lookups.
+- **Streaming.** "Needs attention" on Executive, and Call tracking and
+  Breakdown on Funnel, are separate `<Suspense>` sections, and the call report
+  no longer waits on its threshold before the rest of the page starts.
+
+No figure changes: the report functions are unchanged and the number checks
+call them directly.

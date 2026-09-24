@@ -5,8 +5,9 @@ import {
   type DateRange,
   type RangePresetKey,
 } from '@zeeraa/core';
-import { ingestionStart, type Ingestion } from '@/lib/dashboard';
+import { type Ingestion } from '@/lib/dashboard';
 import type { TenantSession } from '@/lib/tenant';
+import { ingestionStart } from '@/lib/cached-reports';
 
 /**
  * The page's date range, resolved once per screen and identically on each.

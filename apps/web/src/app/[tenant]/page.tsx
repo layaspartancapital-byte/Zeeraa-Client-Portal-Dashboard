@@ -34,31 +34,23 @@ import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
 import { monthName } from '@/components/RampCard';
 import { buildRampPanels, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
-import { callReport, monthlyPerformance } from '@/lib/reporting';
+
 import { AllFunded, type FundedSourceRow } from '@/components/AllFunded';
+import { Suspense } from 'react';
+import { SectionSkeleton } from '@/components/ui/SectionSkeleton';
 import { platformLabel as platformName } from '@/lib/platform-labels';
-import {
-  alowareConnectedThreshold,
-  connectionHealth,
-  dataQuality,
-  engagementRamp,
-  frozenBaseline,
-  loadMetrics,
-  pausedCampaigns,
-  sourceFreshness,
-  windowBuckets,
-} from '@/lib/dashboard';
+
 import { requireTenant } from '@/lib/tenant';
 import {
   coverageFor,
   isUnmeasured,
   notMeasuredReason,
-  sourcesThrough,
   throughNote,
 } from '@/lib/coverage';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { rangeLinks, rangeParams, resolvePageRange, type RangeQuery } from '@/lib/range';
 import { Download } from 'lucide-react';
+import { alowareConnectedThreshold, callReport, connectionHealth, dataQuality, engagementRamp, frozenBaseline, loadMetrics, monthlyPerformance, pausedCampaigns, sourceFreshness, sourcesThrough, windowBuckets } from '@/lib/cached-reports';
 
 export async function generateMetadata({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant: slug } = await params;
@@ -143,7 +135,11 @@ export default async function ExecutiveBriefing({
   const comparison = isMonthToDate ? lastFullMonth : previousRange(range);
   const { preserve, presetHref } = rangeLinks(`/${slug}`, {});
 
-  const connectedThreshold = await alowareConnectedThreshold(session);
+  // The three reports only "Needs attention" reads, started now and awaited
+  // inside its own Suspense boundary so the rest of the page does not wait.
+  const callsP = alowareConnectedThreshold(session).then((threshold) => callReport(session, range, threshold));
+  const connectionsP = connectionHealth(session);
+  const pausedP = pausedCampaigns(session, lastFullMonth.start);
 
   const [
     current,
@@ -153,9 +149,6 @@ export default async function ExecutiveBriefing({
     quality,
     ramp,
     frozenAll,
-    calls,
-    connections,
-    paused,
     freshness,
     through,
   ] = await Promise.all([
@@ -169,9 +162,6 @@ export default async function ExecutiveBriefing({
     dataQuality(session),
     engagementRamp(session),
     frozenBaseline(session),
-    callReport(session, range, connectedThreshold),
-    connectionHealth(session),
-    pausedCampaigns(session, lastFullMonth.start),
     sourceFreshness(session),
     sourcesThrough(session),
   ]);
@@ -306,7 +296,6 @@ export default async function ExecutiveBriefing({
   /* Findings                                                                */
   /* ----------------------------------------------------------------------- */
 
-  const speedGate = metrics.population('speed_to_lead', calls.speed.called);
   const unattributedDeals = dealsIn(current.unattributed.stages);
   const totalDeals = dealsIn(current.total.stages);
 
@@ -337,134 +326,144 @@ export default async function ExecutiveBriefing({
       info: DIRECT_AND_OTHER_DESCRIPTION,
     },
   ];
-  const degraded = connections.filter(
-    (c) => c.status === 'degraded' || c.status === 'failing' || c.status === 'waiting_on_client',
-  );
-  const pausedRecent = paused.filter((p) => p.pausedWithRecentSpend > 0);
-  const pausedTotal = paused.reduce((sum, p) => sum + p.paused, 0);
-
-  const findings: Finding[] = [];
-
-  const callsMeasured = !isUnmeasured(callCoverage) && !crmUnmeasured;
-  if (callsMeasured && speedGate.sufficient && calls.speed.medianSeconds !== null) {
-    findings.push({
-      key: 'speed-to-lead',
-      // The five-minute bar is the industry's own, not one this product sets,
-      // and the desk being a long way off it is an operational finding rather
-      // than a metric reading.
-      level: (calls.speed.withinFiveMinutesShare ?? 0) < 0.5 ? 'act' : 'watch',
-      headline: 'Leads wait for a first call',
-      figure: formatDuration(calls.speed.medianSeconds),
-      detail:
-        `median over ${formatCount(calls.speed.called)} of ${formatCount(
-          calls.speed.called + calls.speed.notCalled,
-        )} leads called · ` +
-        `${
-          calls.speed.withinFiveMinutesShare === null
-            ? 'none'
-            : formatRate(calls.speed.withinFiveMinutesShare)
-        } reached within five minutes · ${calls.clock}` +
-        (calls.businessHours
-          ? ` · 24/7 median ${formatDuration(calls.speedAllHours.medianSeconds)}`
-          : ''),
-      note: 'Measured only over leads that were called — a lead nobody rang has no response time and is not counted as a slow one. Five minutes is the industry bar, not one this product sets.',
-      action: { label: 'Funnel', href: `/${slug}/funnel` },
-    });
-  }
-
-  if (callsMeasured && !calls.empty) {
-    findings.push({
-      key: 'call-volume',
-      level: 'watch',
-      headline: isMonthToDate ? 'Calls this month' : 'Calls in this range',
-      figure: formatCount(calls.volume.handled),
-      detail:
-        `${
-          calls.volume.connectRate === null ? 'none' : formatRate(calls.volume.connectRate)
-        } connected past ${formatCount(calls.connectedMinTalkSeconds)}s · ` +
-        `${formatCount(calls.volume.abandoned)} abandoned, in neither count`,
-      note: `A call that talked for less than ${formatCount(calls.connectedMinTalkSeconds)} seconds is an attempt rather than a conversation. Abandoned calls — the caller hung up before anybody answered — are outside both counts and outside the connect rate's denominator.`,
-      action: { label: 'Funnel', href: `/${slug}/funnel` },
-    });
-  }
-
-  if (pausedRecent.length > 0) {
-    const count = pausedRecent.reduce((sum, p) => sum + p.pausedWithRecentSpend, 0);
-    const spend = pausedRecent.reduce((sum, p) => sum + p.recentSpend, 0);
-    findings.push({
-      key: 'paused-campaigns',
-      level: 'act',
-      headline: 'Campaigns that were spending are paused',
-      figure: formatCount(count),
-      detail:
-        `${formatCurrency(spend, currency)} spent before they stopped · ` +
-        `${formatCount(pausedTotal)} paused campaigns configured in total`,
-      note: 'Counted from the platform’s own status. Removed campaigns are excluded — a deleted campaign is one somebody cleaned up, not a configuration left behind.',
-      action: { label: 'Platforms', href: `/${slug}/platforms/${pausedRecent[0]!.platform}` },
-    });
-  }
-
-  /*
-   * A pushed source that has stopped delivering.
-   *
-   * It has no failed run to appear in `degraded` — nothing ran, because
-   * nothing is pulled — so without this it shows up as a slightly old
-   * timestamp and nothing else. Spartan's call webhook had delivered exactly
-   * nothing since the historical import, against a desk doing several hundred
-   * calls a day, and the briefing said "last call 4d 22h ago" in the same grey
-   * as every healthy source.
+  /**
+   * "Needs attention", streamed: its three reports are the page's slowest
+   * and nothing above it reads them.
    */
-  for (const source of freshness) {
-    if (source.arrival !== 'webhook' || source.typicalPerDay === null) continue;
-    if (source.typicalPerDay < 1) continue;
-    const ageHours = source.at === null ? null : (Date.now() - source.at.getTime()) / 3_600_000;
-    if (ageHours !== null && ageHours <= 24) continue;
-    findings.push({
-      key: `silent-${source.platform}`,
-      level: 'act',
-      headline: `${source.label} has stopped delivering`,
-      figure:
-        ageHours === null ? 'nothing received' : `${Math.round(ageHours / 24)}d silent`,
-      detail:
-        `pushed by webhook, so there is no failed sync to look at · was arriving at about ` +
-        `${formatCount(Math.round(source.typicalPerDay))} a day`,
-      note: 'This source is pushed rather than pulled, so a gap is not a sync failure and will not appear on the connections screen as one. Check that the webhook subscription still points at this deployment and that its secret is set.',
-      action: { label: 'Connections', href: `/${slug}/connections` },
-    });
-  }
+  const FindingsSection = async () => {
+    const [calls, connections, paused] = await Promise.all([callsP, connectionsP, pausedP]);
+  const speedGate = metrics.population('speed_to_lead', calls.speed.called);
+    const degraded = connections.filter(
+      (c) => c.status === 'degraded' || c.status === 'failing' || c.status === 'waiting_on_client',
+    );
+    const pausedRecent = paused.filter((p) => p.pausedWithRecentSpend > 0);
+    const pausedTotal = paused.reduce((sum, p) => sum + p.paused, 0);
 
-  for (const connection of degraded) {
-    findings.push({
-      key: `connection-${connection.platform}`,
-      // A dependency on the client is not a fault. It still belongs here —
-      // somebody has to chase it — but it is not something Zeeraa broke.
-      level: connection.status === 'waiting_on_client' ? 'watch' : 'act',
-      headline: `${connection.label} is ${connection.status.replace(/_/g, ' ')}`,
-      figure: connection.lastSyncAt
-        ? connection.lastSyncAt.toLocaleDateString('en-US', {
-            timeZone: session.tenant.timezone,
-            month: 'short',
-            day: 'numeric',
-          })
-        : 'never synced',
-      detail: connection.detail ?? 'The connector reported a problem on its last run.',
-      action: { label: 'Connections', href: `/${slug}/connections` },
-    });
-  }
+    const findings: Finding[] = [];
 
-  if (!crmUnmeasured && unattributedDeals > 0) {
-    findings.push({
-      key: 'unattributed',
-      level: 'watch',
-      headline: `${valueLabel} deals no channel can claim`,
-      figure: `${formatCount(unattributedDeals)} of ${formatCount(totalDeals)}`,
-      detail:
-        'They carry no click from any connected channel, so no spend stands behind them and ' +
-        'they are in no channel’s denominator',
-      note: current.unattributed.reason,
-      action: { label: 'Reconciliation', href: `/${slug}/reconciliation` },
-    });
-  }
+    const callsMeasured = !isUnmeasured(callCoverage) && !crmUnmeasured;
+    if (callsMeasured && speedGate.sufficient && calls.speed.medianSeconds !== null) {
+      findings.push({
+        key: 'speed-to-lead',
+        // The five-minute bar is the industry's own, not one this product sets,
+        // and the desk being a long way off it is an operational finding rather
+        // than a metric reading.
+        level: (calls.speed.withinFiveMinutesShare ?? 0) < 0.5 ? 'act' : 'watch',
+        headline: 'Leads wait for a first call',
+        figure: formatDuration(calls.speed.medianSeconds),
+        detail:
+          `median over ${formatCount(calls.speed.called)} of ${formatCount(
+            calls.speed.called + calls.speed.notCalled,
+          )} leads called · ` +
+          `${
+            calls.speed.withinFiveMinutesShare === null
+              ? 'none'
+              : formatRate(calls.speed.withinFiveMinutesShare)
+          } reached within five minutes · ${calls.clock}` +
+          (calls.businessHours
+            ? ` · 24/7 median ${formatDuration(calls.speedAllHours.medianSeconds)}`
+            : ''),
+        note: 'Measured only over leads that were called — a lead nobody rang has no response time and is not counted as a slow one. Five minutes is the industry bar, not one this product sets.',
+        action: { label: 'Funnel', href: `/${slug}/funnel` },
+      });
+    }
+
+    if (callsMeasured && !calls.empty) {
+      findings.push({
+        key: 'call-volume',
+        level: 'watch',
+        headline: isMonthToDate ? 'Calls this month' : 'Calls in this range',
+        figure: formatCount(calls.volume.handled),
+        detail:
+          `${
+            calls.volume.connectRate === null ? 'none' : formatRate(calls.volume.connectRate)
+          } connected past ${formatCount(calls.connectedMinTalkSeconds)}s · ` +
+          `${formatCount(calls.volume.abandoned)} abandoned, in neither count`,
+        note: `A call that talked for less than ${formatCount(calls.connectedMinTalkSeconds)} seconds is an attempt rather than a conversation. Abandoned calls — the caller hung up before anybody answered — are outside both counts and outside the connect rate's denominator.`,
+        action: { label: 'Funnel', href: `/${slug}/funnel` },
+      });
+    }
+
+    if (pausedRecent.length > 0) {
+      const count = pausedRecent.reduce((sum, p) => sum + p.pausedWithRecentSpend, 0);
+      const spend = pausedRecent.reduce((sum, p) => sum + p.recentSpend, 0);
+      findings.push({
+        key: 'paused-campaigns',
+        level: 'act',
+        headline: 'Campaigns that were spending are paused',
+        figure: formatCount(count),
+        detail:
+          `${formatCurrency(spend, currency)} spent before they stopped · ` +
+          `${formatCount(pausedTotal)} paused campaigns configured in total`,
+        note: 'Counted from the platform’s own status. Removed campaigns are excluded — a deleted campaign is one somebody cleaned up, not a configuration left behind.',
+        action: { label: 'Platforms', href: `/${slug}/platforms/${pausedRecent[0]!.platform}` },
+      });
+    }
+
+    /*
+     * A pushed source that has stopped delivering.
+     *
+     * It has no failed run to appear in `degraded` — nothing ran, because
+     * nothing is pulled — so without this it shows up as a slightly old
+     * timestamp and nothing else. Spartan's call webhook had delivered exactly
+     * nothing since the historical import, against a desk doing several hundred
+     * calls a day, and the briefing said "last call 4d 22h ago" in the same grey
+     * as every healthy source.
+     */
+    for (const source of freshness) {
+      if (source.arrival !== 'webhook' || source.typicalPerDay === null) continue;
+      if (source.typicalPerDay < 1) continue;
+      const ageHours = source.at === null ? null : (Date.now() - source.at.getTime()) / 3_600_000;
+      if (ageHours !== null && ageHours <= 24) continue;
+      findings.push({
+        key: `silent-${source.platform}`,
+        level: 'act',
+        headline: `${source.label} has stopped delivering`,
+        figure:
+          ageHours === null ? 'nothing received' : `${Math.round(ageHours / 24)}d silent`,
+        detail:
+          `pushed by webhook, so there is no failed sync to look at · was arriving at about ` +
+          `${formatCount(Math.round(source.typicalPerDay))} a day`,
+        note: 'This source is pushed rather than pulled, so a gap is not a sync failure and will not appear on the connections screen as one. Check that the webhook subscription still points at this deployment and that its secret is set.',
+        action: { label: 'Connections', href: `/${slug}/connections` },
+      });
+    }
+
+    for (const connection of degraded) {
+      findings.push({
+        key: `connection-${connection.platform}`,
+        // A dependency on the client is not a fault. It still belongs here —
+        // somebody has to chase it — but it is not something Zeeraa broke.
+        level: connection.status === 'waiting_on_client' ? 'watch' : 'act',
+        headline: `${connection.label} is ${connection.status.replace(/_/g, ' ')}`,
+        figure: connection.lastSyncAt
+          ? connection.lastSyncAt.toLocaleDateString('en-US', {
+              timeZone: session.tenant.timezone,
+              month: 'short',
+              day: 'numeric',
+            })
+          : 'never synced',
+        detail: connection.detail ?? 'The connector reported a problem on its last run.',
+        action: { label: 'Connections', href: `/${slug}/connections` },
+      });
+    }
+
+    if (!crmUnmeasured && unattributedDeals > 0) {
+      findings.push({
+        key: 'unattributed',
+        level: 'watch',
+        headline: `${valueLabel} deals no channel can claim`,
+        figure: `${formatCount(unattributedDeals)} of ${formatCount(totalDeals)}`,
+        detail:
+          'They carry no click from any connected channel, so no spend stands behind them and ' +
+          'they are in no channel’s denominator',
+        note: current.unattributed.reason,
+        action: { label: 'Reconciliation', href: `/${slug}/reconciliation` },
+      });
+    }
+    return <NeedsAttention findings={findings} span={staff ? 8 : 12} />;
+  };
+
 
   /* ----------------------------------------------------------------------- */
   /* Notes                                                                   */
@@ -708,7 +707,9 @@ export default async function ExecutiveBriefing({
         {/* 5. What to do about it, and what the platform cannot say. */}
         {/* Data quality is Zeeraa's working list, not the client's: a client
             reads a list of what cannot be measured as a list of failures. */}
-        <NeedsAttention findings={findings} span={staff ? 8 : 12} />
+        <Suspense fallback={<SectionSkeleton title="Needs attention" span={staff ? 8 : 12} />}>
+          <FindingsSection />
+        </Suspense>
         {staff && <DataQualityCard items={quality} span={4} />}
       </Grid>
 

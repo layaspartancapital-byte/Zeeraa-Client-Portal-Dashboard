@@ -183,6 +183,16 @@ commit history and get it wrong.
   Funded); `stageEventsIn` and `countedStageEvent()` filter it. A hand-recorded
   date is `origin = 'corrected'`, from `stage_corrections`, and renders as
   corrected.
+- **A dashboard page reads reports through `@/lib/cached-reports`**, never
+  straight from `reporting`/`dashboard`. `report-cache.ts` keys each result by
+  tenant, role, the tenant's local day, the arguments and the tenant's **data
+  version** (the newest sync, webhook delivery, config row, freeze or
+  reconciliation), so a finished sync changes every key on every instance and
+  the ten-minute refresh always shows the latest data. A hit is a
+  `structuredClone`; a result carrying functions is cached as its rows and
+  rebuilt (`loadMetrics`). `REPORT_CACHE=off` turns it off. The number checks
+  call the originals. A section that waits on a slow report streams in its own
+  `<Suspense>` with a `SectionSkeleton`.
 - Money is `numeric` in the database and never a float.
 - Workspace packages ship TypeScript source. Relative imports are extensionless
   (Turbopack does not map `.js` specifiers onto `.ts` sources).

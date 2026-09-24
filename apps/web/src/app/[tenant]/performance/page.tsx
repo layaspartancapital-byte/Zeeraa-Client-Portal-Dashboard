@@ -26,7 +26,6 @@ import {
   isUnmeasured,
   notMeasuredReason,
   sourceName,
-  sourcesThrough,
   throughNote,
 } from '@/lib/coverage';
 import { rangeLinks, rangeParams, resolvePageRange } from '@/lib/range';
@@ -43,20 +42,15 @@ import { CostPerDealCoverage } from '@/components/CostPerDeal';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { DivergingBars, RangeBars, StackedBars } from '@/components/charts/Bars';
 import { formatter } from '@/components/charts/format-spec';
-import { monthlyPerformance, platformLabel, submissionReport } from '@/lib/reporting';
+import { platformLabel } from '@/lib/reporting';
 import {
   covers,
-  engagementRamp,
-  frozenBaseline,
-  dataQuality,
   firstSentence,
-  ingestionStart,
-  loadMetrics,
-  windowBuckets,
   type WindowBucket,
 } from '@/lib/dashboard';
 import { requireTenant } from '@/lib/tenant';
 import { DataQualityCard } from '@/components/DataQualityCard';
+import { dataQuality, engagementRamp, frozenBaseline, ingestionStart, loadMetrics, monthlyPerformance, sourcesThrough, submissionReport, windowBuckets } from '@/lib/cached-reports';
 
 export const metadata = { title: 'Monthly performance' };
 
@@ -64,9 +58,6 @@ const MODELS = [
   { key: 'last_touch', label: 'Last touch' },
   { key: 'first_touch', label: 'First touch' },
 ];
-
-
-
 
 /**
  * The workhorse reporting screen.
@@ -723,8 +714,6 @@ export default async function Performance({
     </>
   );
 }
-
-
 
 function monthName(key: string): string {
   return new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', {

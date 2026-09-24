@@ -237,7 +237,11 @@ export async function alowareConnectedThreshold(session: TenantSession): Promise
   return typeof seconds === 'number' && seconds >= 0 ? seconds : 30;
 }
 
-export async function loadMetrics(session: TenantSession): Promise<Metrics> {
+/**
+ * `loadMetrics`' inputs: plain rows, which a cache can keep; the functions on
+ * `Metrics` are built from them by `buildMetrics`.
+ */
+export async function loadMetricsInputs(session: TenantSession) {
   const [{ rows, blocks }, floors] = await Promise.all([
     queryTenant(session, async (tx) => ({
       rows: await tx
@@ -257,7 +261,16 @@ export async function loadMetrics(session: TenantSession): Promise<Metrics> {
     })),
     rateFloors(session),
   ]);
+  return { rows, blocks, floors };
+}
 
+export type MetricsInputs = Awaited<ReturnType<typeof loadMetricsInputs>>;
+
+export async function loadMetrics(session: TenantSession): Promise<Metrics> {
+  return buildMetrics(await loadMetricsInputs(session));
+}
+
+export function buildMetrics({ rows, blocks, floors }: MetricsInputs): Metrics {
   const configs = rows.map(
     (row): MetricConfig => ({
       key: row.key,

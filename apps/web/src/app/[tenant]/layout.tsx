@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { AppShell } from '@/components/shell/AppShell';
-import { reportingPlatforms } from '@/lib/platforms';
-import { requireTenant, tenantBusinessHours, tenantLogo } from '@/lib/tenant';
+
+import { requireTenant } from '@/lib/tenant';
 import { hasCompletedTour, recordTourCompleted } from '@/lib/tour';
+import { reportingPlatforms, tenantBusinessHours, tenantLogo } from '@/lib/cached-reports';
 
 /**
  * The browser tab title leads with the tenant name. Two tabs open on two

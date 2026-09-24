@@ -20,7 +20,6 @@ import {
   coverageFor,
   isUnmeasured,
   notMeasuredReason,
-  sourcesThrough,
   throughNote,
 } from '@/lib/coverage';
 import { InfoTip } from '@/components/ui/InfoTip';
@@ -32,24 +31,19 @@ import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { StackedBars } from '@/components/charts/Bars';
 import {
-  callReport,
-  monthlyPerformance,
   platformLabel,
-  submissionReport,
 } from '@/lib/reporting';
 import { DeclineCard } from '@/components/DeclineCard';
-import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows, type BreakdownRow } from '@/lib/breakdown';
+import { BREAKDOWN_DIMENSIONS, type BreakdownRow } from '@/lib/breakdown';
+import { Suspense } from 'react';
+import { SectionSkeleton } from '@/components/ui/SectionSkeleton';
 import { monthBars, monthsOf } from '@/lib/month-bars';
-import { declineReasonSummary } from '@/lib/quality-measures';
+
 import { LenderOutcomes } from '@/components/LenderOutcomes';
 import { CallTracking } from '@/components/CallTracking';
-import {
-  alowareConnectedThreshold,
-  dataQuality,
-  loadMetrics,
-  windowBuckets,
-} from '@/lib/dashboard';
+
 import { requireTenant } from '@/lib/tenant';
+import { alowareConnectedThreshold, breakdownAvailability, breakdownRows, callReport, dataQuality, declineReasonSummary, loadMetrics, monthlyPerformance, sourcesThrough, submissionReport, windowBuckets } from '@/lib/cached-reports';
 
 export const metadata = { title: 'Funnel' };
 
@@ -57,8 +51,6 @@ const MODELS = [
   { key: 'last_touch', label: 'Last touch' },
   { key: 'first_touch', label: 'First touch' },
 ];
-
-
 
 /**
  * The funnel.
@@ -99,7 +91,10 @@ export default async function Funnel({
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
   const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
 
-  const [data, quality, buckets, metrics, submissions, calls, through, declineReasons] =
+  // Call tracking streams in its own boundary below; its report is started
+  // here and awaited there.
+  const callsP = alowareConnectedThreshold(session).then((threshold) => callReport(session, range, threshold));
+  const [data, quality, buckets, metrics, submissions, through, declineReasons] =
     await Promise.all([
     monthlyPerformance(session, range, model),
     dataQuality(session),
@@ -108,7 +103,6 @@ export default async function Funnel({
     windowBuckets(session, trailingMonths(today, 12), 'month', model),
     loadMetrics(session),
     submissionReport(session, range),
-    callReport(session, range, await alowareConnectedThreshold(session)),
     sourcesThrough(session),
     declineReasonSummary(session, range),
   ]);
@@ -150,17 +144,6 @@ export default async function Funnel({
    * The breakdown: only the dimensions this period's leads carry. A tab that
    * can only say "not measured" is a dead control, so it is not drawn.
    */
-  const available = await breakdownAvailability(session, range);
-  const dimensions = BREAKDOWN_DIMENSIONS.filter((d) => available.includes(d.key));
-  const dimension = dimensions.find((d) => d.key === query.dim) ?? dimensions[0] ?? null;
-  const breakdown = dimension
-    ? await breakdownRows(
-        session,
-        range,
-        dimension.key,
-        measurable.map((s) => ({ key: s.key, source: s.source })),
-      )
-    : [];
 
   const notes: MethodNote[] = [
     {
@@ -198,12 +181,12 @@ export default async function Funnel({
   const { preserve, presetHref } = rangeLinks(base, {
     channel: population.key,
     model,
-    ...(dimension ? { dim: dimension.key } : {}),
+    ...(typeof query.dim === 'string' ? { dim: query.dim } : {}),
   });
   const active = {
     channel: population.key,
     model,
-    ...(dimension ? { dim: dimension.key } : {}),
+    ...(typeof query.dim === 'string' ? { dim: query.dim } : {}),
     ...rangeParams(range),
   };
 
@@ -273,7 +256,9 @@ export default async function Funnel({
         {callsOut ? (
           <NotMeasuredCard title="Call tracking" subtitle="Aloware" reason={callsWhy} />
         ) : (
-          <CallTracking report={calls} span={12} today={today} />
+          <Suspense fallback={<SectionSkeleton title="Call tracking" rows={5} />}>
+            <CallsSection report={callsP} today={today} />
+          </Suspense>
         )}
 
         {/*
@@ -338,30 +323,70 @@ export default async function Funnel({
           />
         )}
 
-        {dimension && !crmOut && (
-          <Card span={12}>
-            <CardHeader
-              title="Breakdown"
-              subtitle={`${dimension.label} · every source`}
-              controls={
-                <Segmented
-                  label="Dimension"
-                  active={dimension.key}
-                  options={segments(base, active, 'dim', dimensions)}
-                />
-              }
+        {/* Streamed: the slowest statement on this screen, and the last card. */}
+        {!crmOut && (
+          <Suspense fallback={<SectionSkeleton title="Breakdown" rows={6} />}>
+            <BreakdownSection
+              session={session}
+              range={range}
+              stages={measurable.map((s) => ({ key: s.key, label: s.label, source: s.source }))}
+              requested={typeof query.dim === 'string' ? query.dim : undefined}
+              base={base}
+              active={active}
             />
-            <BreakdownPanel
-              dimension={dimension}
-              stages={measurable.map((s) => ({ key: s.key, label: s.label }))}
-              rows={breakdown}
-            />
-          </Card>
+          </Suspense>
         )}
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
     </>
+  );
+}
+
+/** Call tracking, streamed: the calls report is the slowest in the page's first batch. */
+async function CallsSection({ report, today }: { report: ReturnType<typeof callReport>; today: string }) {
+  return <CallTracking report={await report} span={12} today={today} />;
+}
+
+/**
+ * The Breakdown card: only the dimensions this period's leads carry, so a tab
+ * with nothing behind it is not drawn. Its own async section, so the rest of
+ * the funnel does not wait for it.
+ */
+async function BreakdownSection({
+  session,
+  range,
+  stages,
+  requested,
+  base,
+  active,
+}: {
+  session: Awaited<ReturnType<typeof requireTenant>>;
+  range: { start: string; end: string };
+  stages: { key: string; label: string; source?: string }[];
+  requested: string | undefined;
+  base: string;
+  active: Parameters<typeof segments>[1];
+}) {
+  const available = await breakdownAvailability(session, range);
+  const dimensions = BREAKDOWN_DIMENSIONS.filter((d) => available.includes(d.key));
+  const dimension = dimensions.find((d) => d.key === requested) ?? dimensions[0] ?? null;
+  if (!dimension) return null;
+  const rows = await breakdownRows(
+    session,
+    range,
+    dimension.key,
+    stages.map((s) => ({ key: s.key, source: s.source })),
+  );
+  return (
+    <Card span={12}>
+      <CardHeader
+        title="Breakdown"
+        subtitle={`${dimension.label} · every source`}
+        controls={<Segmented label="Dimension" active={dimension.key} options={segments(base, active, 'dim', dimensions)} />}
+      />
+      <BreakdownPanel dimension={dimension} stages={stages.map((s) => ({ key: s.key, label: s.label }))} rows={rows} />
+    </Card>
   );
 }
 
