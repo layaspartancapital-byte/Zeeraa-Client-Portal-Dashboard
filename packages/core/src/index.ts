@@ -18,5 +18,6 @@ export * from './submissions';
 export * from './phone';
 export * from './calls';
 export * from './business-hours';
+export * from './sync-cadence';
 export * from './platform-metrics';
 export * from './platform-labels';

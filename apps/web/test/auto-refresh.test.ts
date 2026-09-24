@@ -16,22 +16,25 @@ const read = (p: string) => readFileSync(join(SRC, p), 'utf8');
 describe('AutoRefresh', () => {
   const code = read('components/shell/AutoRefresh.tsx');
 
-  it('refreshes in place every ten minutes, matching the Salesforce cron', () => {
+  it('refreshes in place on the Salesforce cadence', () => {
     expect(code).toMatch(/router\.refresh\(\)/);
     // Comments stripped: the component's own comment explains why it is not a reload.
     const executable = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     expect(executable).not.toMatch(/location\.reload|window\.location\s*=/);
-    expect(code).toMatch(/REFRESH_INTERVAL_SECONDS = 600/);
-    const cron = JSON.parse(readFileSync(join(SRC, '..', 'vercel.json'), 'utf8')) as {
-      crons: { path: string; schedule: string }[];
-    };
-    expect(cron.crons.find((c) => c.path === '/api/cron/salesforce')?.schedule).toBe('*/10 * * * *');
+    // The schedule is core's, the one the Salesforce cron route follows.
+    expect(code).toMatch(/nextRefreshAt\(/);
+    expect(code).toMatch(/from '@zeeraa\/core'/);
   });
 
   it('pauses while the tab is hidden and measures from the last refresh', () => {
     expect(code).toMatch(/visibilitychange/);
     expect(code).toMatch(/visibilityState !== 'visible'/);
     expect(code).toMatch(/last\.current = at/);
+  });
+
+  it('takes the desk hours from the tenant layout', () => {
+    expect(read('app/[tenant]/layout.tsx')).toMatch(/refreshHours=/);
+    expect(read('components/shell/AppShell.tsx')).toMatch(/<RefreshHoursProvider hours=\{refreshHours\}>/);
   });
 
   it('is on every dashboard page', () => {

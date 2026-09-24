@@ -3,6 +3,7 @@ export * from './salesforce/sync';
 export * from './salesforce/backfill';
 export * from './salesforce/writer';
 export * from './salesforce/context';
+export * from './salesforce/cadence';
 export * from './sync-runs';
 export * from './incremental';
 export * from './nightly';

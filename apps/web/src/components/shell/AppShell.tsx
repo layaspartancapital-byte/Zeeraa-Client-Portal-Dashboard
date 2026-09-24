@@ -1,6 +1,8 @@
 'use client';
 
+import type { BusinessHours } from '@zeeraa/core';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
+import { RefreshHoursProvider } from '@/components/shell/AutoRefresh';
 import { ShellProvider, useShell } from '@/components/shell/shell-state';
 import { Sidebar } from '@/components/shell/Sidebar';
 import { TourProvider } from '@/components/shell/ProductTour';
@@ -22,6 +24,7 @@ export function AppShell({
   platforms,
   logo = null,
   tour,
+  refreshHours,
   children,
 }: {
   viewer: Viewer;
@@ -34,9 +37,12 @@ export function AppShell({
   platforms?: { key: string; label: string }[];
   /** The product tour: whether it starts on its own, and how completion is recorded. */
   tour: { autoStart: boolean; onComplete: () => Promise<void> };
+  /** The desk's hours, which set how often `AutoRefresh` refreshes; null is 24/7. */
+  refreshHours: BusinessHours | null;
   children: React.ReactNode;
 }) {
   return (
+    <RefreshHoursProvider hours={refreshHours}>
     <ShellProvider>
       <TourProvider slug={tenant.slug} autoStart={tour.autoStart} onComplete={tour.onComplete}>
         <div className="min-h-dvh bg-canvas">
@@ -47,6 +53,7 @@ export function AppShell({
         </div>
       </TourProvider>
     </ShellProvider>
+    </RefreshHoursProvider>
   );
 }
 

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { AppShell } from '@/components/shell/AppShell';
 import { reportingPlatforms } from '@/lib/platforms';
-import { requireTenant, tenantLogo } from '@/lib/tenant';
+import { requireTenant, tenantBusinessHours, tenantLogo } from '@/lib/tenant';
 import { hasCompletedTour, recordTourCompleted } from '@/lib/tour';
 
 /**
@@ -29,10 +29,11 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const [platforms, logo, toured] = await Promise.all([
+  const [platforms, logo, toured, refreshHours] = await Promise.all([
     reportingPlatforms(session),
     tenantLogo(session),
     hasCompletedTour(session),
+    tenantBusinessHours(session),
   ]);
 
   // Finished or skipped, recorded for this user wherever they sign in next.
@@ -49,6 +50,7 @@ export default async function TenantLayout({
       platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
       tour={{ autoStart: !toured, onComplete: completeTour }}
+      refreshHours={refreshHours}
     >
       {children}
     </AppShell>

@@ -27,8 +27,11 @@ export type JobSchedule = {
 export const SCHEDULE: JobSchedule[] = [
   {
     id: 'salesforce.incremental',
-    cadence: 'hourly',
-    description: 'Salesforce incremental sync on SystemModstamp.',
+    cadence: 'every 10 minutes in lead_response_hours, hourly otherwise',
+    description:
+      'Salesforce incremental sync on SystemModstamp, on /api/cron/salesforce. ' +
+      'Ten-minutely while the desk is open (salesforceSyncDue in core), hourly ' +
+      'outside, so Neon can suspend nights and weekends.',
     windowDays: null,
   },
   {

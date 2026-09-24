@@ -3272,3 +3272,25 @@ coverage line rather than split or rounded.
   every page. "Take the tour" is a button beside the avatar.
 - **Calls per month** and **Declines** label every bar with its month and
   count and mark a partial month; declines start when lender submissions do.
+
+## §7 — Salesforce reads on the desk's hours (24 September 2026)
+
+§7 has Salesforce hourly; since 23 September it ran every ten minutes around
+the clock, and every open dashboard refreshed on the same cadence. Neon
+suspends a compute after five idle minutes, so a ten-minute cadence kept it
+running about half of every night and weekend. The Free plan's 100 CU-hours a
+month would have run out: about 94 at 0.25 CU from the crons alone, and ~117
+with one tab open through the working day.
+
+Now Salesforce is read every ten minutes while the tenant's
+`lead_response_hours` desk is open, and hourly otherwise. `salesforceSyncDue`
+and `nextRefreshAt` in core are the rule for the cron and the page alike.
+Vercel Cron has no timezone, so `vercel.json` fires `/api/cron/salesforce`
+every ten minutes over the fixed UTC window `13-22`, weekdays, which covers
+9–6 Eastern in EDT and EST, and on the hour outside it. The route then syncs a
+tenant only on the hour's first tick or while its desk is open.
+`apps/web/test/salesforce-schedule.test.ts` walks a year of ten-minute steps
+against the seeded hours to hold the window to that. A tenant with no
+`lead_response_hours` row is on the 24/7 clock and keeps ten minutes around
+the clock. An open page refreshes at hh:02 outside hours, just after the hourly
+sync, so it wakes the database when the sync already has.

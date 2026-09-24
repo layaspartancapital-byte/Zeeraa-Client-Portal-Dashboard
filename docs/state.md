@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (number guards).**
+**Last updated: 24 September 2026 (Salesforce on the desk's hours).**
 
 ---
 
@@ -359,8 +359,19 @@ secret (`67e4309c2482`, which still fails every credential).
   Estimated Vercel Pro cost (24 September 2026, from list prices, not a
   bill): ~4,320 Salesforce runs and ~20k page refreshes a month come to about
   $1–3 of usage, inside the $20 credit each Pro seat includes, so the bill is
-  the seat count × $20. The real cost to watch is Neon: a run every ten
-  minutes means the compute never suspends, since its idle timeout is 5 minutes.
+  the seat count × $20. The real cost to watch is Neon (Free plan: 100
+  CU-hours a month, then the compute suspends until the next cycle).
+- **Salesforce on the desk's hours (24 September 2026).** Ten-minutely only
+  while `lead_response_hours` is open, hourly otherwise; the page refresh
+  follows (`salesforceSyncDue` / `nextRefreshAt` in core; see
+  `docs/brief-amendments.md`, "§7 — Salesforce reads on the desk's hours").
+  Modelled Neon awake time for September, from production run durations and
+  the five-minute suspend: crons only 374 → 162 h; with a tab open 9–6
+  weekdays 469 → 257 h; with a tab open around the clock 720 → 268 h. That is
+  94–180 → 40–67 CU-hours at 0.25 CU. **Not measured:** actual usage needs the
+  Neon console or a `NEON_API_KEY`, and the compute size is unknown here. The
+  database was 120 MB against the Free plan's 0.5 GB on 24 September
+  (`search_console_metrics` 60 MB, `calls` 24 MB).
 
 **Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
 runs on 24 September, and complete the Inngest disconnection steps above.

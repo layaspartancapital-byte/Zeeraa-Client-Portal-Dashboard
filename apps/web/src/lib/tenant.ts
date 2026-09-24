@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { asc, eq } from 'drizzle-orm';
-import type { Role } from '@zeeraa/core';
+import { and, asc, eq } from 'drizzle-orm';
+import { parseBusinessHours, type BusinessHours, type Role } from '@zeeraa/core';
 import {
   assertDatabaseSafe,
   schema,
@@ -176,4 +176,27 @@ export async function tenantLogo(session: TenantSession): Promise<string | null>
       .where(eq(schema.tenants.id, session.tenant.id)),
   );
   return row?.logo ?? null;
+}
+
+/**
+ * The desk's hours (`lead_response_hours`), or null for the 24/7 clock.
+ *
+ * Read for `AutoRefresh`, which refreshes on the Salesforce cadence — every
+ * ten minutes while the desk is open, hourly otherwise — and so has to know
+ * the same hours the Salesforce cron does.
+ */
+export async function tenantBusinessHours(session: TenantSession): Promise<BusinessHours | null> {
+  const [row] = await queryTenant(session, (tx) =>
+    tx
+      .select({ value: schema.tenantConfig.value })
+      .from(schema.tenantConfig)
+      .where(
+        and(
+          eq(schema.tenantConfig.tenantId, session.tenant.id),
+          eq(schema.tenantConfig.key, 'lead_response_hours'),
+        ),
+      )
+      .limit(1),
+  );
+  return parseBusinessHours(row?.value);
 }

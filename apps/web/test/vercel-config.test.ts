@@ -27,14 +27,18 @@ describe('vercel.json', () => {
     crons?: { path: string; schedule: string }[];
   };
 
-  it('registers the hourly sync, the ten-minute Salesforce sync, the nightly re-pull and the reconciliation', () => {
-    expect(config.crons?.map((c) => c.path).sort()).toEqual([
+  it('registers the hourly sync, the Salesforce sync, the nightly re-pull and the reconciliation', () => {
+    expect([...new Set(config.crons?.map((c) => c.path))].sort()).toEqual([
       '/api/cron/nightly',
       '/api/cron/reconcile',
       '/api/cron/salesforce',
       '/api/cron/sync',
     ]);
-    expect(config.crons?.find((c) => c.path === '/api/cron/salesforce')?.schedule).toBe('*/10 * * * *');
+    // Ten-minutely inside the UTC envelope of the desk's hours, hourly outside
+    // it; `salesforce-schedule.test.ts` holds what that has to cover.
+    expect(
+      config.crons?.filter((c) => c.path === '/api/cron/salesforce').map((c) => c.schedule),
+    ).toEqual(['*/10 13-22 * * 1-5', '0 0-12,23 * * 1-5', '0 * * * 0,6']);
     expect(config.crons?.find((c) => c.path === '/api/cron/sync')?.schedule).toBe('0 * * * *');
     for (const cron of config.crons ?? []) {
       // Each path is a route that exists.
