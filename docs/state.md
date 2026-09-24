@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 23 September 2026, end of session (audit).**
+**Last updated: 24 September 2026 (production domain).**
 
 ---
 
@@ -39,6 +39,20 @@ client being failed, not of a feature going unused. The screens, the API routes,
 the S3 path and nine tables are gone — see
 `docs/brief-amendments.md`, "§9, §10 and §14 — the workspace and the delivery
 view are removed", and the section below.
+
+**Production is https://zeeraa.cloud as of 24 September 2026.** `www.zeeraa.cloud`
+and `zeeraa-client-portal.vercel.app` both answer 308 to it with the path kept.
+Nothing in the code names a host: the session cookie has no `domain` attribute,
+so it is host-only, every redirect is relative, and there is no email. The
+domain change therefore needed no code edit and no environment variable. Each
+host holds its own cookie, so somebody signed in on the old URL signs in once
+more. A POST to the old URL gets a 308, which a webhook sender may not follow,
+so a pushed source must point at `zeeraa.cloud` itself. The Aloware webhook URL
+is `https://zeeraa.cloud/api/webhooks/aloware/spartan`, bearer
+`ALOWARE_WEBHOOK_SECRET`. On the day of the switch a failed sign-in was driven
+through the real form on both hosts and ended on `zeeraa.cloud` with the generic
+message, and Aloware was delivering: 46 of 48 accepted by 14:16Z, the other two
+unauthenticated.
 
 ## Done
 
@@ -2229,7 +2243,7 @@ meta, salesforce, ga4, search_console — and a re-seed leaves them that way.
 - **Call tracking is built and no longer blocked.** Aloware, imported directly.
   What remains is operational rather than a dependency: the webhook
   subscription has to be pointed at
-  `/api/webhooks/aloware/spartan` in the Aloware console, and
+  `https://zeeraa.cloud/api/webhooks/aloware/spartan` in the Aloware console, and
   `ALOWARE_WEBHOOK_SECRET` set on the deployment, before live calls flow. Until
   then the record ends at the export's last call, 17 September 2026.
 - Microsoft Ads, LinkedIn Ads, GA4, Search Console, Semrush: not started.
