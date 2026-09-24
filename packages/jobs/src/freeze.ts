@@ -322,3 +322,68 @@ export async function freezeChannelFigures(options: FreezeOptions): Promise<Free
   });
   return outcomes;
 }
+
+/**
+ * A correction to a frozen ramp month: the named metrics recomputed now with
+ * `monthFigures` and inserted as the next version, with who and why. Nothing
+ * is edited — the earlier version stays, and readers take the highest.
+ *
+ * First used 24 September 2026, for June's CPA and cost per funded deal,
+ * frozen blank under the minimum-deal rule that was then reversed for costs.
+ */
+export async function correctBaselineMonth(options: {
+  tenantId: string;
+  month: MonthKey;
+  metrics: (typeof RAMP_METRICS)[number][];
+  by: string;
+  reason: string;
+  now?: Date;
+  dryRun?: boolean;
+}): Promise<{ metric: string; version: number; before: number | null; after: number | null }[]> {
+  const now = options.now ?? new Date();
+  return withJobTenant(options.tenantId, async (tx) => {
+    const context = await freezeContext(tx, options.tenantId, now);
+    const figures = await monthFigures(tx, options.tenantId, context, options.month);
+    const out: { metric: string; version: number; before: number | null; after: number | null }[] = [];
+    for (const metric of options.metrics) {
+      const [current] = await tx
+        .select({ version: schema.baselineSnapshots.version, value: schema.baselineSnapshots.value })
+        .from(schema.baselineSnapshots)
+        .where(
+          and(
+            eq(schema.baselineSnapshots.tenantId, options.tenantId),
+            eq(schema.baselineSnapshots.platform, context.platform),
+            eq(schema.baselineSnapshots.month, `${options.month}-01`),
+            eq(schema.baselineSnapshots.metric, metric),
+          ),
+        )
+        .orderBy(sql`${schema.baselineSnapshots.version} desc`)
+        .limit(1);
+      if (!current) throw new Error(`${options.month} ${metric} is not frozen; freeze it rather than correct it.`);
+      const f = figures[metric];
+      const version = current.version + 1;
+      if (!options.dryRun) {
+        await tx.insert(schema.baselineSnapshots).values({
+          tenantId: options.tenantId,
+          month: `${options.month}-01`,
+          platform: context.platform,
+          metric,
+          version,
+          value: f.value === null ? null : String(f.value),
+          notMeasuredReason: f.value === null ? f.reason : null,
+          channelSpend: f.cost ? String(f.cost.channelSpend) : null,
+          attributed: f.cost ? String(f.cost.attributedDeals) : null,
+          unattributed: f.cost ? String(f.cost.unattributedDeals) : null,
+          attributedElsewhere: f.cost ? String(f.cost.dealsAttributedElsewhere) : null,
+          rangeLow: f.cost?.plausibleRange.low == null ? null : String(f.cost.plausibleRange.low),
+          rangeHigh: f.cost?.plausibleRange.high == null ? null : String(f.cost.plausibleRange.high),
+          frozenAt: now,
+          frozenBy: options.by,
+          reason: options.reason,
+        });
+      }
+      out.push({ metric, version, before: current.value === null ? null : Number(current.value), after: f.value });
+    }
+    return out;
+  });
+}

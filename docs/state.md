@@ -99,16 +99,18 @@ the old sync cleared every submission exclusion on each run.
 Breakdown ignores the funnel's population toggle and says "every source".
 
 **Two number guards run on every deploy (24 September 2026)**, after preflight,
-read-only against production (`apps/web/test/numbers`). The baseline check
-recomputes the 18 frozen figures (Google Ads, Jun–Aug, the ramp's six) two ways;
-16 match exactly and the two June costs frozen blank under the old minimum-deal
-rule are listed in `baseline-exceptions.ts`. The consistency check found and
-fixed two real disagreements on its first run: the monthly buckets counted an
-MQL twice when it also had a stage event, and the Breakdown dropped deals with
-no originating lead. **Outstanding, awaiting the client's decision:** freezing
-the other key figures (every stage per channel, Meta's money figures) with
-`freeze-baseline --channel-figures`, and whether to freeze a June version 2
-for the two costs instead of keeping the exceptions.
+read-only against production (`apps/web/test/numbers`). The frozen baseline
+now holds 87 figures for Jun–Aug 2026: the ramp's 18 (Google Ads), and 69
+channel figures frozen the same day with `freeze-baseline --channel-figures`
+— every funnel stage for Google Ads, Meta and unattributed, and Meta's spend,
+volume, CPA and cost per funded deal. Before freezing, leads and MQL were
+checked lead by lead against Salesforce for all 2,949 inbound leads: counts,
+channel and verdict identical. June's Google Ads CPA ($12,812.53) and cost per
+funded deal ($6,406.27) are version 2, frozen with the minimum-deal reversal
+as the reason (`freeze-baseline --correct`); there are no exceptions. The
+consistency check's first run found and fixed two disagreements: the monthly
+buckets counted an MQL twice when it also had a stage event, and the Breakdown
+dropped deals with no originating lead.
 
 ## Done
 

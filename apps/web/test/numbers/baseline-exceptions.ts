@@ -20,11 +20,4 @@ export type BaselineException = {
   reason: string;
 };
 
-const RULE_REVERSED =
-  'Frozen under the minimum-deal rule (withheld below 3 deals). The rule was reversed for costs on ' +
-  '24 September 2026: a cost always shows its number. Remove when a version 2 is frozen with that reason.';
-
-export const BASELINE_EXCEPTIONS: BaselineException[] = [
-  { tenant: 'spartan', month: '2026-06', platform: 'google_ads', metric: 'cpa', frozen: null, computed: 12812.5345, reason: RULE_REVERSED },
-  { tenant: 'spartan', month: '2026-06', platform: 'google_ads', metric: 'costPerFundedDeal', frozen: null, computed: 6406.26725, reason: RULE_REVERSED },
-];
+export const BASELINE_EXCEPTIONS: BaselineException[] = [];

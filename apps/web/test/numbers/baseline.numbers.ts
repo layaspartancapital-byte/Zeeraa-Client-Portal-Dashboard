@@ -52,7 +52,9 @@ describe('the frozen baseline, recomputed with this code', () => {
 
         for (const f of frozen.filter((r) => r.month === month)) {
           checked += 1;
-          const isRamp = Object.hasOwn(RAMP_TO_FIGURE, f.metric);
+          // A ramp metric is one of the six on the ramp's own channel. Another
+          // channel's `cpa` is a channel figure that happens to share the name.
+          const isRamp = Object.hasOwn(RAMP_TO_FIGURE, f.metric) && f.platform === ramp?.platform;
           const figure = isRamp ? RAMP_TO_FIGURE[f.metric]!(valueStage) : f.metric;
           const computed: Record<string, number | null | undefined> = isRamp
             ? {
