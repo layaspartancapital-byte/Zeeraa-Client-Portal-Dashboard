@@ -1227,7 +1227,8 @@ export type SourceFreshness = {
   /**
    * How the data arrives.
    *
-   * `sync` is pulled on a schedule — hourly, by Vercel Cron — so "today" on
+   * `sync` is pulled on a schedule by Vercel Cron — Salesforce every ten
+   * minutes, the ad platforms and organic sources hourly — so "today" on
    * every figure drawn from it means "as of the last run", and the gap between
    * the run and now is a real gap in the record. `webhook` is pushed as it
    * happens, so there is no such gap and the age of the newest record is a

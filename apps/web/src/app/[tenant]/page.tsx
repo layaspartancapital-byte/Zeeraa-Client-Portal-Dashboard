@@ -480,9 +480,9 @@ export default async function ExecutiveBriefing({
     {
       heading: 'How current these figures are',
       body:
-        'Paid media and the CRM are pulled hourly, so a figure covering today reaches only as ' +
-        'far as the last run. Calls are pushed by webhook as each one ends, and this page ' +
-        'refetches itself on the same hourly cadence.',
+        'Salesforce is pulled every ten minutes and the ad platforms hourly, so a figure covering ' +
+        'today reaches only as far as the last run. Calls are pushed by webhook as each one ends, ' +
+        'and this page refetches itself every ten minutes while it is open.',
       detail: freshness
         .map(
           (source) =>
