@@ -239,7 +239,18 @@ export function FunnelStages({
             step && next && step.previous === stage.key ? step.reached - step.alsoPrevious : 0;
 
           return (
-            <div key={stage.key} className="flex min-w-0 flex-1 basis-[112px] items-stretch">
+            <div
+              key={stage.key}
+              /*
+                No `min-w-0`: a stage is its card and the chip after it, and
+                it must not shrink below both. With it, the pair was squeezed
+                narrower than the card's own minimum plus the chip, and the
+                next card drew over the chip — "not gat", "38.2" — at widths
+                where the row had not yet wrapped. Its natural minimum makes
+                the row wrap first.
+              */
+              className="flex flex-1 basis-[112px] items-stretch"
+            >
               {/*
                 Three fixed rows — label, figure, supporting line — so seven
                 cards are the same height whatever their content does, and the
@@ -292,12 +303,15 @@ export function FunnelStages({
 
               {next && (
                 /*
-                  Sized so the chip fits *inside* it. At 74px the words
-                  overflowed both edges and sat on top of the cards, which
-                  truncated them — a chip that says "not neste" is worse than
-                  the em dash it replaced.
+                  Sized by the chip, not the other way round. A fixed slot
+                  (74px, then 54px) either let the words overflow onto the
+                  cards or wrapped them a letter at a time, and how far they
+                  got depended on the font's exact metrics — "not gat",
+                  "retir", "38.2" in one browser and fine in another. The
+                  label is one unbroken line with its ⓘ beneath, and the slot
+                  takes that width, so the funnel row wraps sooner instead.
                 */
-                <div className="flex w-[54px] shrink-0 items-center justify-center px-0.5">
+                <div className="flex shrink-0 items-center justify-center px-1">
                   {adjacent && withheld ? (
                     /*
                       A withheld rate says so in words. The em dash this used to
@@ -306,7 +320,7 @@ export function FunnelStages({
                       nest, or the earlier stage is not a gate the later one
                       passes through.
                     */
-                    <span className="inline-flex flex-wrap items-center gap-x-1 rounded-[9px] border border-dashed border-border bg-canvas px-1 py-[3px] font-semibold text-text-3 w-full justify-center whitespace-normal break-words text-center text-[11px] leading-[1.15]">
+                    <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-border bg-canvas px-1 py-[3px] font-semibold text-text-3 whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       {WITHHELD_LABEL[withheld]}
                       <InfoTip label={`Why there is no rate into ${next.label}`} align="center">
                         {withheld === 'suppressed'
@@ -327,7 +341,7 @@ export function FunnelStages({
                       </InfoTip>
                     </span>
                   ) : adjacent ? (
-                    <span className="inline-flex flex-wrap items-center gap-x-1 rounded-[9px] border border-border bg-surface px-1 py-[3px] font-semibold tabular text-text w-full justify-center whitespace-normal break-words text-center text-[11px] leading-[1.15]">
+                    <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-border bg-surface px-1 py-[3px] font-semibold tabular text-text whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       {adjacent.rate === null ? '—' : formatRate(adjacent.rate)}
                       {/* The rate's own caveats share the chip's single ⓘ
                           rather than adding a second one beside it. */}
@@ -344,7 +358,7 @@ export function FunnelStages({
                       )}
                     </span>
                   ) : bridge ? (
-                    <span className="inline-flex flex-wrap items-center gap-x-1 rounded-[9px] border border-dashed border-warn bg-warn-soft px-1 py-[3px] font-semibold tabular text-[#B54708] w-full justify-center whitespace-normal break-words text-center text-[11px] leading-[1.15]">
+                    <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-warn bg-warn-soft px-1 py-[3px] font-semibold tabular text-[#B54708] whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       {bridge.rate.rate === null ? '—' : formatRate(bridge.rate.rate)}
                       <InfoTip label="What this rate spans" align="center">
                         {bridge.from.label} to {bridge.to.label},{' '}
@@ -355,7 +369,7 @@ export function FunnelStages({
                       </InfoTip>
                     </span>
                   ) : (
-                    <span className="inline-flex flex-wrap items-center gap-x-1 rounded-[9px] border border-dashed border-border bg-canvas px-1 py-[3px] font-semibold text-text-3 w-full justify-center whitespace-normal break-words text-center text-[11px] leading-[1.15]">
+                    <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-border bg-canvas px-1 py-[3px] font-semibold text-text-3 whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       no rate
                       <InfoTip label={`Why there is no rate into ${next.label}`} align="center">
                         Neither side of this transition is measured, and there is no measured stage

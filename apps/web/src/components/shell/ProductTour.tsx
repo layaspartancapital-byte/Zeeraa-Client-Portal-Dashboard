@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import { STEPS } from '@/components/shell/tour-steps';
 
+type PrefetchOptions = NonNullable<Parameters<ReturnType<typeof useRouter>['prefetch']>[1]>;
+
 /**
  * The first-login product tour: the screen dimmed, one element lit at a time,
  * and a caption with Back, Next, Skip and a step counter.
@@ -22,8 +24,9 @@ import { STEPS } from '@/components/shell/tour-steps';
  *
  * Accessible by construction: the caption is a modal dialog that keeps focus
  * inside it, ← and → move, Esc skips, focus returns where it was when the tour
- * ends, and reduced motion gets no movement at all — no easing on the
- * spotlight, no smooth scrolling.
+ * ends, and reduced motion gets no easing on the spotlight. Scrolling is always
+ * instant: a tour that animates its way to each step is a tour somebody waits
+ * through.
  */
 
 /** How long a step waits for its page and element before it is skipped. */
@@ -118,7 +121,7 @@ function Tour({
   const router = useRouter();
   const pathname = usePathname();
   const reduced = usePrefersReducedMotion();
-  const [rect, setRect] = useState<Rect | null>(null);
+  const [layout, setLayout] = useState<Layout | null>(null);
   const [mounted, setMounted] = useState(false);
   const direction = useRef<1 | -1>(1);
   const dialog = useRef<HTMLDivElement>(null);
@@ -132,6 +135,24 @@ function Tour({
 
   useEffect(() => setMounted(true), []);
 
+  /*
+   * Every page the tour visits, fetched in full once when it starts, so a step
+   * on another page is a client transition from cache rather than a server
+   * render the reader waits through — they read a caption or two first, which
+   * is far longer than the fetch.
+   *
+   * `kind: 'full'` is the point. A plain `router.prefetch` of a dynamic page
+   * with no `loading.js` fetches the layout only, and the navigation then
+   * renders the page on the server anyway (1.6s to Funnel, measured). A full
+   * prefetch is held for five minutes (`staleTimes.static`). `PrefetchKind`
+   * is not exported from `next/navigation`; its value is the string.
+   */
+  useEffect(() => {
+    for (const path of new Set(STEPS.map((s) => s.path))) {
+      router.prefetch(`/${slug}${path}`, { kind: 'full' as PrefetchOptions['kind'] });
+    }
+  }, [router, slug]);
+
   const go = useCallback(
     (to: 1 | -1) => {
       direction.current = to;
@@ -144,54 +165,75 @@ function Tour({
     [index, skipped, setIndex, finish],
   );
 
-  // Take the tour to the step's page, then wait for its element.
+  /*
+   * Take the tour to the step's page, and light the element the moment it
+   * exists — not when the page has finished loading. Checked at once, then on
+   * every DOM change, so a same-page step is one frame and a cross-page step
+   * lands as soon as its element is committed.
+   */
   useEffect(() => {
-    setRect(null);
     const href = `/${slug}${step.path}`;
-    if (pathname !== href) router.push(href);
-
-    const deadline = Date.now() + FIND_TIMEOUT_MS;
     let frame = 0;
+    let observer: MutationObserver | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const find = () => {
-      const el = pathname === href ? findTarget(step.target) : null;
-      if (el) {
-        placeInView(el, reduced);
-        const track = () => {
-          setRect((prev) => sameRect(prev, el.getBoundingClientRect()));
-          frame = requestAnimationFrame(track);
-        };
-        track();
-        return;
-      }
-      if (Date.now() > deadline) {
-        // Never light nothing: close up the counter and carry on the way the
-        // reader was going. Backing past the first step turns forward.
-        skip(index);
-        let next = index + direction.current;
-        while (next >= 0 && next < STEPS.length && skipped.has(next)) next += direction.current;
-        if (next < 0) next = index + 1;
-        if (next >= STEPS.length) finish();
-        else setIndex(next);
-        return;
-      }
-      timer = setTimeout(find, 100);
+    // Never light nothing: close up the counter and carry on the way the
+    // reader was going. Backing past the first step turns forward.
+    const giveUp = () => {
+      observer?.disconnect();
+      skip(index);
+      let next = index + direction.current;
+      while (next >= 0 && next < STEPS.length && skipped.has(next)) next += direction.current;
+      if (next < 0) next = index + 1;
+      if (next >= STEPS.length) finish();
+      else setIndex(next);
     };
-    find();
+
+    if (pathname !== href) {
+      // Another page: dim the whole screen until it arrives. On the same page
+      // the old spotlight stays up and moves, rather than blinking out.
+      setLayout(null);
+      router.push(href);
+      timer = setTimeout(giveUp, FIND_TIMEOUT_MS);
+      return () => clearTimeout(timer);
+    }
+
+    const light = (el: HTMLElement) => {
+      observer?.disconnect();
+      if (timer) clearTimeout(timer);
+      placeInView(el);
+      const track = () => {
+        setLayout((prev) => sameLayout(prev, measure(el, dialog.current, index)));
+        frame = requestAnimationFrame(track);
+      };
+      track();
+    };
+
+    const found = findTarget(step.target);
+    if (found) {
+      light(found);
+    } else {
+      observer = new MutationObserver(() => {
+        const el = findTarget(step.target);
+        if (el) light(el);
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+      timer = setTimeout(giveUp, FIND_TIMEOUT_MS);
+    }
     return () => {
       cancelAnimationFrame(frame);
+      observer?.disconnect();
       if (timer) clearTimeout(timer);
     };
     // `skipped` is read for the skip path only and deliberately not a
     // dependency: re-running on it would restart the search for the step it
     // just added.
-  }, [index, pathname, slug, reduced]);
+  }, [index, pathname, slug]);
 
   // Focus into the caption on every step, so a screen reader reads it.
   useEffect(() => {
     primary.current?.focus({ preventScroll: true });
-  }, [index, rect === null]);
+  }, [index]);
 
   // ← → move, Esc skips, and Tab stays inside the caption.
   useEffect(() => {
@@ -226,13 +268,10 @@ function Tour({
 
   if (!mounted) return null;
 
-  const lit = rect && {
-    top: rect.top - PAD,
-    left: rect.left - PAD,
-    width: rect.width + PAD * 2,
-    height: rect.height + PAD * 2,
-  };
-  const motion = reduced ? '' : 'transition-[top,left,width,height] duration-200 ease-out';
+  // 150ms: long enough to see where the light went, short enough never to be
+  // waited for. None at all under reduced motion.
+  const motion = reduced ? '' : 'transition-[top,left,width,height] duration-150 ease-out';
+  const lit = layout?.lit ?? null;
 
   return createPortal(
     <div className="print-hidden">
@@ -241,6 +280,7 @@ function Tour({
       {lit ? (
         <div
           aria-hidden="true"
+          data-tour-spotlight={layout!.step}
           className={`pointer-events-none fixed z-[81] rounded-[14px] ring-2 ring-white/80 ${motion}`}
           style={{ ...lit, boxShadow: '0 0 0 9999px rgba(16, 24, 40, 0.62)' }}
         />
@@ -254,8 +294,10 @@ function Tour({
         aria-modal="true"
         aria-labelledby="tour-title"
         aria-describedby="tour-caption"
-        className="fixed inset-x-4 bottom-4 z-[82] rounded-[12px] bg-surface p-4 shadow-[var(--shadow-pop)] sm:inset-x-auto sm:bottom-auto sm:w-[22rem]"
-        style={captionPlacement(lit)}
+        className={`fixed inset-x-4 bottom-4 z-[82] rounded-[12px] bg-surface p-4 shadow-[var(--shadow-pop)] sm:inset-x-auto sm:bottom-auto sm:w-[22rem] ${
+          reduced ? '' : 'sm:transition-[top,left] sm:duration-150 sm:ease-out'
+        }`}
+        style={layout?.caption}
       >
         <p className="text-[12px] font-medium tabular text-text-3" aria-live="polite">
           {position} of {visible.length}
@@ -300,6 +342,19 @@ function Tour({
 }
 
 type Rect = { top: number; left: number; width: number; height: number };
+type Layout = {
+  /** The step this layout was measured for, so a test can wait on it. */
+  step: number;
+  lit: Rect;
+  /** Fixed position on a wide screen; undefined docks it (the phone layout). */
+  caption: React.CSSProperties | undefined;
+};
+
+/** Below this width the caption docks to the bottom edge (`inset-x-4 bottom-4`). */
+const DOCKED_BELOW = 640;
+const CAPTION_WIDTH = 352;
+const GAP = 12;
+const EDGE = 16;
 
 function findTarget(name: string): HTMLElement | null {
   // The first one with a box: a phone and a desktop layout can both be in the
@@ -311,47 +366,90 @@ function findTarget(name: string): HTMLElement | null {
   return null;
 }
 
-/** Only a new object when the box moved, so the tracking loop does not re-render every frame. */
-function sameRect(prev: Rect | null, r: DOMRect): Rect {
-  if (prev && prev.top === r.top && prev.left === r.left && prev.width === r.width && prev.height === r.height) {
+/** The sticky top bar's bottom edge, or 0 where the element is inside it. */
+function headerBottom(el: HTMLElement): number {
+  const bar = document.querySelector<HTMLElement>('[data-topbar]');
+  if (!bar || bar.contains(el)) return 0;
+  return bar.getBoundingClientRect().bottom;
+}
+
+/**
+ * Scroll the element to just under the sticky top bar, instantly. Measured
+ * rather than `scrollIntoView`, because the bar is sticky and its height
+ * changes with the width — at 390 its controls wrap to three rows — so no
+ * fixed `scroll-margin-top` is right at every width. An element inside the bar
+ * is already in view.
+ */
+function placeInView(el: HTMLElement) {
+  const bar = document.querySelector<HTMLElement>('[data-topbar]');
+  if (bar?.contains(el)) return;
+  const offset = (bar?.getBoundingClientRect().height ?? 0) + GAP;
+  const top = el.getBoundingClientRect().top + window.scrollY - offset;
+  window.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+}
+
+/**
+ * Where the light and the caption go, so that neither the sticky bar nor the
+ * caption ever covers the lit element.
+ *
+ * The light never starts above the bar's bottom edge. On a phone the caption
+ * is docked to the bottom and the light ends above it. On a wide screen the
+ * caption takes whichever side has room — below, above, right, left — and
+ * where none does (a card taller than the screen), it docks to the bottom
+ * and the light is cut off above it: the part of the element in view is lit,
+ * and nothing lit is under the caption.
+ */
+function measure(el: HTMLElement, dialog: HTMLDivElement | null, step: number): Layout {
+  const r = el.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const ceiling = headerBottom(el) + (headerBottom(el) > 0 ? 4 : 0);
+  const captionHeight = dialog?.offsetHeight ?? 180;
+
+  let top = Math.max(r.top - PAD, ceiling);
+  let bottom = Math.min(r.bottom + PAD, vh - 8);
+  const left = Math.max(r.left - PAD, 4);
+  const right = Math.min(r.right + PAD, vw - 4);
+
+  let caption: React.CSSProperties | undefined;
+  if (vw < DOCKED_BELOW) {
+    bottom = Math.min(bottom, vh - EDGE - captionHeight - GAP);
+  } else {
+    const alignLeft = Math.min(Math.max(EDGE, left), vw - CAPTION_WIDTH - EDGE);
+    const alignTop = Math.min(Math.max(Math.max(EDGE, ceiling), top), vh - captionHeight - EDGE);
+    if (vh - (bottom + GAP) >= captionHeight + EDGE) {
+      caption = { top: bottom + GAP, left: alignLeft };
+    } else if (top - GAP - captionHeight >= Math.max(EDGE, ceiling)) {
+      caption = { top: top - GAP - captionHeight, left: alignLeft };
+    } else if (vw - (right + GAP) >= CAPTION_WIDTH + EDGE) {
+      caption = { top: alignTop, left: right + GAP };
+    } else if (left - GAP - CAPTION_WIDTH >= EDGE) {
+      caption = { top: alignTop, left: left - GAP - CAPTION_WIDTH };
+    } else {
+      const captionTop = vh - captionHeight - EDGE;
+      caption = { top: captionTop, left: alignLeft };
+      bottom = Math.min(bottom, captionTop - GAP);
+    }
+  }
+  if (bottom < top + 24) bottom = top + 24;
+  return { step, lit: { top, left, width: right - left, height: bottom - top }, caption };
+}
+
+/** The same object when nothing moved, so the tracking loop does not re-render every frame. */
+function sameLayout(prev: Layout | null, next: Layout): Layout {
+  if (
+    prev &&
+    prev.step === next.step &&
+    prev.lit.top === next.lit.top &&
+    prev.lit.left === next.lit.left &&
+    prev.lit.width === next.lit.width &&
+    prev.lit.height === next.lit.height &&
+    prev.caption?.top === next.caption?.top &&
+    prev.caption?.left === next.caption?.left
+  ) {
     return prev;
   }
-  return { top: r.top, left: r.left, width: r.width, height: r.height };
-}
-
-/**
- * Scroll the element to just under the sticky top bar. Not `scrollIntoView`:
- * `center` puts a tall card under the bar, and on a phone the caption sits
- * over the bottom third of the screen.
- */
-function placeInView(el: HTMLElement, reduced: boolean) {
-  const bar = document.querySelector<HTMLElement>('[data-topbar]');
-  if (bar?.contains(el)) {
-    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
-    return;
-  }
-  const offset = (bar?.getBoundingClientRect().height ?? 0) + 16;
-  const top = el.getBoundingClientRect().top + window.scrollY - offset;
-  window.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' });
-}
-
-/**
- * Beside the lit element on a wide screen — below it where there is room,
- * above it where there is not. On a phone the stylesheet docks it to the
- * bottom edge and this returns nothing.
- */
-function captionPlacement(lit: Rect | null): React.CSSProperties | undefined {
-  if (typeof window === 'undefined' || window.innerWidth < 640 || !lit) return undefined;
-  const width = 352;
-  const gap = 12;
-  const left = Math.min(Math.max(16, lit.left), window.innerWidth - width - 16);
-  const below = lit.top + lit.height + gap;
-  const room = window.innerHeight - below;
-  if (room >= 200) return { top: below, left };
-  const above = lit.top - gap - 200;
-  if (above >= 16) return { top: above, left };
-  // Taller than the screen: pin to the bottom corner, over the element.
-  return { bottom: 16, right: 16 };
+  return next;
 }
 
 function usePrefersReducedMotion(): boolean {

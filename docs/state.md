@@ -73,6 +73,13 @@ started on its own until the user finishes or skips it, and replayed from
 Raise `TOUR_VERSION` in `lib/tour.ts` to show a revised tour to everybody once.
 `apps/web/test/product-tour.test.ts` fails if a step names a `data-tour`
 element nothing renders.
+Made fast the same day, measured on a production build: a same-page step is
+placed in under 20ms and finishes its 150ms move by about 160ms; a page change
+takes 190–350ms, because the tour prefetches its three pages with
+`kind: 'full'` when it starts (a plain `router.prefetch` of a dynamic page
+fetches the layout only — Funnel took 1.6s). Scrolling is instant, the light
+never starts above the sticky bar, and the caption takes whichever side has
+room, the light cut short above it where none does.
 
 ## Done
 
