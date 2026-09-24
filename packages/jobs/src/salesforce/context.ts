@@ -15,7 +15,7 @@ import {
   withMaintenance,
 } from '@zeeraa/db';
 import type { SyncContext } from './sync';
-import { parseStageCorrections, parseStageExclusions } from './stage-rules';
+import { parseStageCorrections, parseLenderExclusions, parseStageExclusions } from './stage-rules';
 
 /**
  * Assembles a sync context from configuration rather than from constants.
@@ -111,6 +111,7 @@ export async function resolveSalesforceContext(
       // silently parsed to nothing would count every renewal again.
       stageExclusions: parseStageExclusions(byKey.get('stage_exclusions')),
       stageCorrections: parseStageCorrections(byKey.get('stage_corrections')),
+      lenderExclusions: parseLenderExclusions(byKey.get('lender_exclusions')),
     } satisfies SyncContext;
   });
 }

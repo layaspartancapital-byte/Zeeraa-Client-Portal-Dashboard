@@ -99,7 +99,7 @@ export function DateRangePicker({
         <div
           role="group"
           aria-label="Quick ranges"
-          className="inline-flex shrink-0 rounded-[8px] border border-border bg-surface p-[2px]"
+          className="inline-flex h-9 shrink-0 items-center rounded-[8px] border border-border bg-surface p-[2px]"
         >
           {RANGE_PRESETS.map((option) => {
             const on = option.key === preset;

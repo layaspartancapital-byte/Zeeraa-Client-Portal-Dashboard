@@ -3,7 +3,8 @@ import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { Progress } from '@/components/ui/Progress';
-import { MiniChart } from '@/components/charts/MiniChart';
+import { MonthBars } from '@/components/charts/MonthBars';
+import { monthBars } from '@/lib/month-bars';
 import type { CallReport } from '@/lib/reporting';
 
 /**
@@ -30,7 +31,16 @@ import type { CallReport } from '@/lib/reporting';
  * counts, shares and durations; the underlying rows hold PII and none of it is
  * needed to answer the question.
  */
-export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 6 | 8 | 12 }) {
+export function CallTracking({
+  report,
+  span,
+  today,
+}: {
+  report: CallReport;
+  span?: 4 | 6 | 8 | 12;
+  /** The tenant's today, so the month in progress is marked partial. */
+  today: string;
+}) {
   const { volume, match, speed, speedAllHours, attempts } = report;
 
   if (report.empty) {
@@ -136,16 +146,16 @@ export function CallTracking({ report, span }: { report: CallReport; span?: 4 | 
             <p className="mt-1 text-[13px] tabular text-text-2">excluded from both</p>
           </div>
 
-          <div className="min-w-[180px] flex-1">
+          <div className="min-w-[260px] flex-1">
             <p className="text-[13px] font-medium text-text-2">Calls per month</p>
-            <MiniChart
-              points={report.monthly.map((m) => ({
-                label: m.label,
-                value: m.connected + m.attempted,
-              }))}
-              variant="bars"
-              label="Handled calls per month"
-              height={64}
+            <MonthBars
+              id="calls-per-month"
+              noun={['call', 'calls']}
+              height={170}
+              bars={monthBars(
+                report.monthly.map((m) => ({ month: m.month, value: m.connected + m.attempted })),
+                { firstDay: report.from, today },
+              )}
             />
           </div>
         </div>

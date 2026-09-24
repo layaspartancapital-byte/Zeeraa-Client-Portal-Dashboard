@@ -1,0 +1,11 @@
+-- The lead's monthly revenue in one merged set of bands (24 September 2026).
+--
+-- Only the MQL verdict was stored at ingest, so revenue could not be broken
+-- down by band at all. The band is computed at ingest by `readRevenueBand`
+-- from the tenant's `revenueBandEdges`, and an answer that fits no single band
+-- is stored as such (`unplaced:…`) rather than dropped, so coverage can be
+-- stated. Nullable and additive: existing rows fill on the next re-pull.
+--
+-- A column on an existing tenant-scoped table: its policies already cover it,
+-- and `zeeraa_jobs` holds UPDATE on the whole table.
+ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "revenue_band" text;

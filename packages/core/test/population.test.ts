@@ -18,7 +18,6 @@ import {
  */
 describe('which formulas need a population', () => {
   it('gates the ratios and leaves the counts alone', () => {
-    expect(needsPopulation('cost_per_funded_deal')).toBe(true);
     expect(needsPopulation('attributed_share')).toBe(true);
     expect(needsPopulation('submission_offer_rate')).toBe(true);
     expect(needsPopulation('speed_to_lead')).toBe(true);
@@ -32,12 +31,20 @@ describe('which formulas need a population', () => {
     expect(needsPopulation('calls_handled')).toBe(false);
   });
 
+  it('never gates a cost, declared or not (reversed 24 September 2026)', () => {
+    // A cost always shows its number with what it was divided by; only an
+    // empty denominator has no figure, and that is the caller's to say.
+    for (const key of ['cost_per_funded_deal', 'cost_per_stage', 'cost_per_conversion', 'cpa', 'cost_per_mql', 'cpc']) {
+      expect(needsPopulation(key), key).toBe(false);
+      expect(assessPopulation(key, 1, 10).sufficient, key).toBe(true);
+    }
+  });
+
   it('gates an undeclared ratio, which is the case it exists for', () => {
     // Somebody adds this next month and forgets to declare it. The cost of
     // being wrong in this direction is an amber badge; the cost of being wrong
     // in the other is a figure built on two records.
     expect(needsPopulation('reply_rate')).toBe(true);
-    expect(needsPopulation('cost_per_mql')).toBe(true);
     expect(needsPopulation('median_time_to_close')).toBe(true);
     expect(needsPopulation('impressions')).toBe(false);
   });
@@ -45,19 +52,18 @@ describe('which formulas need a population', () => {
   it('names the population rather than leaving the reader to guess it', () => {
     // "Fewer than 10" invites "ten of what", and for a channel metric the
     // answer is the separation rule restated.
-    expect(populationNoun('cost_per_funded_deal')).toBe('deals attributed to this channel');
-    expect(populationNoun('cost_per_funded_deal', 1)).toBe('deal attributed to this channel');
     expect(populationNoun('submission_offer_rate')).toBe('submissions a lender has decided');
+    expect(populationNoun('submission_offer_rate', 1)).toBe('submission a lender has decided');
   });
 });
 
 describe('assessPopulation', () => {
   it('withholds a figure below the floor and says what it was over', () => {
-    const verdict = assessPopulation('cost_per_funded_deal', 3, 10);
+    const verdict = assessPopulation('submission_offer_rate', 3, 10);
     expect(verdict.sufficient).toBe(false);
     expect(verdict.population).toBe(3);
     expect(verdict.minimum).toBe(10);
-    expect(verdict.reason).toBe('3 deals attributed to this channel, below the 10 this figure needs.');
+    expect(verdict.reason).toBe('3 submissions a lender has decided, below the 10 this figure needs.');
   });
 
   it('renders at the floor exactly, not above it', () => {

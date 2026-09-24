@@ -130,16 +130,6 @@ export const spartan: TenantSeed = {
       definition: 'Count of opportunities reaching the Application stage in the period.',
     },
     {
-      key: 'offer_rate',
-      label: 'Offer rate',
-      formulaKey: 'stage_conversion_rate',
-      formulaArgs: { from: 'uw_approved', to: 'offer' },
-      improvementDirection: 'up',
-      definition:
-        'Deals reaching Offer divided by deals reaching UW approved. One instance ' +
-        'of the generic stage conversion rate, not a column in the database.',
-    },
-    {
       /*
        * The replacement for offer_rate, at the grain the decision happens.
        *
@@ -309,6 +299,20 @@ export const spartan: TenantSeed = {
         'is counted as unclassified on every sync run rather than assumed ' +
         'inbound. See docs/brief-amendments.md \u00a76.',
       value: leadExclusion,
+    },
+    {
+      key: 'lender_exclusions',
+      description:
+        'Lender accounts whose submissions are CRM test records, not lending. Their ' +
+        'submissions carry excluded_reason and leave every lender table, rate and total. ' +
+        'Matched on the lender account id. Added 24 September 2026.',
+      value: {
+        reason: 'test_lender',
+        lenders: [
+          { id: '001Vr00001GXEU0IAP', name: 'Test Lender' },
+          { id: '001Vr00001IKguhIAD', name: 'Test Lender west' },
+        ],
+      },
     },
     {
       key: 'stage_exclusions',
@@ -608,6 +612,10 @@ export const spartan: TenantSeed = {
               { field: 'Monthly_Revenue__c', period: 'monthly' },               // 4.7%
               { field: 'Annual_Revenue_Text__c', period: 'annual' },            // 4.6%
             ],
+            // One merged set of bands for every form (24 September 2026): the
+            // main web form's own edges, which 76% of inbound leads answer on.
+            // An older form's `< $15,000` spans two and is stored as unplaced.
+            revenueBandEdges: [10000, 20000, 50000, 100000],
             /*
              * Each candidate declares what a bare number in it means. The org
              * was enumerated on 22 September 2026 — 760 queryable objects, every
@@ -927,129 +935,14 @@ export const spartan: TenantSeed = {
    * instead of as a zero. Every figure is within the inbound population
    * (n = 7,196), measured 17 September 2026.
    */
+  /*
+   * Emptied 24 September 2026. Its four rows became measured figures or went:
+   * decline reasons (lender grain, `submissions.decline_reasons`), revenue
+   * bands (`leads.revenue_band`, migration 0034) and the lender-level offer
+   * rate are computed in `dataQuality()`; MQL coverage was removed from the
+   * client's view. Production rows were deleted by `apply-client-fixes.ts`.
+   */
   blockedDependencies: [
-    {
-      /*
-       * Unblocked 18 September 2026, at lender grain.
-       *
-       * The reason survived on the wrong object. `Loss_Reason__c` on
-       * Opportunity is abandoned and nothing brings it back — but a decline is
-       * a lender's decision, and `Decline_Reason__c` on csbs__Submission__c
-       * holds it: 16 values, 121 of 590 declined submissions, rising from 0%
-       * of June's declines to 30.5% of September's.
-       *
-       * This row is kept, re-scoped to the deal-level field, because the
-       * deal-level composition still cannot be stated — it is the thing a
-       * reader will assume the lender chart shows. Coverage is rendered per
-       * month and never summed: an all-time figure would average an unused
-       * field with an adopted one.
-       */
-      key: 'decline_reason_deal_grain',
-      subjectKind: 'breakdown',
-      subjectKey: 'decline_reason_deal',
-      label: 'Decline reasons, per deal',
-      reason:
-        'Lender decline reasons are measured, at lender grain, from ' +
-        'Decline_Reason__c on csbs__Submission__c. What is not measured is a ' +
-        'reason per *deal*: Loss_Reason__c was filled in on every closed-lost ' +
-        'opportunity through January 2025 — 68 of 68 that month, 23 of 23 in ' +
-        'December 2024 — and then abandoned, 0 of 133 in July 2026, 2 of 132 in ' +
-        'August, 1 of 66 in September. No other field on Opportunity carries ' +
-        'one: Competitor_Lost_To__c and Do_Not_Call_Reason__c are empty on all ' +
-        '716. A deal declined by three lenders for three different reasons has ' +
-        'no single reason in the CRM, and the platform does not choose one.',
-      needed:
-        'The reason field filled in on closed-lost opportunities again. The ' +
-        'picklist already exists and already has sensible values.',
-      evidence:
-        '110 of 543 closed-lost opportunities carry a reason, and every one of ' +
-        'them closed before February 2026. Closed-lost since: 0 of 133 in July ' +
-        '2026, 2 of 132 in August, 1 of 66 in September. The ' +
-        'mapping also points at csbs__Decline_Reason__c, which does not exist in ' +
-        'the org \u2014 left in place deliberately so validateMapping keeps failing ' +
-        'visibly rather than writing nulls into a column that looks like data.',
-    },
-    {
-      // Not a blocked stage: MQL is computed and renders with its coverage.
-      // What is blocked is the coverage itself, and this is the single biggest
-      // reason it falls short — so it is a dependency on the client, stated as
-      // one, rather than a caveat buried beside a number.
-      key: 'mql_revenue_coverage',
-      subjectKind: 'metric',
-      subjectKey: 'mql_coverage',
-      label: 'MQL coverage — revenue',
-      reason:
-        'What is left is mostly an unanswered question rather than an ' +
-        'unreadable answer. 79.8% of inbound leads can now be judged against ' +
-        'the bar. Of the 1,512 that cannot, about 1,240 never answered one or ' +
-        'both questions at all, 257 answer revenue as "< $15,000", which ' +
-        'genuinely contains the $10,000 bar, and 15 carry a duration answer ' +
-        'nothing can read.',
-      needed:
-        'Making both questions required on the web forms, which is what moves ' +
-        'the 1,240. Splitting the "< $15,000" option would settle the 257; the ' +
-        'band contains the bar and choosing a side would be inventing the ' +
-        'answer.',
-      evidence:
-        'Measured 22 September 2026 with `pnpm --filter @zeeraa/connectors ' +
-        'qualification-coverage`: duration 83.3% populated and 83.1% usable, ' +
-        'revenue 85.6% populated and 82.2% usable, both 79.2%. After the ' +
-        're-pull, leads.mql_verdict reads 30.9% qualified, 48.9% unqualified ' +
-        'and 19.8% undeterminable, against 15.8% / 38.5% / 42.1% before.',
-    },
-    {
-      // Not a blocked stage. Both ends are measured: the approval transitions
-      // are in field history and the offer timestamps are in a field. The
-      // metric over them is what does not mean what its name says, so it is
-      // suppressed on its own.
-      key: 'offer_rate_definition',
-      subjectKind: 'metric',
-      subjectKey: 'offer_rate',
-      label: 'Offer rate',
-      reason:
-        'Offer rate as defined measures manual completion of ' +
-        'Offer_Received_Date_Time__c rather than a conversion. Approval and the ' +
-        'first lender offer are the same event — the median gap between the ' +
-        'transition into Approved and the first Offer record is 0.0 hours, and ' +
-        'in 98 of 112 cases the offer record exists before the stage changes — ' +
-        'so there is no step between them a deal can fail. The rate also ' +
-        'divided populations that do not nest: 10 of the 67 offers in the ' +
-        'window belong to deals with no approval event at all.',
-      needed:
-        'A submission-level offer rate, from csbs__Submission__c: offers ' +
-        'received over decided submissions, per lender. Measured at 18.2% ' +
-        'across 131 offered and 590 declined submissions, which is the figure ' +
-        'the deal-level rate was standing in for.',
-      evidence:
-        'Measured 18 September 2026. 112 of 115 approved deals hold a ' +
-        'csbs__Offer__c record but only 57 hold the date field, so the field ' +
-        'is absent about half the time. Of the 125 deals holding an offer ' +
-        'record, 88 are currently lost and 21 funded — offer is not a stage a ' +
-        'deal stays in.',
-    },
-    {
-      key: 'revenue_band_breakdown',
-      subjectKind: 'breakdown',
-      subjectKey: 'revenue_band',
-      label: 'Revenue bands',
-      reason:
-        'Partially measurable. The revenue answer is readable as a band on 87–97% ' +
-        'of inbound leads each month from June to September 2026, but the forms ' +
-        'offer bands that overlap — $10,000–$20,000 beside $15,000–$35,000 and ' +
-        '$10k–$15k — so there is no single set of bands to break leads down by, ' +
-        'and only the MQL verdict is stored at ingest, not the band.',
-      needed:
-        'One set of revenue bands shared by every web form. On Zeeraa’s side, the ' +
-        'band stored per lead at ingest, which is platform work rather than a ' +
-        'client dependency.',
-      evidence:
-        'Measured 23 September 2026 from Salesforce, inbound leads, eight revenue ' +
-        'fields read in the MQL order: populated 88.1–98.9% per month Jun–Sep, ' +
-        'readable as a band 87.0–96.9%. Most common answers: "Less than $10,000" ' +
-        '(1,367), "$10,000 - $20,000" (834), "< $10,000" (618), "less than ' +
-        '$10,000" (614), "$20,000 - $50,000" (330). The 8.8% figure this row ' +
-        'quoted before counted numeric fields only.',
-    },
   ],
 
   reconciliation: [

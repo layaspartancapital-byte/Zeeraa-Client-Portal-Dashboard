@@ -22,6 +22,7 @@ const LABELS: Record<DataQualityItem['status'], { text: string; tone: BadgeTone 
   unreconciled: { text: 'Unreconciled', tone: 'neutral' },
   corrected: { text: 'Corrected', tone: 'neutral' },
   not_configured: { text: 'Not configured', tone: 'neutral' },
+  measured: { text: 'Measured', tone: 'neutral' },
 };
 
 export function DataQualityCard({
@@ -33,14 +34,16 @@ export function DataQualityCard({
   span?: 3 | 4 | 6 | 8 | 12;
   title?: string;
 }) {
+  // Measured figures are listed for their coverage, not counted as outstanding.
+  const open = items.filter((item) => item.status !== 'measured');
   return (
     <Card span={span}>
       <CardHeader
         title={title}
         subtitle={
-          items.length === 0
+          open.length === 0
             ? 'Nothing outstanding'
-            : `${items.length} ${items.length === 1 ? 'item' : 'items'} the platform cannot measure yet`
+            : `${open.length} ${open.length === 1 ? 'item' : 'items'} the platform cannot measure yet`
         }
       />
       {items.length === 0 ? (

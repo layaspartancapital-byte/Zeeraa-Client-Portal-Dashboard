@@ -282,6 +282,12 @@ export type MonthActual = {
    * A cost per deal never renders without them, on a chart or anywhere else.
    */
   cost?: ChannelCostPerDeal;
+  /**
+   * True where the figure is absent because nothing was there to divide by —
+   * "No deals yet" — as opposed to a source that was not read. The two render
+   * differently: an empty month is a plain statement, not an amber badge.
+   */
+  empty?: boolean;
 };
 
 export type TimelinePhase = 'baseline' | 'engagement';
@@ -511,6 +517,11 @@ export function channelMonthActuals(
     const problem = spendProblem() ?? crmProblem;
     if (problem) return { value: null, reason: problem };
     const counts = input.stages[stage] ?? { own: 0, unattributed: 0, all: 0 };
+    // A cost is never withheld for a small denominator (see `population.ts`):
+    // only an empty one has no figure, and it says so in the client's words.
+    if (counts.own === 0) {
+      return { value: null, reason: stage === approvalStage ? 'No approvals yet.' : 'No deals yet.', empty: true };
+    }
     const gate = assessPopulation(formulaKey, counts.own, renderFloor);
     if (!gate.sufficient) return { value: null, reason: gate.reason };
     const cost = channelCostPerDeal({

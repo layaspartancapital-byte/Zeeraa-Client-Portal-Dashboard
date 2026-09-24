@@ -71,9 +71,9 @@ describe('scorecardRows', () => {
     expect(rows.budget!.verdict).toEqual({ state: 'on_target', paced: true });
   });
 
-  it('will not compare a cost over too few deals', () => {
+  it('compares a cost over any number of deals (no minimum, 24 September 2026)', () => {
     const rows = run(panels('2026-10', [m1], { costPerFundedDeal: actual(9000, 2) }), '2026-10');
-    expect(rows.costPerFundedDeal!.verdict.state).toBe('too_early');
+    expect(rows.costPerFundedDeal!.verdict).toEqual({ state: 'behind', by: 5000, paced: false });
   });
 
   it('before M1 names the first target and never computes a verdict', () => {

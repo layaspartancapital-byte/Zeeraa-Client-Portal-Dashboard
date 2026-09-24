@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { ChevronRight, Menu } from 'lucide-react';
+import { ChevronRight, Compass, Menu } from 'lucide-react';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { useShell } from '@/components/shell/shell-state';
 import { UserMenu } from '@/components/shell/Sidebar';
+import { useTour } from '@/components/shell/ProductTour';
 
 /**
  * The top bar (spec v2 §3, as amended 23 September 2026).
@@ -37,6 +38,7 @@ export function TopBar({
   children?: React.ReactNode;
 }) {
   const { setDrawerOpen } = useShell();
+  const tour = useTour();
 
   return (
     <div
@@ -78,7 +80,21 @@ export function TopBar({
           </ol>
         </nav>
 
-        <div className="shrink-0 print-hidden">
+        <div className="flex shrink-0 items-center gap-2 print-hidden">
+          {/* Beside the avatar rather than inside its menu: a client who
+              skipped the tour on day one will not go looking for it. The
+              word hides on a phone, where the breadcrumb needs the room. */}
+          {tour && (
+            <button
+              type="button"
+              onClick={tour.start}
+              aria-label="Take the tour"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[8px] border border-border bg-surface px-2.5 text-[13px] font-medium text-text-2 hover:text-text"
+            >
+              <Compass aria-hidden="true" className="h-4 w-4" />
+              <span className="hidden sm:inline">Take the tour</span>
+            </button>
+          )}
           <UserMenu viewer={viewer} tenant={tenant} collapsed placement="topbar" />
         </div>
       </div>
@@ -93,7 +109,7 @@ export function TopBar({
       */}
       {children && (
         <div className="border-t border-border px-4 py-2.5 sm:px-6">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 print-hidden md:justify-end">
+          <div className="flex min-w-0 flex-wrap items-start gap-2 print-hidden md:justify-end">
             {children}
           </div>
         </div>

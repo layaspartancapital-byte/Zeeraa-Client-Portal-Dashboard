@@ -239,6 +239,13 @@
       "when": 1790100000000,
       "tag": "0033_product_tours",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790110000000,
+      "tag": "0034_lead_revenue_band",
+      "breakpoints": true
     }
   ]
 }

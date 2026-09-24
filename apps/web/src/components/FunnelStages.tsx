@@ -42,32 +42,10 @@ export function FunnelStages({
   data,
   counts,
   populationLabel,
-  suppressed = [],
-  maxLeakage,
-  gateFor,
 }: {
-  /**
-   * The population verdict for a conversion rate over this denominator, from
-   * `metrics.population('stage_conversion_rate', n)`. A rate below its floor
-   * is withheld with the reason, like a rate that is not a conversion rate.
-   */
-  gateFor?: (denominator: number) => PopulationVerdict;
   data: MonthlyPerformance;
   counts: StageCounts;
   populationLabel: string;
-  /**
-   * Transitions that must carry no rate, each with the reason.
-   *
-   * Comes from a blocked metric whose formula is a stage conversion rate, so
-   * one row retires a figure everywhere it appears rather than on the screen
-   * somebody remembered.
-   */
-  suppressed?: { from: string; to: string; label: string; reason: string }[];
-  /**
-   * The share of a later stage that may have skipped the earlier one before
-   * the ratio stops being a conversion rate. From configuration.
-   */
-  maxLeakage: number;
 }) {
   const { stages, stageStatus, qualification, progression } = data;
   const mqlStageKey = stages.find((st) => st.key === 'mql')?.key ?? null;
@@ -176,52 +154,6 @@ export function FunnelStages({
     };
   };
 
-  /**
-   * Why a transition is not a conversion rate, or null when it is one.
-   *
-   * A conversion rate presumes the later population is drawn from the earlier
-   * one. Two separate things can break that, and only one of them shows up in
-   * the arithmetic: the ratio exceeding 100%, which is the arithmetic reporting
-   * that the denominator is the wrong population; and the populations being
-   * declared not to nest, which stays invisible when the numerator happens to
-   * be the smaller number.
-   *
-   * The second is the case here. MQL is computed from self-reported fields
-   * after the fact rather than being a gate a lead passes through, so an
-   * unqualified lead can and does still apply: 441 applications against 649
-   * qualified leads is 68% of a population the applications were never drawn
-   * from. Before MQL was counted at lead grain the same transition read 1,696%
-   * and the numeric guard caught it; at the right grain it looks plausible,
-   * which is exactly why the rule cannot be left to arithmetic.
-   */
-  const notARate = (
-    from: { key: string; source?: string },
-    to: { key: string; source?: string },
-    rate: { numerator: number; denominator: number },
-  ): 'suppressed' | 'not-drawn-from' | 'not-nested' | 'over-total' | 'too-few' | null => {
-    if (suppressed.some((t) => t.from === from.key && t.to === to.key)) return 'suppressed';
-    if (from.source === 'qualified_leads' && to.source !== 'qualified_leads') {
-      return 'not-drawn-from';
-    }
-    const step = progression[to.key];
-    if (step && step.previous === from.key && step.reached > 0) {
-      const leaked = (step.reached - step.alsoPrevious) / step.reached;
-      if (leaked > maxLeakage) return 'not-nested';
-    }
-    if (rate.denominator !== 0 && rate.numerator > rate.denominator) return 'over-total';
-    if (gateFor && rate.denominator > 0 && !gateFor(rate.denominator).sufficient) return 'too-few';
-    return null;
-  };
-
-  /** The two words the chip shows when a ratio is not a conversion rate. */
-  const WITHHELD_LABEL = {
-    suppressed: 'retired',
-    'not-drawn-from': 'not a gate',
-    'not-nested': 'not nested',
-    'over-total': 'over 100%',
-    'too-few': 'too few',
-  } as const;
-
   return (
     <div className="px-5 pb-5">
       <div className="flex flex-wrap items-stretch gap-y-4">
@@ -229,14 +161,11 @@ export function FunnelStages({
           const blocked = stageStatus[stage.key]?.blocked;
           const next = stages[i + 1];
           const bothMeasured = next ? measured[i] && measured[i + 1] : false;
-          const adjacent =
-            next && bothMeasured ? stageConversionRate(reach, stage.key, next.key) : null;
           const bridge = next && !bothMeasured ? bridgeFor(i) : null;
-          const crossesGrain = next ? grainOf(stage.source) !== grainOf(next.source) : false;
-          const withheld = next && adjacent ? notARate(stage, next, adjacent) : null;
-          const step = next ? progression[next.key] : undefined;
-          const leaked =
-            step && next && step.previous === stage.key ? step.reached - step.alsoPrevious : 0;
+          const ratio =
+            next && bothMeasured && (counts[stage.key] ?? 0) > 0
+              ? (counts[next.key] ?? 0) / (counts[stage.key] ?? 0)
+              : null;
 
           return (
             <div
@@ -312,50 +241,24 @@ export function FunnelStages({
                   takes that width, so the funnel row wraps sooner instead.
                 */
                 <div className="flex shrink-0 items-center justify-center px-1">
-                  {adjacent && withheld ? (
+                  {ratio !== null ? (
                     /*
-                      A withheld rate says so in words. The em dash this used to
-                      render reads as missing data, and four of six transitions
-                      here are withheld on purpose — the populations do not
-                      nest, or the earlier stage is not a gate the later one
-                      passes through.
+                      A real percentage between every pair of measured stages:
+                      this period's count at the later stage over the earlier
+                      one's. It replaced "not a gate" and "not nested" on 24
+                      September 2026 — a client reads a withheld chip as a
+                      broken funnel. The hover says in one sentence what the
+                      two counts are, including when the later one is larger.
                     */
-                    <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-border bg-canvas px-1 py-[3px] font-semibold text-text-3 whitespace-nowrap text-center text-[11px] leading-[1.15]">
-                      {WITHHELD_LABEL[withheld]}
-                      <InfoTip label={`Why there is no rate into ${next.label}`} align="center">
-                        {withheld === 'suppressed'
-                          ? suppressed.find((t) => t.from === stage.key && t.to === next.key)
-                              ?.reason
-                          : withheld === 'not-nested'
-                            ? `${formatCount(
-                                (progression[next.key]?.reached ?? 0) -
-                                  (progression[next.key]?.alsoPrevious ?? 0),
-                              )} of the ${formatCount(
-                                progression[next.key]?.reached ?? 0,
-                              )} deals reaching ${next.label} never reached ${stage.label} at all. The later population is not drawn from the earlier one, so their ratio is not a conversion rate however plausible it looks.`
-                            : withheld === 'not-drawn-from'
-                              ? `${stage.label} is computed from what a lead reported, not a gate it passes through — a lead that misses the bar can still reach ${next.label}. So ${next.label} is not drawn from ${stage.label}, and the ratio is not a conversion rate even though it lands under 100%.`
-                              : withheld === 'too-few'
-                                ? gateFor!(adjacent.denominator).reason
-                                : `${formatCount(adjacent.numerator)} reached ${next.label} against ${formatCount(adjacent.denominator)} at ${stage.label}. A ratio above 100% is the arithmetic reporting that these are not nested populations.`}
-                      </InfoTip>
-                    </span>
-                  ) : adjacent ? (
                     <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-border bg-surface px-1 py-[3px] font-semibold tabular text-text whitespace-nowrap text-center text-[11px] leading-[1.15]">
-                      {adjacent.rate === null ? '—' : formatRate(adjacent.rate)}
-                      {/* The rate's own caveats share the chip's single ⓘ
-                          rather than adding a second one beside it. */}
-                      {(crossesGrain || leaked > 0) && (
-                        <InfoTip label={`About the rate into ${next.label}`} align="center">
-                          {crossesGrain
-                            ? 'This rate divides opportunities by inbound leads. It is a different kind of statement from a rate inside one grain, and the two are not comparable.'
-                            : `${formatCount(leaked)} of the ${formatCount(
-                                progression[next.key]!.reached,
-                              )} deals reaching ${next.label} have no ${stage.label} event, so the numerator holds ${
-                                leaked === 1 ? 'one deal' : `${formatCount(leaked)} deals`
-                              } the denominator does not. Below the configured tolerance, so the rate is shown rather than withheld.`}
-                        </InfoTip>
-                      )}
+                      {formatRate(ratio)}
+                      <InfoTip label={`What ${formatRate(ratio)} means`} align="center">
+                        {formatCount(counts[next!.key] ?? 0)} reached {next!.label} this period, against{' '}
+                        {formatCount(counts[stage.key] ?? 0)} at {stage.label}
+                        {ratio > 1
+                          ? ' — more, because some deals reach a later stage without passing through the earlier one in the same period.'
+                          : '.'}
+                      </InfoTip>
                     </span>
                   ) : bridge ? (
                     <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-warn bg-warn-soft px-1 py-[3px] font-semibold tabular text-[#B54708] whitespace-nowrap text-center text-[11px] leading-[1.15]">
@@ -401,24 +304,16 @@ export function FunnelStages({
             {stages.map((stage, i) => {
               const blocked = stageStatus[stage.key]?.blocked;
               const previous = stages[i - 1];
-              const rate =
-                previous && measured[i] && measured[i - 1]
-                  ? stageConversionRate(reach, previous.key, stage.key)
+              const ratio =
+                previous && measured[i] && measured[i - 1] && (counts[previous.key] ?? 0) > 0
+                  ? (counts[stage.key] ?? 0) / (counts[previous.key] ?? 0)
                   : null;
-              const withheld =
-                previous && rate ? notARate(previous, stage, rate) : null;
               return (
                 <tr key={stage.key}>
                   <td>{stage.label}</td>
                   <td>{blocked ? 'not measured' : formatCount(counts[stage.key] ?? 0)}</td>
                   <td>
-                    {!rate
-                      ? 'not measurable'
-                      : withheld
-                        ? `no rate — ${WITHHELD_LABEL[withheld]}`
-                        : rate.rate === null
-                          ? 'not measurable'
-                          : formatRate(rate.rate)}
+                    {ratio === null ? 'not measurable' : formatRate(ratio)}
                   </td>
                   {/* The detail each card carries in its tooltip, so a screen
                       reader and the print sheet get it as text. */}

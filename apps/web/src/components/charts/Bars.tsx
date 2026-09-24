@@ -32,6 +32,45 @@ import {
 } from '@/components/charts/chart-kit';
 import { formatter, type FormatSpec } from '@/components/charts/format-spec';
 
+/**
+ * The category column of a horizontal bar chart, wide enough for a metric's
+ * name and wrapping onto a second line rather than being cut off. At 104px
+ * with no wrap, "Paid media spend" lost its first letters at some widths and
+ * "Cost per deal · Google Ads" never fitted.
+ */
+const LABEL_WIDTH = 132;
+const LINE_CHARS = 19;
+
+function wrapLabel(label: string): string[] {
+  const words = label.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (line && `${line} ${word}`.length > LINE_CHARS) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 3);
+}
+
+function WrappedLabel(props: { x: number; y: number; payload: { value: string } }) {
+  const lines = wrapLabel(String(props.payload.value));
+  const first = -((lines.length - 1) * 14) / 2;
+  return (
+    <text x={props.x} y={props.y} textAnchor="end" fontSize={12} fill={AXIS.stroke}>
+      {lines.map((line, i) => (
+        <tspan key={i} x={props.x - 4} dy={i === 0 ? first + 4 : 14}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
+
 export type StackRow = {
   label: string;
   /** Per channel key. Channels only. */
@@ -112,7 +151,7 @@ export function StackedBars({
             {horizontal && (
               <XAxis type="number" {...AXIS} tickFormatter={(v: number) => format(v)} />
             )}
-            {horizontal && <YAxis type="category" dataKey="label" {...AXIS} width={104} />}
+            {horizontal && <YAxis type="category" dataKey="label" {...AXIS} width={LABEL_WIDTH} tick={WrappedLabel} />}
             {!horizontal && <XAxis dataKey="label" {...AXIS} dy={4} />}
             {!horizontal && (
               <YAxis {...AXIS} width={48} tickFormatter={(v: number) => format(v)} />
@@ -256,7 +295,7 @@ export function RangeBars({
           >
             <CartesianGrid stroke={BORDER} horizontal={false} />
             <XAxis type="number" {...AXIS} tickFormatter={(v: number) => format(v)} />
-            <YAxis type="category" dataKey="label" {...AXIS} width={104} />
+            <YAxis type="category" dataKey="label" {...AXIS} width={LABEL_WIDTH} tick={WrappedLabel} />
             <Tooltip
               cursor={{ fill: 'rgba(16,24,40,0.03)' }}
               content={({ active, payload }) => {
@@ -392,7 +431,7 @@ export function DivergingBars({
               ticks={[-bound, -bound / 2, 0, bound / 2, bound]}
               tickFormatter={(v: number) => signed(v)}
             />
-            <YAxis type="category" dataKey="label" {...AXIS} width={104} />
+            <YAxis type="category" dataKey="label" {...AXIS} width={LABEL_WIDTH} tick={WrappedLabel} />
             <ReferenceLine x={0} stroke={TEXT_2} strokeWidth={1} />
             <Tooltip
               cursor={{ fill: 'rgba(16,24,40,0.03)' }}

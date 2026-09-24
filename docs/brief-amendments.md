@@ -3193,3 +3193,82 @@ partial month rather than silent about it:
 The rule is `scorecardVerdict` in `packages/core`, tested there. The chart is
 unchanged in this respect: its partial month is still drawn apart and never
 assessed.
+
+## §12 and §16 — thirteen client-facing fixes, and three rules reversed (24 September 2026)
+
+The audience is a non-technical client. Where the data cannot support
+something, it is now **hidden** rather than shown as a dead control or an
+amber badge. Three standing rules changed to allow that, each on the client's
+explicit instruction.
+
+### The minimum-deal rule no longer applies to costs
+
+**Reversed.** Cost per funded deal, CPA and every cost-per-stage figure always
+show their number, with what they were divided by beneath it ("Based on 1
+deal", "185 leads"). Only an empty denominator has no figure, and it says "No
+deals yet" — never "Not measured". `needsPopulation` in
+`packages/core/src/population.ts` returns false for anything cost-shaped
+(`cost|cpa|cpc|cpl|cac`), declared or not, so no call site can bring the gate
+back; `population-gate-usage.test.ts` fails if a screen passes a cost through
+`metrics.population` or `metrics.comparable` again.
+
+**Rates keep their floor.** A 100% offer rate over one decision is not a
+statement about a lender, and the client asked about costs. The
+`min_rate_denominator` row still governs `submission_offer_rate`,
+`attributed_share`, `speed_to_lead` and the other rates.
+
+**The plausible range is gone from the cost line.** It was analyst detail; a
+cost per deal now carries its coverage and not its range. Frozen baseline
+snapshots taken before this change may still hold a null figure for a month
+under the old floor; they are append-only, and a correction is the next
+version with a reason.
+
+### The funnel shows a real percentage between every stage
+
+"Not a gate", "not nested", "retired" and "over 100%" are gone. Between every
+pair of measured stages is this period's count at the later stage divided by
+the earlier one's, and the hover says in one sentence what the two counts are
+— including when the later one is larger because deals reach it without
+passing the earlier one in the period. This is a ratio of two counts, not a
+cohort conversion rate, and it is labelled as such in the hover rather than
+withheld.
+
+### The Data quality card is Zeeraa staff's, not the client's
+
+The card, and its items in the "How this is measured" drawer, render only for
+`zeeraa_admin` (`canAdministerTenant`). A client reads a list of what cannot be
+measured as a list of failures. Three of its items became measured figures
+(`lib/quality-measures.ts`, last 90 days, with coverage): the lender-level
+offer rate, revenue in one merged set of bands (`leads.revenue_band`,
+migration 0034, filled by `readRevenueBand` at ingest and
+`backfill-revenue-band.ts` for earlier leads), and decline reasons from the
+best-populated field a value sweep found — `Decline_Reason__c` on the lender
+submission, 13.1% of submissions, with "Declined by Lenders" as the bucket for
+declines with no reason. MQL coverage was removed. The four
+`blocked_dependencies` rows and the retired deal-level `offer_rate` metric were
+deleted by `apply-client-fixes.ts`.
+
+**Revenue bands, merged.** The forms ask in three vocabularies whose edges do
+not line up (under $10k / $10–20k / $20–50k / $50–100k / over $100k on the main
+form; under $15k / $15–35k / over $35k on an older one). The merged set is the
+main form's, in `revenueBandEdges` on the connection mapping, and an answer
+that spans two bands is stored as `unplaced:spans_bands` and counted in the
+coverage line rather than split or rounded.
+
+### The rest
+
+- **Test lenders** are excluded at ingest by the `lender_exclusions` config
+  row, matched on the lender account id, so they leave every lender table,
+  rate and total.
+- **Breakdown** slices by Campaign (Google Ads by the lead's click, Meta by UTM
+  campaign), Industry and State (the Lead fields a value sweep found at 39.1%
+  and 35.7%). Product is not offered: the only product field holds `MCA` on
+  4.9% of deals. A tab with no data in the period is not drawn.
+- **Monthly performance** has one date control: the "Trailing window" month
+  selector and the "Previous period / Last year" toggle are gone, and figures
+  compare with the equal-length period before. The ramp is one table with a
+  ✓ or "behind" per cell, judged by `scorecardVerdict`.
+- **Toolbars** top-align their controls and put the date picker first on
+  every page. "Take the tour" is a button beside the avatar.
+- **Calls per month** and **Declines** label every bar with its month and
+  count and mark a partial month; declines start when lender submissions do.

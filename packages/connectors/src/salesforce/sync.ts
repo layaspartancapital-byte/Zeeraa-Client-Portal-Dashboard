@@ -1,7 +1,7 @@
 import { qualifyLead, readPhone, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
 import { selectFields, type SalesforceFieldMapping } from './mapping';
-import { judgeQualificationBands } from './qualification-bands';
+import { judgeQualificationBands, readRevenueBand } from './qualification-bands';
 import { inboundClause, NO_LEAD_EXCLUSION, type LeadExclusionConfig } from './exclusion';
 
 /**
@@ -30,6 +30,8 @@ export type LeadRow = {
   selfReportedTimeInBusiness: number | null;
   industry: string | null;
   state: string | null;
+  /** The merged revenue band, as `readRevenueBand` stores it. */
+  revenueBand: string | null;
   /** As the CRM holds it, and as ten digits. Null when nothing keys. */
   phone: string | null;
   phoneKey: string | null;
@@ -179,6 +181,7 @@ export function normalizeLead(
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),
     industry: str(record, mapping.lead.industry),
     state: str(record, mapping.lead.state),
+    revenueBand: readRevenueBand(record, mapping),
     ...readLeadPhone(record, mapping),
     isConverted: record.IsConverted === true,
     convertedOpportunityId: str(record, 'ConvertedOpportunityId'),

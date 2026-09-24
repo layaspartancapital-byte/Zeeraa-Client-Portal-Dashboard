@@ -278,15 +278,20 @@ describe('channelMonthActuals', () => {
     expect(f.fundedAmount.value).toBe(24_600);
   });
 
-  it('withholds a ratio below its floor, with the reason, and never a zero', () => {
-    const f = channelMonthActuals(
+  it('shows a cost over a small denominator, and says why only when it is empty', () => {
+    const two = channelMonthActuals(
       { ...base, stages: { ...base.stages, funded: { own: 2, unattributed: 13, all: 15 } } },
       { ...opts, month: '2026-06' },
     );
-    expect(f.costPerFundedDeal.value).toBeNull();
-    expect(f.costPerFundedDeal.reason).toMatch(/below the 3/);
-    // The count itself is still a measurement.
-    expect(f.fundedDeals.value).toBe(2);
+    expect(two.costPerFundedDeal.value).toBe(base.spend / 2);
+    expect(two.costPerFundedDeal.cost?.attributedDeals).toBe(2);
+    expect(two.fundedDeals.value).toBe(2);
+
+    const none = channelMonthActuals(
+      { ...base, stages: { ...base.stages, funded: { own: 0, unattributed: 13, all: 13 } } },
+      { ...opts, month: '2026-06' },
+    );
+    expect(none.costPerFundedDeal).toMatchObject({ value: null, reason: 'No deals yet.', empty: true });
   });
 
   it('names the unread days of a month with a hole', () => {

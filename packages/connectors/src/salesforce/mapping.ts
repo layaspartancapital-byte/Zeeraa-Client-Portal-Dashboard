@@ -37,6 +37,13 @@ export type SalesforceFieldMapping = {
      * named for annual revenue holding `Less than $180,000` is $15,000 a month.
      */
     revenueBands?: { field: string; period: 'monthly' | 'annual' }[];
+    /**
+     * The edges of the one merged set of monthly revenue bands a lead is
+     * placed in (`placeRevenueBand`), lowest first: `[10000, 20000, 50000,
+     * 100000]` is under $10k, $10–20k, $20–50k, $50–100k and over $100k.
+     * Absent, no band is stored.
+     */
+    revenueBandEdges?: number[];
     /*
      * Fields that hold money and are **not** revenue, listed here in prose
      * because the next person to sweep the org by value will find them and they

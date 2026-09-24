@@ -37,6 +37,10 @@ export function LenderOutcomes({
   gateFor?: (decided: number) => PopulationVerdict;
 }) {
   const { overall, lenders, undecided } = report;
+  // Waiting on a lender is the pipeline working; anything else undecided is a
+  // submission that never went through, and is said separately.
+  const waiting = undecided.find((u) => u.reason === 'awaiting a lender answer')?.count ?? 0;
+  const incomplete = overall.undecided - waiting;
 
   return (
     <Card span={span}>
@@ -61,10 +65,9 @@ export function LenderOutcomes({
               <div>
                 <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
                   Offer rate, all lenders
-                  <InfoTip label="How the lender offer rate is measured" align="start">
-                    Submissions a lender offered on, over the submissions a lender has decided —
-                    offers plus declines. A submission nobody has answered is excluded, because a
-                    lender that has not replied has not said no.
+                  <InfoTip label="How the lender offer rate is worked out" align="start">
+                    Offers divided by every offer or decline a lender has made. Applications still
+                    waiting on a lender are left out, because no answer is not a no.
                   </InfoTip>
                 </p>
                 <p className="mt-1 text-[28px] font-semibold leading-[1.15] tabular text-text">
@@ -76,22 +79,13 @@ export function LenderOutcomes({
               </div>
 
               <div>
-                <p className="text-[13px] font-medium text-text-2">Excluded — no answer yet</p>
+                <p className="text-[13px] font-medium text-text-2">Not answered yet</p>
                 <p className="mt-1 text-[28px] font-semibold leading-[1.15] tabular text-text-2">
-                  {formatCount(overall.undecided)}
+                  {formatCount(waiting)}
                 </p>
-                {/*
-                  The reasons, broken out. Awaiting an answer is the pipeline
-                  working; a submission that never completed is not, and one
-                  carrying a status nobody has mapped is a gap on our side.
-                  Three different facts, so three numbers rather than one word.
-                */}
                 <p className="mt-1 text-[13px] leading-snug text-text-2">
-                  {undecided.length === 0
-                    ? 'None'
-                    : undecided
-                        .map((u) => `${formatCount(u.count)} ${u.reason}`)
-                        .join(' · ')}
+                  {formatCount(waiting)} waiting on a lender reply
+                  {incomplete > 0 ? ` · ${formatCount(incomplete)} not completed` : ''}
                 </p>
               </div>
             </div>
@@ -184,10 +178,8 @@ export function LenderOutcomes({
           </div>
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
-            <Badge tone="neutral">Lender grain</Badge>
             <p className="min-w-0 flex-1 text-[12px] leading-snug text-text-3">
-              One deal appears once per lender it was sent to, so these counts are submissions
-              rather than deals and must not be compared with a funnel stage.
+              A deal sent to several lenders is counted once for each lender.
             </p>
           </div>
         </>

@@ -109,6 +109,13 @@ export const leads = pgTable(
     phoneKey: text('phone_key'),
     industry: text('industry'),
     state: text('state'),
+    /**
+     * Monthly revenue in the tenant's merged bands (migration 0034):
+     * `lt:10000`, `10000-20000`, … `gte:100000`; `categorical:New Business`;
+     * `unplaced:spans_bands` / `unplaced:unreadable` for an answer that fits no
+     * single band; null where nothing was answered. See `readRevenueBand`.
+     */
+    revenueBand: text('revenue_band'),
     isDuplicate: boolean('is_duplicate').notNull().default(false),
     duplicateOf: text('duplicate_of'),
     /**

@@ -69,22 +69,24 @@ describe('how screens obtain a population gate', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('gates every cost the executive briefing renders', () => {
-    // The briefing's efficiency table divides one channel's spend by that
-    // channel's records at four stages, and its funded-deal column routinely
-    // divides by one or two. A cell that stopped being gated would render that
-    // as a cost per funded deal, which is the figure a client repeats.
-    const page = files.find((f) => f.path.endsWith(join('[tenant]', 'page.tsx')));
-    expect(page).toBeDefined();
-    expect(page!.text).toContain("metrics.population('speed_to_lead'");
-    expect(page!.text).toMatch(/gate:\s*metrics\.population\(/);
+  it('shows every cost with what it was based on, and gates none (24 September 2026)', () => {
+    // The rule was reversed for costs: a cost always renders its number with
+    // "based on N deals" beneath it, and only an empty denominator says "No
+    // deals yet". A cost passed back through a gate would silently bring the
+    // amber badge back.
+    const offenders = files
+      .filter((f) => /metrics\.(population|comparable)\(\s*'(cost_[a-z_]*|cpa|cpc)'/.test(f.text))
+      .map((f) => f.path.replace(SRC, 'src'));
+    expect(offenders).toEqual([]);
 
-    // And the table must render the verdict rather than accept it and ignore
-    // it: a gate computed and never read is worse than no gate, because the
-    // test above passes.
+    const page = files.find((f) => f.path.endsWith(join('[tenant]', 'page.tsx')));
+    expect(page!.text).toContain("metrics.population('speed_to_lead'");
+
+    const cost = files.find((f) => f.path.endsWith('CostPerDeal.tsx'));
+    expect(cost!.text).toContain('Based on ${formatCount(n)}');
+    expect(cost!.text).toContain('No deals yet');
     const table = files.find((f) => f.path.endsWith('EfficiencyTable.tsx'));
-    expect(table).toBeDefined();
-    expect(table!.text).toMatch(/gate\.sufficient/);
+    expect(table!.text).not.toMatch(/gate\.sufficient/);
   });
 });
 

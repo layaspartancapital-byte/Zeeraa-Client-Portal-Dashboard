@@ -1,6 +1,6 @@
 import { Download } from 'lucide-react';
-import { RampCard } from '@/components/RampCard';
-import { buildRampPanels } from '@/lib/ramp-panels';
+import { RampTable } from '@/components/RampTable';
+import { buildRampPanels, rampTableRows } from '@/lib/ramp-panels';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
   addDays,
@@ -10,8 +10,6 @@ import {
   formatCount,
   formatCurrency,
   formatRate,
-  monthRange,
-  previousMonth,
   previousRange,
   tenantDay,
   trailingMonths,
@@ -44,7 +42,6 @@ import { CostPerDealCoverage } from '@/components/CostPerDeal';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { DivergingBars, RangeBars, StackedBars } from '@/components/charts/Bars';
 import { formatter } from '@/components/charts/format-spec';
-import { MonthSelect } from '@/components/MonthSelect';
 import { monthlyPerformance, platformLabel, submissionReport } from '@/lib/reporting';
 import {
   covers,
@@ -69,10 +66,6 @@ const MODELS = [
 
 
 
-const COMPARE = [
-  { key: 'previous', label: 'Previous period' },
-  { key: 'year', label: 'Last year' },
-];
 
 /**
  * The workhorse reporting screen.
@@ -94,8 +87,6 @@ export default async function Performance({
     preset?: string;
     /** Read only so a link made before the date picker existed still works. */
     days?: string;
-    month?: string;
-    compare?: string;
   }>;
 }) {
   const { tenant: slug } = await params;
@@ -103,27 +94,20 @@ export default async function Performance({
   const session = await requireTenant(slug);
 
   const model: AttributionModel = query.model === 'first_touch' ? 'first_touch' : 'last_touch';
-  const compare = COMPARE.some((c) => c.key === query.compare) ? query.compare! : 'previous';
 
   const page = await resolvePageRange(session, query);
   const { today, earliest, ingestion, problem } = page;
-  const monthPick = /^\d{4}-\d{2}$/.test(query.month ?? '') ? query.month! : null;
 
   /**
-   * A named month or the picked range. One range drives every figure on the
-   * screen, so nothing here reads a different period from its neighbour.
-   *
-   * The month selector is kept beside the date picker because it does
-   * something the picker cannot: it also switches the baseline to the previous
-   * *month* rather than the preceding equal-length window. It is a shortcut
-   * with comparison semantics, not a second date control — picking a range or
-   * a preset clears it, because `month` is absent from the links they build.
+   * The picked range, and nothing else: one date control on the page. The
+   * month selector ("Trailing window") and the "Previous period / Last year"
+   * toggle were removed on 24 September 2026 — a client read the selector as a
+   * second date range, and a figure is always compared with the period of the
+   * same length immediately before.
    */
-  const range: DateRange = monthPick ? clip(monthRange(monthPick), today) : page.range;
-  const preset = monthPick ? null : page.preset;
-
-  const baseline: DateRange =
-    compare === 'year' ? shiftYear(range) : monthPick ? clip(monthRange(previousMonth(monthPick)), today) : previousRange(range);
+  const range: DateRange = page.range;
+  const preset = page.preset;
+  const baseline: DateRange = previousRange(range);
 
   const currency = session.tenant.currency;
 
@@ -223,22 +207,10 @@ export default async function Performance({
    * both the same would be lying about one of them. A metric configuration
    * gives no direction for, like paid media spend, stays blue.
    */
-  /*
-   * Every channel cost on this screen is gated on the deals that channel
-   * actually divided by — the executive screen always was, this one was not,
-   * so a one-day range drew a cost per funded deal over a single deal.
-   */
-  const costGates = Object.fromEntries(
-    data.channels.map((c) => [
-      c.platform,
-      metrics.population('cost_per_funded_deal', c.costPerDeal.attributedDeals),
-    ]),
-  );
-  const leadGate = lead ? costGates[lead.platform] ?? null : null;
-  const leadBaselineComparable =
-    lead && leadPrevious
-      ? metrics.comparable('cost_per_funded_deal', leadPrevious.costPerDeal.attributedDeals).sufficient
-      : false;
+  // A cost always shows its number with what it was based on — no minimum
+  // deal count (see `packages/core/src/population.ts`). It compares with the
+  // previous period whenever that period had a deal to divide by.
+  const leadBaselineComparable = (leadPrevious?.costPerDeal.attributedDeals ?? 0) > 0;
 
   const complete = buckets.filter((bucket) => bucket.end < `${today.slice(0, 7)}-01`);
   const thisMonth = complete.at(-1) ?? null;
@@ -302,15 +274,9 @@ export default async function Performance({
               const ingested = (b: WindowBucket) =>
                 row.source === 'spend' ? b.spendIngested : b.crmIngested;
               if (!ingested(thisMonth) || !ingested(lastMonth)) return null;
-              // A ratio compares only when both months clear the comparison
-              // floor on the denominator they divided by. A month with no
-              // attributed deal has no cost per deal, and used to plot as 0 —
-              // a green −100% about nothing.
-              if (
-                row.denominator &&
-                (!metrics.comparable(row.key, row.denominator(thisMonth)).sufficient ||
-                  !metrics.comparable(row.key, row.denominator(lastMonth)).sufficient)
-              ) {
+              // A month with no attributed deal has no cost per deal, and used
+              // to plot as 0 — a green −100% about nothing.
+              if (row.denominator && (row.denominator(thisMonth) === 0 || row.denominator(lastMonth) === 0)) {
                 return null;
               }
               const current = row.of(thisMonth);
@@ -354,7 +320,7 @@ export default async function Performance({
         'Paid media spend has no configured direction and stays blue: spending less is not an ' +
         'achievement and spending more is not a failure — what it bought decides that.',
     },
-    ...quality.map((item) => ({
+    ...(canAdministerTenant(session.tenant.role) ? quality : []).map((item) => ({
       heading: item.name,
       body: item.detail || item.summary,
       detail: item.since
@@ -364,18 +330,9 @@ export default async function Performance({
   ];
 
   const base = `/${slug}/performance`;
-  // `month` is deliberately absent from what the date controls carry: choosing
-  // a range or a preset means choosing a period, and leaving the month behind
-  // would have it silently win.
-  const { preserve, presetHref } = rangeLinks(base, { model, compare });
-  const active = {
-    model,
-    compare,
-    ...rangeParams(range),
-    ...(monthPick ? { month: monthPick } : {}),
-  };
+  const { preserve, presetHref } = rangeLinks(base, { model });
+  const active = { model, ...rangeParams(range) };
 
-  const monthOptions = lastMonths(today, 12);
   const provisional = range.end >= addDays(today, -6);
 
   return (
@@ -394,7 +351,6 @@ export default async function Performance({
           earliest={earliest}
           today={today}
         />
-        <MonthSelect base={base} params={active} months={monthOptions} active={monthPick} />
         <Segmented
           label="Attribution model"
           active={model}
@@ -414,15 +370,7 @@ export default async function Performance({
       </TopBar>
 
       <PageMeta>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-[13px] text-text-2">Deltas compare against</span>
-          <Segmented
-            label="Compare against"
-            active={compare}
-            options={segments(base, active, 'compare', COMPARE)}
-          />
-          <AutoRefresh />
-        </div>
+        <AutoRefresh />
         <MethodDrawer
           notes={notes}
           title={`${range.start} to ${range.end} · ${session.tenant.timezone}`}
@@ -439,7 +387,7 @@ export default async function Performance({
               current={data.total.spend}
               baseline={spendComparable ? previous.total.spend : null}
               direction={metrics.direction('paid_media_spend')}
-              comparison={compare === 'year' ? 'vs last year' : 'vs previous period'}
+              comparison="vs previous period"
               unavailable={notIngested(ingestion.spendFrom)}
             />
           }
@@ -458,7 +406,7 @@ export default async function Performance({
               current={dealsIn(data.total.stages)}
               baseline={crmComparable ? dealsIn(previous.total.stages) : null}
               direction={metrics.direction('funded_deals')}
-              comparison={compare === 'year' ? 'vs last year' : 'vs previous period'}
+              comparison="vs previous period"
               unavailable={notIngested(ingestion.crmFrom)}
             />
           }
@@ -482,7 +430,7 @@ export default async function Performance({
           <KpiCard
             label={`Cost per ${valueLabel.toLowerCase()} deal · ${lead.label}`}
             value={
-              spendOut || crmOut || lead.costPerDeal.value === null || (leadGate && !leadGate.sufficient)
+              spendOut || crmOut || lead.costPerDeal.value === null
                 ? null
                 : formatCurrency(lead.costPerDeal.value, currency)
             }
@@ -492,11 +440,11 @@ export default async function Performance({
                 : spendOut
                   ? spendWhy
                   : lead.costPerDeal.value === null
-                    ? `No ${valueLabel.toLowerCase()} deal is attributed to ${lead.label}`
-                    : (leadGate?.reason ?? undefined)
+                    ? 'No deals yet'
+                    : undefined
             }
             delta={
-              !spendOut && !crmOut && lead.costPerDeal.value !== null && leadGate?.sufficient !== false ? (
+              !spendOut && !crmOut && lead.costPerDeal.value !== null ? (
                 <Delta
                   current={lead.costPerDeal.value}
                   baseline={
@@ -505,7 +453,7 @@ export default async function Performance({
                       : null
                   }
                   direction={metrics.direction('cost_per_funded_deal')}
-                  comparison={compare === 'year' ? 'vs last year' : 'vs previous period'}
+                  comparison="vs previous period"
                   unavailable={notIngested(ingestion.spendFrom)}
                 />
               ) : (
@@ -524,10 +472,9 @@ export default async function Performance({
             points={mini((b) => {
               if (!valueKey) return null;
               const deals = b.stagesByPlatform[lead.platform]?.[valueKey] ?? 0;
-              // Gated per bucket on its own deals: a month with one attributed
-              // deal is a fact about that deal, and a line through it draws a
-              // trajectory that is not in the data.
-              if (deals === 0 || !metrics.population('cost_per_funded_deal', deals).sufficient) return null;
+              // A month with no attributed deal has no cost per deal, and
+              // is a gap in the line rather than a zero.
+              if (deals === 0) return null;
               return (b.spendByPlatform[lead.platform] ?? 0) / deals;
             }, 'spend')}
             provisional={provisional}
@@ -558,10 +505,10 @@ export default async function Performance({
         />
 
         {/*
-          The ramp's other curves — CPA, budget, approvals, funded deals and
-          volume — moved here from the executive screen, which keeps a
-          this-month scorecard and cost per funded deal. Same months, same
-          arithmetic (`lib/ramp-panels.ts`).
+          The ramp as one month-by-month table (24 September 2026): spend,
+          approvals, CPA, funded deals and cost per funded deal, each against
+          its target. Same months and the same verdict rule as the executive
+          scorecard (`lib/ramp-panels.ts`).
         */}
         {(() => {
           const panels = buildRampPanels({
@@ -575,12 +522,20 @@ export default async function Performance({
             currency,
             currentMonth: today.slice(0, 7),
           });
-          return panels.startMonth === null ? null : (
-            <RampCard
-              title="Engagement ramp"
-              platformLabel={panels.channel}
-              panels={[panels.secondary, ...panels.compact]}
-              startMonth={panels.startMonth}
+          if (panels.startMonth === null) return null;
+          const [y, m, d] = today.split('-').map(Number);
+          const elapsed = d! / new Date(Date.UTC(y!, m!, 0)).getUTCDate();
+          const every = [panels.primary, panels.secondary, ...panels.compact];
+          const formats = Object.fromEntries(every.map((p) => [p.metric, p.format])) as Record<
+            (typeof every)[number]['metric'],
+            (typeof every)[number]['format']
+          >;
+          return (
+            <RampTable
+              channel={panels.channel}
+              rows={rampTableRows(panels, { currentMonth: today.slice(0, 7), elapsed })}
+              formats={formats}
+              valueLabel={valueLabel}
             />
           );
         })()}
@@ -653,7 +608,7 @@ export default async function Performance({
               <EmptyLine action={<NotMeasuredBadge />}>{crmOut ? crmWhy : spendWhy}</EmptyLine>
             </CardBody>
           ) : data.channels.length > 0 || dealsIn(data.total.stages) > 0 ? (
-            <PerformanceTable data={data} currency={currency} gates={costGates} />
+            <PerformanceTable data={data} currency={currency} />
           ) : (
             <CardBody>
               <EmptyLine href={`/${slug}/connections`} action="Check connections">
@@ -675,7 +630,7 @@ export default async function Performance({
             <RangeBars
               id="perf-cost-range"
               rows={data.channels
-                .filter((c) => c.costPerDeal.value !== null && costGates[c.platform]?.sufficient !== false)
+                .filter((c) => c.costPerDeal.value !== null)
                 .map((c) => ({
                   label: c.label,
                   platform: c.platform,
@@ -729,7 +684,8 @@ export default async function Performance({
           </CardBody>
         </Card>
 
-        <Card span={8} selfStart>
+        {/* Full width for a client, who has no data-quality card beside it. */}
+        <Card span={canAdministerTenant(session.tenant.role) ? 8 : 12} selfStart>
           <CardHeader
             title="Month over month"
             subtitle={
@@ -754,7 +710,7 @@ export default async function Performance({
           </CardBody>
         </Card>
 
-        <DataQualityCard items={quality} span={4} />
+        {canAdministerTenant(session.tenant.role) && <DataQualityCard items={quality} span={4} />}
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
@@ -762,16 +718,7 @@ export default async function Performance({
   );
 }
 
-/** A named month never runs past today: the rest of it has not happened. */
-function clip(range: DateRange, today: string): DateRange {
-  return { start: range.start, end: range.end < today ? range.end : today };
-}
 
-/** The same calendar window, twelve months earlier. */
-function shiftYear(range: DateRange): DateRange {
-  const back = (day: string) => `${Number(day.slice(0, 4)) - 1}${day.slice(4)}`;
-  return { start: back(range.start), end: back(range.end) };
-}
 
 function monthName(key: string): string {
   return new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', {
@@ -781,19 +728,3 @@ function monthName(key: string): string {
   });
 }
 
-function lastMonths(today: string, count: number): { key: string; label: string }[] {
-  const months: { key: string; label: string }[] = [];
-  let key = today.slice(0, 7);
-  for (let i = 0; i < count; i += 1) {
-    months.push({
-      key,
-      label: new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-      }),
-    });
-    key = previousMonth(key);
-  }
-  return months;
-}

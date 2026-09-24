@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import { leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
+  formatCount,
   eachDay,
   previousMonth as previousMonthKey,
   tenantDay,
@@ -24,6 +25,14 @@ import {
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
 import { sourcesThrough } from '@/lib/coverage';
+import {
+  NO_REASON_BUCKET,
+  declineReasonSummary,
+  offerRateSummary,
+  reasonLine,
+  revenueBandSummary,
+  share,
+} from '@/lib/quality-measures';
 
 /**
  * The queries behind the dashboard furniture that spec v2 added: a mini chart
@@ -676,7 +685,9 @@ export type DataQualityItem = {
     | 'degraded'
     | 'unreconciled'
     | 'corrected'
-    | 'not_configured';
+    | 'not_configured'
+    /** A figure the platform does measure, stated with its coverage. */
+    | 'measured';
   /** One line. The full explanation goes in the ⓘ, never inline. */
   summary: string;
   detail: string;
@@ -690,6 +701,7 @@ const STATUS_ORDER: Record<DataQualityItem['status'], number> = {
   unreconciled: 3,
   corrected: 4,
   not_configured: 5,
+  measured: 6,
 };
 
 /**
@@ -874,9 +886,77 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
     ),
   ];
 
+  items.push(...(await measuredItems(session)));
+
   return items.sort(
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name),
   );
+}
+
+/**
+ * Three figures this card used to list as not measurable, now measured over
+ * the last 90 days and stated with their coverage (24 September 2026). Each is
+ * left out for a tenant with no data behind it — no lender submissions, no
+ * revenue bands stored — rather than rendered as a zero.
+ */
+async function measuredItems(session: TenantSession): Promise<DataQualityItem[]> {
+  const today = tenantDay(new Date(), session.tenant.timezone);
+  const range = { start: addDays(today, -89), end: today };
+  const [offers, bands, declines] = await Promise.all([
+    offerRateSummary(session, range),
+    revenueBandSummary(session, range),
+    declineReasonSummary(session, range),
+  ]);
+  const out: DataQualityItem[] = [];
+
+  if (offers.decided > 0) {
+    out.push({
+      key: 'measured:offer_rate',
+      name: 'Offer rate',
+      status: 'measured',
+      summary: `${share(offers.offered, offers.decided)} of lender decisions were offers · last 90 days`,
+      detail:
+        `${formatCount(offers.offered)} offers out of ${formatCount(offers.decided)} lender decisions, counted per lender: ` +
+        offers.lenders
+          .filter((l) => l.decided > 0)
+          .map((l) => `${l.name} ${share(l.offered, l.decided)} (${formatCount(l.offered)} of ${formatCount(l.decided)})`)
+          .join(', ') +
+        `. ${formatCount(offers.waiting)} submissions are still waiting on a lender reply and are not counted.`,
+      since: null,
+    });
+  }
+
+  if (bands.placed + bands.spansBands + bands.categorical > 0) {
+    out.push({
+      key: 'measured:revenue_bands',
+      name: 'Revenue bands',
+      status: 'measured',
+      summary: `Band known for ${share(bands.placed, bands.leads)} of inbound leads · last 90 days`,
+      detail:
+        `One set of bands across every form: ` +
+        bands.bands.map((b) => `${b.label} ${formatCount(b.count)}`).join(', ') +
+        `. Of ${formatCount(bands.leads)} inbound leads, ${formatCount(bands.spansBands)} gave a range from an older ` +
+        `form that spans two bands, ${formatCount(bands.categorical)} said New Business, and ` +
+        `${formatCount(bands.unanswered)} did not answer.`,
+      since: null,
+    });
+  }
+
+  if (declines.declined > 0) {
+    out.push({
+      key: 'measured:decline_reasons',
+      name: 'Decline reasons',
+      status: 'measured',
+      summary: `Reason given on ${share(declines.withReason, declines.declined)} of lender declines · last 90 days`,
+      detail:
+        `${formatCount(declines.withReason)} of ${formatCount(declines.declined)} lender declines carry a reason, from ` +
+        `the lender submission's Decline Reason field — the best-populated place a reason is recorded. ` +
+        (declines.reasons.length > 0 ? `Most common: ${reasonLine(declines)}. ` : '') +
+        `${NO_REASON_BUCKET}, no reason given: ${formatCount(declines.noReason)}.`,
+      since: null,
+    });
+  }
+  return out;
 }
 
 /**

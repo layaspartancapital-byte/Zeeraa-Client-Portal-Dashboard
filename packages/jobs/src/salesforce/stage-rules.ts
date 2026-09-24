@@ -338,3 +338,51 @@ export async function applyStageCorrections(
 
   return corrections.length;
 }
+
+/**
+ * Lenders whose submissions are real records and not lending: a CRM's test
+ * accounts (24 September 2026). The `lender_exclusions` config row:
+ * `{ reason, lenders: [{ id, name }] }`, matched on the lender's Salesforce id,
+ * which survives a rename. Their submissions carry `excluded_reason`, so
+ * `submissionsIn` drops them from every lender table, rate and total.
+ *
+ * Applied after the submissions upsert on every sync, and after
+ * `applyStageExclusions` has cleared the column, so it holds however often the
+ * sync runs. Throws on a malformed row, like the other rules: a rule that
+ * parsed to nothing would put the test lender back in the totals silently.
+ */
+export type LenderExclusion = { reason: string; lenderIds: string[] };
+
+export function parseLenderExclusions(value: unknown): LenderExclusion | null {
+  if (value == null) return null;
+  const v = value as { reason?: unknown; lenders?: unknown };
+  if (typeof v.reason !== 'string' || !v.reason || !Array.isArray(v.lenders) || v.lenders.length === 0) {
+    throw new Error('lender_exclusions must be { reason, lenders: [{ id, name }, ...] }.');
+  }
+  const lenderIds = v.lenders.map((l, i) => {
+    const id = (l as { id?: unknown }).id;
+    if (typeof id !== 'string' || !id) throw new Error(`lender_exclusions lender ${i} needs an id.`);
+    return id;
+  });
+  return { reason: v.reason, lenderIds };
+}
+
+export async function applyLenderExclusions(
+  tx: Database,
+  tenantId: string,
+  rule: LenderExclusion | null,
+): Promise<number> {
+  if (!rule) return 0;
+  const updated = await tx
+    .update(schema.submissions)
+    .set({ excludedReason: rule.reason })
+    .where(
+      and(
+        eq(schema.submissions.tenantId, tenantId),
+        inArray(schema.submissions.lenderExternalId, rule.lenderIds),
+        sql`${schema.submissions.excludedReason} is null`,
+      ),
+    )
+    .returning({ id: schema.submissions.id });
+  return updated.length;
+}

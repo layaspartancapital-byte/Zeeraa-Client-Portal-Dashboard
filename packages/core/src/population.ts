@@ -36,15 +36,6 @@
  * restated in the one place a reader is already asking the question.
  */
 const NEEDS_POPULATION: Record<string, PopulationNoun> = {
-  /* Channel metrics: the denominator is that channel's own deals. */
-  cost_per_funded_deal: ['deal attributed to this channel', 'deals attributed to this channel'],
-  cost_per_stage: ['deal attributed to this channel', 'deals attributed to this channel'],
-  cost_per_conversion: [
-    'conversion attributed to this channel',
-    'conversions attributed to this channel',
-  ],
-  cpa: ['conversion attributed to this channel', 'conversions attributed to this channel'],
-
   /* Rates over a stated population. */
   attributed_share: ['deal reaching the value stage', 'deals reaching the value stage'],
   stage_conversion_rate: ['deal reaching the earlier stage', 'deals reaching the earlier stage'],
@@ -83,7 +74,22 @@ export type PopulationNoun = readonly [one: string, many: string];
  */
 const RATIO_SHAPED = /(^|_)(rate|share|ratio|median|cost|cpa|cpc|cpl|cac|per)(_|$)/;
 
+/**
+ * A cost: spend divided by what it bought. **Never gated** (24 September
+ * 2026, reversing the rule for costs only).
+ *
+ * A client reads "Not measured" beside a cost they paid as the platform
+ * hiding it. So a cost always renders its number with what it was divided by
+ * beneath it — "based on 2 deals" — and the reader judges the sample; only an
+ * empty denominator has no figure. Rates keep their floor: a 100% offer rate
+ * over one decision is not a statement about a lender. See
+ * `docs/brief-amendments.md`, "the minimum-deal rule no longer applies to
+ * costs".
+ */
+const COST_SHAPED = /(^|_)(cost|cpa|cpc|cpl|cac)(_|$)/;
+
 export function needsPopulation(formulaKey: string): boolean {
+  if (COST_SHAPED.test(formulaKey)) return false;
   return Object.hasOwn(NEEDS_POPULATION, formulaKey) || RATIO_SHAPED.test(formulaKey);
 }
 

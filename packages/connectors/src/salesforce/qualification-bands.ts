@@ -1,5 +1,6 @@
 import {
   judgeBand,
+  placeRevenueBand,
   readDurationBand,
   readMoneyBand,
   type QualificationBar,
@@ -145,4 +146,34 @@ export function judgeQualificationBands(
   ].filter((r): r is string => r != null);
 
   return { verdict: 'undeterminable', reason: reasons.join('; '), ...detail };
+}
+
+/**
+ * The lead's monthly revenue, placed in the tenant's merged bands, as stored
+ * in `leads.revenue_band`:
+ *
+ * - a band key (`lt:10000`, `10000-20000`, `gte:100000`);
+ * - `categorical:New Business` for an answer that is not an amount;
+ * - `unplaced:spans_bands` or `unplaced:unreadable` for an answer that cannot
+ *   go in one band — stored rather than dropped, so coverage can be stated;
+ * - null where the lead answered nothing at all, or no edges are configured.
+ *
+ * The candidates are read in the same order as for the qualification bar, and
+ * the first answer that places (or is categorical) wins, so a field holding an
+ * older form's straddling band does not hide a later field that answers
+ * cleanly.
+ */
+export function readRevenueBand(record: SalesforceRecord, mapping: SalesforceFieldMapping): string | null {
+  const edges = mapping.lead.revenueBandEdges;
+  if (!edges || edges.length === 0) return null;
+  let fallback: string | null = null;
+  for (const candidate of mapping.lead.revenueBands ?? []) {
+    const raw = value(record, candidate.field);
+    if (raw == null) continue;
+    const placed = placeRevenueBand(readMoneyBand(raw, candidate.period), edges);
+    if (placed.kind === 'band') return placed.key;
+    if (placed.kind === 'categorical') return `categorical:${placed.label}`;
+    fallback ??= `unplaced:${placed.why}`;
+  }
+  return fallback;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgeBand, readDurationBand, readMoneyBand, rangeMeetsMinimum } from '../src/bands';
+import { judgeBand, placeRevenueBand, readDurationBand, readMoneyBand, rangeMeetsMinimum } from '../src/bands';
 
 /**
  * Every literal here is a value that exists in Spartan's org today, taken from
@@ -269,5 +269,33 @@ describe('the form band values', () => {
         false,
       ).meets,
     ).toBeNull();
+  });
+});
+
+describe('placeRevenueBand', () => {
+  const edges = [10_000, 20_000, 50_000, 100_000];
+  const place = (raw: string, period: 'monthly' | 'annual' = 'monthly') =>
+    placeRevenueBand(readMoneyBand(raw, period), edges);
+
+  it('places the main form’s answers in their own bands', () => {
+    expect(place('Less than $10,000')).toEqual({ kind: 'band', key: 'lt:10000' });
+    expect(place('$10,000 - $20,000')).toEqual({ kind: 'band', key: '10000-20000' });
+    expect(place('$20,000 - $50,000')).toEqual({ kind: 'band', key: '20000-50000' });
+    expect(place('$50,000 - $100,000')).toEqual({ kind: 'band', key: '50000-100000' });
+    expect(place('more than $100,000')).toEqual({ kind: 'band', key: 'gte:100000' });
+  });
+
+  it('places a point amount, and an annual one by its monthly equivalent', () => {
+    expect(place('25000')).toEqual({ kind: 'band', key: '20000-50000' });
+    expect(place('Less than $180,000', 'annual')).toMatchObject({ kind: expect.any(String) });
+  });
+
+  it('does not force an older form’s band into one of these', () => {
+    expect(place('< $15,000')).toEqual({ kind: 'unplaced', why: 'spans_bands' });
+    expect(place('$15,000 - $35,000')).toEqual({ kind: 'unplaced', why: 'spans_bands' });
+  });
+
+  it('keeps New Business as its own answer', () => {
+    expect(place('New Business')).toEqual({ kind: 'categorical', label: 'New Business' });
   });
 });

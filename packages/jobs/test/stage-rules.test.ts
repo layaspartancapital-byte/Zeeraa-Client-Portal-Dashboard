@@ -354,3 +354,19 @@ describe('stage corrections', () => {
     expect(row!.excludedReason).toBe('renewal');
   });
 });
+
+describe('parseLenderExclusions', () => {
+  it('reads the lender ids and the reason', async () => {
+    const { parseLenderExclusions } = await import('../src/salesforce/stage-rules');
+    expect(
+      parseLenderExclusions({ reason: 'test_lender', lenders: [{ id: '001A', name: 'Test Lender' }] }),
+    ).toEqual({ reason: 'test_lender', lenderIds: ['001A'] });
+    expect(parseLenderExclusions(undefined)).toBeNull();
+  });
+
+  it('throws on a malformed row rather than excluding nothing', async () => {
+    const { parseLenderExclusions } = await import('../src/salesforce/stage-rules');
+    expect(() => parseLenderExclusions({ reason: 'test_lender', lenders: [] })).toThrow();
+    expect(() => parseLenderExclusions({ reason: 'test_lender', lenders: [{ name: 'no id' }] })).toThrow();
+  });
+});

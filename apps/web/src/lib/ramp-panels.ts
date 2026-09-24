@@ -83,10 +83,10 @@ export function buildRampPanels(input: {
   // Only a finished month is a point on the M-axis curve (no start recorded).
   const completedBucketFor = (month: string) =>
     month >= currentMonth ? null : (buckets.find((b) => monthKeyOf(b.start) === month) ?? null);
-  const gatedCost = (spend: number, attributed: number, formulaKey: string) =>
-    metrics.population(formulaKey, attributed).sufficient
-      ? channelCostPerDeal({ channelSpend: spend, attributedDeals: attributed }).value
-      : null;
+  // A cost is never withheld for a small denominator; only an empty one has
+  // no figure (see `packages/core/src/population.ts`).
+  const gatedCost = (spend: number, attributed: number, _formulaKey: string) =>
+    attributed > 0 ? channelCostPerDeal({ channelSpend: spend, attributedDeals: attributed }).value : null;
   const mAxisActual: Record<RampMetricKey, (month: string) => number | null> = {
     costPerFundedDeal: (month) => {
       const b = completedBucketFor(month);
@@ -281,7 +281,6 @@ export function scorecardRows(
         kind,
         partial: true,
         elapsed,
-        comparable: actual.cost ? metrics.comparable(formulaKey, actual.cost.attributedDeals) : undefined,
       }),
     };
   });
@@ -294,5 +293,79 @@ function monthLabelOf(month: string): string {
     month: 'short',
     year: 'numeric',
     timeZone: 'UTC',
+  });
+}
+
+/**
+ * The engagement ramp as one table (24 September 2026, replacing five charts
+ * on Monthly performance): a row per month, the baseline months first with
+ * actuals only, then M1–Mn with each figure against its target.
+ *
+ * Every cell's verdict is `scorecardVerdict`, the executive scorecard's rule,
+ * so a month cannot read "on target" on one screen and "behind" on the other:
+ * a finished month against its target, the month in progress against pace.
+ * A month that has not happened shows its target and nothing else.
+ */
+export const RAMP_TABLE_COLUMNS: { metric: RampMetricKey; label: (valueLabel: string) => string; formulaKey: string; kind: 'rate' | 'count' }[] = [
+  { metric: 'budget', label: () => 'Spend', formulaKey: 'paid_media_spend', kind: 'count' },
+  { metric: 'approvals', label: () => 'Approvals', formulaKey: 'stage_count', kind: 'count' },
+  { metric: 'cpa', label: () => 'CPA', formulaKey: 'cpa', kind: 'rate' },
+  { metric: 'fundedDeals', label: (v) => `${v}`, formulaKey: 'stage_count', kind: 'count' },
+  { metric: 'costPerFundedDeal', label: (v) => `Cost per ${v.toLowerCase()}`, formulaKey: 'cost_per_funded_deal', kind: 'rate' },
+];
+
+export type RampTableCell = {
+  actual: MonthActual | null;
+  target: number | null;
+  verdict: ScorecardVerdict | null;
+};
+
+export type RampTableRow = {
+  month: string;
+  /** `M3`, or null for a baseline month. */
+  rampLabel: string | null;
+  inProgress: boolean;
+  future: boolean;
+  cells: Record<RampMetricKey, RampTableCell>;
+};
+
+export function rampTableRows(
+  panels: RampPanels,
+  input: { currentMonth: string; elapsed: number },
+): RampTableRow[] {
+  const timeline = panels.primary.timeline;
+  if (!timeline) return [];
+  return timeline.points.map((point) => {
+    const future = point.month > input.currentMonth;
+    const inProgress = point.month === input.currentMonth;
+    const target = point.monthIndex === null ? null : (panels.targets.find((t) => t.monthIndex === point.monthIndex) ?? null);
+    const cells = Object.fromEntries(
+      RAMP_TABLE_COLUMNS.map(({ metric, formulaKey, kind }) => {
+        const raw = target?.[metric];
+        const targetValue = raw === null || raw === undefined ? null : Number(raw);
+        const actual = future ? null : panels.monthActual(metric, point.month);
+        const verdict =
+          point.monthIndex === null || future || targetValue === null
+            ? null
+            : scorecardVerdict({
+                actual: actual?.value ?? null,
+                actualReason: actual?.reason ?? null,
+                target: targetValue,
+                noTarget: null,
+                direction: improvementDirectionFor(formulaKey),
+                kind,
+                partial: inProgress,
+                elapsed: inProgress ? input.elapsed : 1,
+              });
+        return [metric, { actual, target: targetValue, verdict }];
+      }),
+    ) as Record<RampMetricKey, RampTableCell>;
+    return {
+      month: point.month,
+      rampLabel: point.monthIndex === null ? null : `M${point.monthIndex}`,
+      inProgress,
+      future,
+      cells,
+    };
   });
 }

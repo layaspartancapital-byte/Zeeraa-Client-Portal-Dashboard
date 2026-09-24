@@ -55,6 +55,7 @@ function lead(overrides: Partial<LeadRow> = {}): LeadRow {
     selfReportedTimeInBusiness: 36,
     industry: null,
     state: 'NY',
+    revenueBand: null,
     isConverted: true,
     convertedOpportunityId: '0061',
     mergedInto: null,

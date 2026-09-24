@@ -40,6 +40,8 @@ import {
 import {
   applyStageCorrections,
   applyStageExclusions,
+  applyLenderExclusions,
+  type LenderExclusion,
   type StageCorrection,
   type StageExclusionRule,
 } from './stage-rules';
@@ -60,6 +62,8 @@ export type SyncContext = {
   mqlStageKey?: string;
   /** Events that are real but not counted — renewals reaching Funded. */
   stageExclusions?: StageExclusionRule[];
+  /** Test lenders, from `lender_exclusions`. */
+  lenderExclusions?: LenderExclusion | null;
   /** Stage dates a person has corrected over the CRM's. */
   stageCorrections?: StageCorrection[];
 };
@@ -397,6 +401,9 @@ export async function runSalesforceSync(
           submissions.rows,
           syncRunId,
         );
+        // After the upsert, so a test lender's new submission is excluded in
+        // the same run it arrives.
+        await applyLenderExclusions(tx, context.tenantId, context.lenderExclusions ?? null);
         result.submissions = {
           rows: written,
           counts: submissions.counts,

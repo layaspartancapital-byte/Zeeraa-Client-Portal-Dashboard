@@ -37,7 +37,6 @@ import {
   engagementRamp,
   frozenBaseline,
   loadMetrics,
-  maxRateLeakage,
   pausedCampaigns,
   sourceFreshness,
   windowBuckets,
@@ -107,6 +106,8 @@ export default async function ExecutiveBriefing({
   const { tenant: slug } = await params;
   const query = await searchParams;
   const session = await requireTenant(slug);
+  // Zeeraa staff see the data-quality working list; a client does not.
+  const staff = canAdministerTenant(session.tenant.role);
   const currency = session.tenant.currency;
 
   /**
@@ -149,7 +150,6 @@ export default async function ExecutiveBriefing({
     connections,
     paused,
     freshness,
-    leakage,
     through,
   ] = await Promise.all([
     monthlyPerformance(session, range, model),
@@ -166,7 +166,6 @@ export default async function ExecutiveBriefing({
     connectionHealth(session),
     pausedCampaigns(session, lastFullMonth.start),
     sourceFreshness(session),
-    maxRateLeakage(session),
     sourcesThrough(session),
   ]);
 
@@ -288,17 +287,9 @@ export default async function ExecutiveBriefing({
           attributedDeals: channel.stages[column.stage] ?? 0,
           unattributedDeals: current.unattributed.stages[column.stage] ?? 0,
         });
-        return {
-          stage: column.stage,
-          cost,
-          // Gated on the population this cell divided by, not the row's. Google
-          // Ads can claim 185 leads and one funded deal in the same month, and
-          // those two figures are supported to completely different degrees.
-          gate: metrics.population(
-            column.stage === valueKey ? 'cost_per_funded_deal' : 'cost_per_stage',
-            cost.attributedDeals,
-          ),
-        };
+        // Never withheld for a small denominator: the cell shows what it
+        // divided by instead ("1 deal"), and the reader weighs it.
+        return { stage: column.stage, cost };
       }),
     }));
 
@@ -451,7 +442,7 @@ export default async function ExecutiveBriefing({
       detail:
         `The range is ${mtdLabel}, compared with ${lastMonthLabel}. A count from one is never ` +
         'subtracted from a count in the other, so those sit as two figures. Rates and costs do ' +
-        'compare, and each is withheld below its own minimum population.',
+        'compare. A cost always shows its number with how many it was based on.',
     },
     {
       heading: 'This month vs target',
@@ -483,9 +474,8 @@ export default async function ExecutiveBriefing({
       body:
         'Each figure is one channel’s spend over the records attributed to that channel at that ' +
         'stage. Nothing here is blended across channels.',
-      detail: `Withheld below ${formatCount(
-        metrics.floors.render,
-      )} in its own denominator, because a cost over one or two records measures the sample rather than the channel.`,
+      detail:
+        'Under each cost is the number it was divided by. A cost over one or two deals can move a lot when the next one lands.',
     },
     {
       heading: 'How current these figures are',
@@ -515,7 +505,7 @@ export default async function ExecutiveBriefing({
         totalDeals,
       )} ${valueLabel.toLowerCase()} deals in ${mtdLabel}.`,
     },
-    ...quality.map((item) => ({
+    ...(staff ? quality : []).map((item) => ({
       heading: item.name,
       body: item.detail || item.summary,
       detail: item.since ? `Outstanding since ${item.since.toISOString().slice(0, 10)}.` : undefined,
@@ -584,6 +574,7 @@ export default async function ExecutiveBriefing({
 
         {/* 2. The outcome, and the spend that bought it. */}
         <TwoPeriodKpi
+          span={6}
           label={`${valueLabel} deals`}
           value={formatCount(totalDeals)}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
@@ -604,6 +595,7 @@ export default async function ExecutiveBriefing({
           info="Deals reaching the value stage, renewals excluded. Shown for both periods and never subtracted: a count's difference is mostly the calendar."
         />
         <TwoPeriodKpi
+          span={6}
           label={`${valueLabel} volume`}
           value={formatCurrency(current.total.valueVolume, currency)}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
@@ -633,7 +625,6 @@ export default async function ExecutiveBriefing({
               data={current}
               counts={current.total.stages}
               populationLabel="every source"
-              maxLeakage={leakage}
             />
           )}
         </Card>
@@ -666,8 +657,10 @@ export default async function ExecutiveBriefing({
         )}
 
         {/* 5. What to do about it, and what the platform cannot say. */}
-        <NeedsAttention findings={findings} span={8} />
-        <DataQualityCard items={quality} span={4} />
+        {/* Data quality is Zeeraa's working list, not the client's: a client
+            reads a list of what cannot be measured as a list of failures. */}
+        <NeedsAttention findings={findings} span={staff ? 8 : 12} />
+        {staff && <DataQualityCard items={quality} span={4} />}
       </Grid>
 
       <MethodNotesForPrint notes={notes} />

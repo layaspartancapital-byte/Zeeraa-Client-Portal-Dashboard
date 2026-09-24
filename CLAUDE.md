@@ -84,8 +84,12 @@
   authorization-checked.
 - **No screen may surface a user outside the current tenant.** Enforced by the
   `users` and `memberships` policies, not by a query filter.
-- **A missing data dependency is an explicit blocked state in the UI**, not a
-  silent gap. A visible dependency is a conversation; a gap looks like failure.
+- **A missing data dependency is an explicit blocked state — for Zeeraa
+  staff.** The Data quality card and its drawer items render only for
+  `zeeraa_admin`. For a client, where the data cannot support something it is
+  hidden rather than shown as a dead control or badge (24 September 2026): a
+  tab with nothing behind it is not drawn. A figure the client *does* see that
+  cannot be measured for the period is still `Not measured`, never a zero.
 - **Coverage is by day, from `sync_days`.** Every pull records the days it
   covered and whether each had settled; a source resumes from its oldest day
   not read final. A range with an unread day is partial and names the days; a
@@ -155,6 +159,11 @@ commit history and get it wrong.
   names a formula or a floor —
   `apps/web/test/population-gate-usage.test.ts` reads the sources and fails if
   one does. An undeclared count is ungated; an undeclared *ratio* is gated.
+  **A cost is never gated** (reversed 24 September 2026): cost per funded deal,
+  CPA and every cost per stage always show the number with "Based on N deals"
+  beneath it, and only an empty denominator says "No deals yet".
+  `needsPopulation` returns false for anything cost-shaped; rates keep their
+  floor. See `docs/brief-amendments.md`, "thirteen client-facing fixes".
 - **A channel's metric takes both halves from that channel.** Cost per deal is
   that channel's spend over the deals attributed to that channel; a channel's
   conversion rate is its own numerator over its own denominator. Deals no
@@ -313,10 +322,11 @@ assumes they are comparable.
   channels, deals across every source — and renders nothing where the sum would
   be a category error. Blended cost per deal is one of those until every channel
   is ingested.
-- **A cost-per-deal figure carries its coverage and its range as part of the
-  metric** — one small line under the number, with the full explanation in the
-  ⓘ beside it. A bare cost-per-deal number never renders; `CostPerDealFigure`
-  takes a `ChannelCostPerDeal` and there is no prop that accepts a plain number.
+- **A cost-per-deal figure carries its coverage as part of the metric** — one
+  small line under the number ("Based on 3 deals"), with a one-sentence ⓘ. The
+  plausible range was dropped on 24 September 2026 as analyst detail. A bare
+  cost-per-deal number never renders; `CostPerDealFigure` takes a
+  `ChannelCostPerDeal` and there is no prop that accepts a plain number.
 
 ### Charts
 

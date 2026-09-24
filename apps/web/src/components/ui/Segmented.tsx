@@ -26,7 +26,7 @@ export function Segmented({
     <div
       role="group"
       aria-label={label}
-      className={`inline-flex shrink-0 rounded-[8px] border border-border bg-surface p-[2px] print-hidden ${className}`}
+      className={`inline-flex h-9 shrink-0 items-center rounded-[8px] border border-border bg-surface p-[2px] print-hidden ${className}`}
     >
       {options.map((option) => {
         const on = option.key === active;

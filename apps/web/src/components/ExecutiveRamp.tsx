@@ -71,7 +71,9 @@ function ScoreCell({
     <div className="flex min-w-0 flex-col gap-1 bg-surface px-5 py-4">
       <dt className="text-[13px] font-medium text-text-2">{row.label}</dt>
       <dd className="flex min-w-0 flex-col gap-1">
-        {actual.value === null ? (
+        {actual.value === null && actual.empty ? (
+          <p className="py-1.5 text-[15px] font-medium text-text-3">{actual.reason?.replace(/\.$/, '')}</p>
+        ) : actual.value === null ? (
           <span className="flex items-center gap-2 py-1.5">
             <Badge tone="warn" title={actual.reason ?? undefined}>
               Not measured

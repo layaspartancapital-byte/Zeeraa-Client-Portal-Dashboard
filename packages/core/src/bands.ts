@@ -240,3 +240,47 @@ export function judgeBand(
   const meets = rangeMeetsMinimum(reading.range, minimum);
   return { meets, reason: meets === null ? 'straddles' : 'resolved' };
 }
+
+/**
+ * One merged set of revenue bands, so answers from forms that ask the
+ * question differently land in the same buckets (24 September 2026).
+ *
+ * `edges` is the tenant's `revenue_band_edges` config row — where the edges
+ * fall is a judgement about a client's forms, not code. Spartan's are the main
+ * web form's own: under $10k, $10–20k, $20–50k, $50–100k, over $100k.
+ *
+ * An answer is placed only when every value it admits falls in one band, by
+ * the same partition reading as `rangeMeetsMinimum`: `$10,000 - $20,000` is in
+ * the $10–20k band, and `< $15,000` from an older form spans two and is not
+ * placed. Nothing is split proportionally or rounded into a neighbour — an
+ * answer that cannot be placed is counted as such, and the coverage line says
+ * how many.
+ */
+export type RevenueBandPlacement =
+  | { kind: 'band'; key: string }
+  /** "New Business": a business with no trading revenue yet. */
+  | { kind: 'categorical'; label: string }
+  /** Spans two bands, or could not be read as an amount. */
+  | { kind: 'unplaced'; why: 'spans_bands' | 'unreadable' };
+
+export function revenueBandKey(index: number, edges: readonly number[]): string {
+  if (index === 0) return `lt:${edges[0]}`;
+  if (index === edges.length) return `gte:${edges[edges.length - 1]}`;
+  return `${edges[index - 1]}-${edges[index]}`;
+}
+
+export function placeRevenueBand(reading: BandReading, edges: readonly number[]): RevenueBandPlacement {
+  if (reading.kind === 'categorical') return { kind: 'categorical', label: reading.label };
+  if (reading.kind === 'unreadable' || edges.length === 0) return { kind: 'unplaced', why: 'unreadable' };
+  for (let i = 0; i <= edges.length; i++) {
+    const aboveLower = i === 0 || rangeMeetsMinimum(reading.range, edges[i - 1]!) === true;
+    const belowUpper = i === edges.length || rangeMeetsMinimum(reading.range, edges[i]!) === false;
+    if (aboveLower && belowUpper) return { kind: 'band', key: revenueBandKey(i, edges) };
+  }
+  return { kind: 'unplaced', why: 'spans_bands' };
+}
+
+/** Every band key in order, lowest first. */
+export function revenueBandKeys(edges: readonly number[]): string[] {
+  return Array.from({ length: edges.length + 1 }, (_, i) => revenueBandKey(i, edges));
+}

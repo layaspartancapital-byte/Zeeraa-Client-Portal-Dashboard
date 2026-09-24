@@ -2,7 +2,6 @@ import {
   formatCount,
   formatCurrency,
   type ChannelCostPerDeal,
-  type PopulationVerdict,
 } from '@zeeraa/core';
 import { Card, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -12,8 +11,6 @@ export type EfficiencyCell = {
   /** The stage this cost is per — `lead`, `application`, `uw_approved`, `funded`. */
   stage: string;
   cost: ChannelCostPerDeal;
-  /** Whether the denominator is large enough for the figure to mean anything. */
-  gate: PopulationVerdict;
 };
 
 export type EfficiencyRow = {
@@ -167,7 +164,7 @@ export function EfficiencyTable({
                       </span>
                       <span className="mt-0.5 block text-[12px] tabular text-text-2">
                         {formatCount(unattributed.counts[column.stage] ?? 0)}{' '}
-                        {column.label.toLowerCase()}
+                        {countNoun(column.stage, unattributed.counts[column.stage] ?? 0)}
                       </span>
                     </td>
                   ))}
@@ -182,16 +179,25 @@ export function EfficiencyTable({
 }
 
 /**
- * One cost cell: the figure, or the reason there is not one, with the coverage
- * that qualifies it underneath.
- *
- * Three states and they are genuinely different:
- *
- *   * a figure, with the population it divided by;
- *   * `Not measured`, where the population is too small for the figure to be
- *     about the channel rather than about the sample;
- *   * an em dash, where nothing at all was attributed — an empty denominator is
- *     not zero and not infinite.
+ * What a cost was divided by, in the client's words: `230 leads`, `1 deal`.
+ * Plural and singular written out, because "1 deals" is the small wrongness
+ * that makes a reader distrust the number beside it.
+ */
+const COUNT_NOUNS: Record<string, readonly [string, string]> = {
+  lead: ['lead', 'leads'],
+  application: ['application', 'applications'],
+  uw_approved: ['approval', 'approvals'],
+};
+function countNoun(stage: string, n: number): string {
+  const [one, many] = COUNT_NOUNS[stage] ?? (['deal', 'deals'] as const);
+  return n === 1 ? one : many;
+}
+
+/**
+ * One cost cell: the figure, and under it what it was divided by — always, at
+ * any size (the minimum-deal rule no longer applies to costs; see
+ * `packages/core/src/population.ts`). Only an empty denominator has no figure,
+ * and it says "No deals yet" rather than a dash.
  */
 function CostCell({
   cell,
@@ -205,63 +211,23 @@ function CostCell({
   stageLabel: string;
 }) {
   const noun = stageLabel.toLowerCase();
+  const n = cell.cost.attributedDeals;
 
-  if (cell.cost.value === null) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-text-3">
-        &mdash;
-        <InfoTip label={`Why ${channelLabel} has no cost per ${noun}`} align="end">
-          {formatCurrency(cell.cost.channelSpend, currency)} of {channelLabel} spend and no{' '}
-          {noun} the platform can attribute to it. A cost with nothing in the denominator is
-          absent, not zero.
-        </InfoTip>
-      </span>
-    );
+  if (cell.cost.value === null || n === 0) {
+    return <span className="text-[13px] text-text-3">No {countNoun(cell.stage, 2)} yet</span>;
   }
 
-  if (!cell.gate.sufficient) {
-    return (
-      <span className="inline-flex flex-col items-end gap-0.5">
-        <span className="inline-flex items-center gap-1.5">
-          <Badge tone="warn">Not measured</Badge>
-          <InfoTip label={`Why ${channelLabel} has no cost per ${noun}`} align="end">
-            {cell.gate.reason} Over a population this small the figure measures the sample rather
-            than {channelLabel}.
-          </InfoTip>
-        </span>
-        <span className="text-[12px] tabular text-text-2">
-          {formatCount(cell.cost.attributedDeals)} attributed
-        </span>
-      </span>
-    );
-  }
-
-  const { low, high } = cell.cost.plausibleRange;
   return (
     <span className="inline-flex flex-col items-end gap-0.5">
       <span className="inline-flex items-center gap-1.5 tabular text-text">
         {formatCurrency(cell.cost.value, currency)}
-        <InfoTip label={`Coverage and range for ${channelLabel}, cost per ${noun}`} align="end">
-          {formatCurrency(cell.cost.channelSpend, currency)} of {channelLabel} spend over the{' '}
-          {formatCount(cell.cost.attributedDeals)} {noun}
-          {cell.cost.attributedDeals === 1 ? '' : 's'} attributed to it — the only denominator this
-          figure has.
-          {cell.cost.unattributedDeals > 0 && low !== null && high !== null
-            ? ` A further ${formatCount(cell.cost.unattributedDeals)} carry no click from any connected channel; the range is where the figure would land if every one of them turned out to be ${channelLabel}.`
-            : ''}
+        <InfoTip label={`How ${channelLabel}'s cost per ${noun} is worked out`} align="end">
+          {formatCurrency(cell.cost.channelSpend, currency)} of {channelLabel} spend divided by the{' '}
+          {formatCount(n)} {countNoun(cell.stage, n)} that came from {channelLabel}.
         </InfoTip>
       </span>
-      {/* Coverage under every figure, per cell. A cost per lead over 185 of
-          1,457 leads and a cost per funded deal over 3 of 5 are supported to
-          completely different degrees, and the row cannot say that once. */}
       <span className="text-[12px] tabular text-text-2">
-        over {formatCount(cell.cost.attributedDeals)}
-        {cell.cost.unattributedDeals > 0 && low !== null && high !== null ? (
-          <>
-            {' '}
-            · to {formatCurrency(low, currency)}
-          </>
-        ) : null}
+        {formatCount(n)} {countNoun(cell.stage, n)}
       </span>
     </span>
   );

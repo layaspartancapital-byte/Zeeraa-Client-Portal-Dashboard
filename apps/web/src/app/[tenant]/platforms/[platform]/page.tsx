@@ -564,7 +564,6 @@ export default async function PlatformPage({
               currency={currency}
               channelLabel={view.label}
               size="hero"
-              gate={metrics.population('cost_per_funded_deal', view.outcomes.cost.attributedDeals)}
             />
             <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4 border-t border-border pt-4 sm:grid-cols-4">
               <Figure
