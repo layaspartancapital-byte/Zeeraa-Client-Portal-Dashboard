@@ -40,6 +40,7 @@ import {
 import {
   applyStageCorrections,
   applyStageExclusions,
+  applyLeadSourceExclusions,
   applyLenderExclusions,
   type LenderExclusion,
   type StageCorrection,
@@ -378,6 +379,8 @@ export async function runSalesforceSync(
         context.tenantId,
         context.stageExclusions ?? [],
       );
+      // Straight after: the stage exclusions clear every lead's reason first.
+      await applyLeadSourceExclusions(tx, context.tenantId, context.leadExclusion ?? NO_LEAD_EXCLUSION);
 
       // --- Lender submissions --------------------------------------------------
       /*

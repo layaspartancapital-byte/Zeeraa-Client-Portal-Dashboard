@@ -1,6 +1,7 @@
 import { and, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { isMonthKey, parseWallClock } from '@zeeraa/core';
 import { schema, type Database } from '@zeeraa/db';
+import { leadSourceExclusion, type LeadExclusionConfig } from '@zeeraa/connectors';
 
 /**
  * Two rules applied to `stage_events` after every sync writes them.
@@ -385,4 +386,40 @@ export async function applyLenderExclusions(
     )
     .returning({ id: schema.submissions.id });
   return updated.length;
+}
+
+/**
+ * Leads a Lead Source exclusion covers (ZoomInfo, outbound), marked excluded.
+ *
+ * Run after `applyStageExclusions`, which clears every lead's
+ * `excluded_reason` before re-applying the renewal rules — without this the
+ * next sync would put the outbound leads back into every count (it did, on
+ * 24 September 2026, within ten minutes of the backfill). The sync never reads
+ * these leads again, so the stored ones are marked here from their stored
+ * Lead Source. Only a rule whose sole criterion is `leadSources` applies.
+ */
+export async function applyLeadSourceExclusions(
+  tx: Database,
+  tenantId: string,
+  exclusion: LeadExclusionConfig,
+): Promise<number> {
+  if (!exclusion.enabled) return 0;
+  let marked = 0;
+  for (const rule of exclusion.rules) {
+    if (!rule.leadSources?.length) continue;
+    if (leadSourceExclusion(exclusion, rule.leadSources[0]!)?.key !== rule.key) continue;
+    const rows = await tx
+      .update(schema.leads)
+      .set({ excludedReason: rule.key })
+      .where(
+        and(
+          eq(schema.leads.tenantId, tenantId),
+          inArray(schema.leads.leadSource, rule.leadSources),
+          sql`${schema.leads.excludedReason} is null`,
+        ),
+      )
+      .returning({ id: schema.leads.id });
+    marked += rows.length;
+  }
+  return marked;
 }

@@ -13,6 +13,7 @@ import { leadsCreatedIn, schema, stageEventsIn, submissionsIn, withJobTenant, ty
 import type { OpportunityRow, StageEventRow } from '@zeeraa/connectors';
 import { upsertOpportunities, upsertStageEvents } from '../src/salesforce/writer';
 import {
+  applyLeadSourceExclusions,
   applyStageCorrections,
   applyStageExclusions,
   parseStageCorrections,
@@ -369,5 +370,30 @@ describe('parseLenderExclusions', () => {
     const { parseLenderExclusions } = await import('../src/salesforce/stage-rules');
     expect(() => parseLenderExclusions({ reason: 'test_lender', lenders: [] })).toThrow();
     expect(() => parseLenderExclusions({ reason: 'test_lender', lenders: [{ name: 'no id' }] })).toThrow();
+  });
+});
+
+describe('Lead Source exclusions survive the stage exclusions (24 September 2026)', () => {
+  it('re-marks an outbound lead after every lead reason is cleared', async () => {
+    const exclusion = {
+      enabled: true,
+      rules: [{ key: 'outbound_zoominfo', label: 'Outbound', leadSources: ['Zoominfo'] }],
+      inboundSignalFields: ['LeadSource'],
+    };
+    await run((tx) =>
+      tx.insert(schema.leads).values([
+        { tenantId, externalId: '00QZ', createdAt: new Date('2026-08-10T15:00:00Z'), createdOn: '2026-08-10', leadSource: 'Zoominfo' },
+        { tenantId, externalId: '00QW', createdAt: new Date('2026-08-10T15:00:00Z'), createdOn: '2026-08-10', leadSource: 'Web' },
+      ]),
+    );
+    // What the sync does, in its order: clear and re-apply the renewal rules, then this.
+    await run((tx) => applyStageExclusions(tx, tenantId, RENEWALS));
+    expect(await run((tx) => applyLeadSourceExclusions(tx, tenantId, exclusion))).toBe(1);
+    await run((tx) => applyStageExclusions(tx, tenantId, RENEWALS));
+    await run((tx) => applyLeadSourceExclusions(tx, tenantId, exclusion));
+    const counted = await run((tx) =>
+      tx.select({ id: schema.leads.externalId }).from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn({ start: '2026-08-01', end: '2026-08-31' }))),
+    );
+    expect(counted.map((r) => r.id)).toEqual(['00QW']);
   });
 });
