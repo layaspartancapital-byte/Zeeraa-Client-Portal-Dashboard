@@ -15,7 +15,8 @@ import { addDays, monthRange, previousMonth, type DateRange } from '@zeeraa/core
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
-import { fromBucket, fromIngestion, fromMonthlyPerformance, fromPlatformPages, same, tenants, type Figures } from './figures';
+import { fromBucket, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, type Figures } from './figures';
+import { sql } from 'drizzle-orm';
 
 function disagreements(label: string, sources: Record<string, Figures>): string[] {
   const keys = new Set(Object.values(sources).flatMap((f) => [...f.keys()]));
@@ -109,6 +110,34 @@ describe('the same figure on every screen', () => {
         if (pending !== s.overall.undecided) problems.push(`${label} Lender outcomes: split ${pending}, undecided ${s.overall.undecided}`);
         const byLender = s.lenders.reduce((n, l) => n + l.pending.waiting, 0);
         if (byLender !== s.pending.waiting) problems.push(`${label} Lender outcomes: table waiting ${byLender}, headline ${s.pending.waiting}`);
+      }
+    }
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('no merged or outbound lead is counted (24 September 2026)', async () => {
+    // The sync clears every lead's excluded_reason before re-applying its
+    // rules; a rule that is not re-applied puts those leads back into every
+    // count. Held here against production, not only in a unit test.
+    const problems: string[] = [];
+    for (const t of await tenants()) {
+      const [row] = await readOnly((tx) =>
+        tx.execute<{ merged: number; value: unknown }>(sql`
+          select (select count(*)::int from leads where tenant_id = ${t.session.tenant.id}
+                    and merged_into is not null and excluded_reason is null) as merged,
+                 (select value from tenant_config where tenant_id = ${t.session.tenant.id} and key = 'lead_exclusion') as value`),
+      );
+      if (Number(row?.merged ?? 0) > 0) problems.push(`${t.slug}: ${row!.merged} merged leads are counted`);
+      const config = row?.value as { enabled?: boolean; rules?: { leadSources?: string[] }[] } | null;
+      const sources = config?.enabled ? (config.rules ?? []).flatMap((r) => r.leadSources ?? []) : [];
+      if (sources.length > 0) {
+        const [outbound] = await readOnly((tx) =>
+          tx.execute<{ n: number }>(sql`
+            select count(*)::int as n from leads where tenant_id = ${t.session.tenant.id}
+              and excluded_reason is null
+              and lead_source in (${sql.join(sources.map((s) => sql`${s}`), sql`, `)})`),
+        );
+        if (Number(outbound?.n ?? 0) > 0) problems.push(`${t.slug}: ${outbound!.n} outbound leads (${sources.join(', ')}) are counted`);
       }
     }
     expect(problems, problems.join('\n')).toEqual([]);

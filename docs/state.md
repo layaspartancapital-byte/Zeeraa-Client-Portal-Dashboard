@@ -403,10 +403,10 @@ secret (`67e4309c2482`, which still fails every credential).
     clears every lead's `excluded_reason` before re-applying the renewal rules.
     `applyLeadSourceExclusions` now re-marks outbound leads straight after; the
     21:00 sync kept all 52 excluded.
-  - **Open, the same pattern:** leads marked `merged` by `applyReconciliation`
-    are cleared by the next sync's `applyStageExclusions` and not re-marked
-    unless the merge is read again. Not changed here; it needs its own fix and
-    number check.
+  - **Merged leads were never affected** (a wrong report, corrected the same
+    day): `applyStageExclusions` re-marks every lead with a `merged_into`
+    straight after clearing, and production had all 61 excluded. A deploy-time
+    number check now fails if any merged or outbound lead is counted.
 - **Salesforce cron re-registration** (deployed `67c41b5`): confirmed firing
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.
