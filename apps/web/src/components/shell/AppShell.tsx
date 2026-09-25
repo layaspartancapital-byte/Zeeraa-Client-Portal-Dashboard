@@ -23,6 +23,7 @@ export function AppShell({
   generatedAt,
   platforms,
   logo = null,
+  mark = null,
   tour,
   refreshHours,
   children,
@@ -31,6 +32,8 @@ export function AppShell({
   tenant: TenantSummary;
   /** The tenant's own logo as a `data:` URL; null shows its initials. */
   logo?: string | null;
+  /** The tenant's square mark for the collapsed rail; null shows a monogram. */
+  mark?: string | null;
   /** Serialised by the server component that renders this. */
   generatedAt: string;
   /** Connected ad platforms, resolved server-side in the tenant layout. */
@@ -46,7 +49,7 @@ export function AppShell({
     <ShellProvider>
       <TourProvider slug={tenant.slug} autoStart={tour.autoStart} onComplete={tour.onComplete}>
         <div className="min-h-dvh bg-canvas">
-          <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} />
+          <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} mark={mark} />
           <Content tenant={tenant} generatedAt={generatedAt}>
             {children}
           </Content>

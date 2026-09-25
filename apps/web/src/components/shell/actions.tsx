@@ -12,7 +12,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { Button, IconButton } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/Button';
 import { platformLabel } from '@/lib/platform-labels';
 
 /** Print for a quarterly review. The stylesheet does the rest. */
@@ -156,10 +156,21 @@ export function SyncNowButton({
 
   return (
     <>
-      <Button variant="secondary" onClick={run} disabled={running}>
+      {/*
+        Lime with an ink border and a solid offset shadow: the one control that
+        acts on the data rather than on the view, so the one that looks
+        different. Pressing it closes the offset. Only this button uses
+        `--color-sync`.
+      */}
+      <button
+        type="button"
+        onClick={run}
+        disabled={running}
+        className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border-2 border-primary bg-sync px-3 text-[13px] font-semibold text-primary shadow-[2px_2px_0_0_var(--color-primary)] transition-[transform,box-shadow,background-color] hover:bg-sync-hover active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 disabled:active:translate-x-0 disabled:active:translate-y-0"
+      >
         <RefreshCw aria-hidden="true" className={`h-4 w-4 ${running ? 'animate-spin' : ''}`} />
         {running ? 'Syncing…' : label}
-      </Button>
+      </button>
 
       {mounted &&
         createPortal(

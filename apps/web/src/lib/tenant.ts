@@ -161,21 +161,24 @@ export function tenantRoster(session: TenantSession) {
 }
 
 /**
- * The current tenant's logo, or null for the initials fallback.
+ * The current tenant's logo and square mark, each null for the fallback: the
+ * tenant's name as text beside the monogram, and the monogram collapsed.
  *
  * Read separately from `getViewer` on purpose: the viewer query returns every
  * tenant the person belongs to, for the switcher, and carrying each one's
  * image with it would ship every client's logo on every request to render one.
  * Under the tenant's own context, so the `tenants` policy decides who sees it.
  */
-export async function tenantLogo(session: TenantSession): Promise<string | null> {
+export async function tenantLogo(
+  session: TenantSession,
+): Promise<{ logo: string | null; mark: string | null }> {
   const [row] = await queryTenant(session, (tx) =>
     tx
-      .select({ logo: schema.tenants.logoDataUrl })
+      .select({ logo: schema.tenants.logoDataUrl, mark: schema.tenants.markDataUrl })
       .from(schema.tenants)
       .where(eq(schema.tenants.id, session.tenant.id)),
   );
-  return row?.logo ?? null;
+  return { logo: row?.logo ?? null, mark: row?.mark ?? null };
 }
 
 /**

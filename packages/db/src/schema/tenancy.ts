@@ -30,6 +30,11 @@ export const tenants = pgTable(
      * and never has a public URL. See migration 0025 and `set-tenant-logo.ts`.
      */
     logoDataUrl: text('logo_data_url'),
+    /**
+     * The tenant's square mark for the collapsed rail, or null for the
+     * monogram. Same rules as the logo; see migration 0038.
+     */
+    markDataUrl: text('mark_data_url'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('tenants_slug_key').on(t.slug)],

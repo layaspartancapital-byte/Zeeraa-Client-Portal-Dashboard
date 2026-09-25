@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
+  BarChart3,
   Building2,
   ChevronsLeft,
   ChevronsRight,
@@ -11,10 +13,13 @@ import {
   LayoutDashboard,
   LogOut,
   Megaphone,
+  MousePointerClick,
   Plug,
   Scale,
+  Search,
   Users,
   Share2,
+  Briefcase,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -89,26 +94,96 @@ const GROUPS: NavGroup[] = [
 ];
 
 /**
- * A line icon per ad platform, from the same family as the rest of the rail.
- * Not vendor logos: this product does not ship other companies' marks.
+ * A line icon per platform, from the same family as the rest of the rail, and
+ * a different one for each: collapsed, the icon is all that tells two
+ * platform pages apart (they all drew a megaphone until 25 September 2026).
+ * Not vendor logos: this product does not ship other companies' marks. A
+ * platform with no entry shows its initial instead (`PlatformInitial`).
  */
 const PLATFORM_ICONS: Record<string, typeof LayoutDashboard> = {
   google_ads: Megaphone,
-  microsoft_ads: Megaphone,
   meta: Share2,
-  linkedin_ads: Share2,
+  ga4: BarChart3,
+  search_console: Search,
+  microsoft_ads: MousePointerClick,
+  linkedin_ads: Briefcase,
 };
+
+/** A platform's initial in the icon's 16px box, for a platform with no icon. */
+function platformInitial(label: string): typeof LayoutDashboard {
+  const letter = label.trim()[0]?.toUpperCase() ?? '?';
+  function PlatformInitial({ className }: { className?: string }) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`${className ?? ''} inline-flex items-center justify-center rounded-[4px] ring-1 ring-inset ring-current text-[10px] font-semibold leading-none`}
+      >
+        {letter}
+      </span>
+    );
+  }
+  return PlatformInitial as unknown as typeof LayoutDashboard;
+}
+
+/**
+ * The page name beside a collapsed rail item, on hover and on keyboard focus.
+ *
+ * Portalled and fixed rather than absolutely placed: the nav scrolls, and an
+ * overflow container clips anything that sticks out of it. Shown only while
+ * the rail is collapsed at `lg` and up — below that the rail is a drawer with
+ * its labels visible, and a tooltip would repeat one.
+ */
+function RailTip({ label, enabled, children }: { label: string; enabled: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!enabled) setAt(null);
+  }, [enabled]);
+  const show = () => {
+    if (!enabled || !ref.current || !window.matchMedia('(min-width: 1024px)').matches) return;
+    const r = ref.current.getBoundingClientRect();
+    setAt({ top: r.top + r.height / 2, left: r.right + 8 });
+  };
+  const hide = () => setAt(null);
+  return (
+    <span
+      ref={ref}
+      className="block"
+      onPointerEnter={show}
+      onPointerLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      onKeyDown={(e) => e.key === 'Escape' && hide()}
+    >
+      {children}
+      {at &&
+        createPortal(
+          <span
+            role="tooltip"
+            className="pointer-events-none fixed z-[70] -translate-y-1/2 whitespace-nowrap rounded-[6px] bg-chrome-raised px-2 py-1 text-[12px] font-medium text-on-chrome shadow-[var(--shadow-pop)] ring-1 ring-chrome-border"
+            style={{ top: at.top, left: at.left }}
+          >
+            {label}
+          </span>,
+          document.body,
+        )}
+    </span>
+  );
+}
 
 export function Sidebar({
   viewer,
   tenant,
   platforms = [],
   logo = null,
+  mark = null,
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
   /** The tenant's own logo; null falls back to its initials. */
   logo?: string | null;
+  /** The tenant's square mark for the collapsed rail; null shows a monogram. */
+  mark?: string | null;
   /**
    * Channels this client has actually connected, in a stable order.
    *
@@ -131,7 +206,7 @@ export function Sidebar({
             items: platforms.map((p) => ({
               segment: `platforms/${p.key}`,
               label: p.label,
-              icon: PLATFORM_ICONS[p.key] ?? Megaphone,
+              icon: PLATFORM_ICONS[p.key] ?? platformInitial(p.label),
             })),
           },
           ...GROUPS.slice(2),
@@ -172,7 +247,18 @@ export function Sidebar({
           className={`flex h-16 shrink-0 items-center ${collapsed ? 'lg:justify-center lg:px-0' : ''} px-4`}
         >
           <Link href={`/${tenant.slug}`} aria-label="Zeeraa home" className="inline-flex">
-            <ZeeraaMark height={34} variant={collapsed ? 'mark' : 'lockup'} />
+            {collapsed ? (
+              <>
+                <span className="hidden lg:block">
+                  <ZeeraaMark height={32} variant="mark" />
+                </span>
+                <span className="lg:hidden">
+                  <ZeeraaMark height={34} variant="lockup" />
+                </span>
+              </>
+            ) : (
+              <ZeeraaMark height={34} variant="lockup" />
+            )}
           </Link>
         </div>
 
@@ -182,15 +268,27 @@ export function Sidebar({
           engagement begins — without sitting above the wordmark as a stray
           line through the logo.
         */}
-        <div className="flex items-start gap-2.5 border-y border-chrome-border px-4 py-3">
+        <div
+          className={`flex items-start gap-2.5 border-y border-chrome-border px-4 py-3 ${
+            collapsed ? 'lg:justify-center lg:px-0' : ''
+          }`}
+        >
           {/*
-            A logo is a wordmark, shown on the rail as the tenant drew it — the
-            one live logo is white type for dark grounds, and at 5:1 it cannot
-            live in a square. Collapsed to 64px it does not fit, so the initials
-            stand in. The name stays readable to a screen reader as its alt.
+            Collapsed to 64px, the tenant is one square: its stored mark
+            (cropped from its own logo, migration 0038) or a monogram in the
+            rail's own materials. Expanded, the logo is a wordmark shown as the
+            tenant drew it — the one live logo is white type for dark grounds,
+            and at 5:1 it cannot live in a square — or, with none, the name.
           */}
-          {logo && !collapsed ? null : <TenantMark tenant={tenant} onChrome />}
-          {!collapsed && (
+          {collapsed && (
+            <span className="hidden lg:block">
+              <RailTip label={tenant.name} enabled={collapsed}>
+                <TenantSquare tenant={tenant} mark={mark} />
+              </RailTip>
+            </span>
+          )}
+          <div className={`flex min-w-0 flex-1 items-start gap-2.5 ${collapsed ? 'lg:hidden' : ''}`}>
+            {!logo && <TenantMark tenant={tenant} onChrome />}
             <div className="min-w-0 flex-1">
               {logo ? (
                 /* A data URL from the tenant row; next/image has nothing to optimise. */
@@ -213,7 +311,7 @@ export function Sidebar({
               */}
               <p className="truncate text-[12px] text-on-chrome-2">{ROLE_LABELS[tenant.role]}</p>
             </div>
-          )}
+          </div>
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
@@ -227,11 +325,13 @@ export function Sidebar({
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {groups.map((group) => (
             <div key={group.label} className="mb-3">
-              {!collapsed && (
-                <p className="px-2 pb-1 text-[12px] font-semibold text-on-chrome-3">
-                  {group.label}
-                </p>
-              )}
+              {/* `lg:hidden` rather than unmounted: below `lg` the rail is a
+                  drawer at full width, whatever the desktop rail was left as. */}
+              <p
+                className={`px-2 pb-1 text-[12px] font-semibold text-on-chrome-3 ${collapsed ? 'lg:hidden' : ''}`}
+              >
+                {group.label}
+              </p>
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const href = item.segment
@@ -244,11 +344,12 @@ export function Sidebar({
 
                   return (
                     <li key={item.segment || 'executive'}>
+                      <RailTip label={item.label} enabled={collapsed}>
                       <Link
                         href={href}
                         onClick={() => setDrawerOpen(false)}
                         aria-current={active ? 'page' : undefined}
-                        title={collapsed ? item.label : undefined}
+                        aria-label={item.label}
                         className={`relative flex items-center gap-2.5 rounded-[8px] px-2 py-2 text-[13px] font-medium transition-colors ${
                           active
                             ? 'bg-gold-wash text-gold'
@@ -264,6 +365,7 @@ export function Sidebar({
                         <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                         <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
                       </Link>
+                      </RailTip>
                     </li>
                   );
                 })}
@@ -296,8 +398,47 @@ export function Sidebar({
 }
 
 /**
- * The tenant's initials on its own accent colour — the fallback where no logo
- * is stored, and the collapsed rail's mark where one is.
+ * The tenant in the collapsed rail: its stored square mark, or a monogram.
+ *
+ * The monogram is the rail's own materials — raised chrome, a hairline, type
+ * in `on-chrome` — with the tenant's accent as a 2px rule along its foot, so
+ * two lenders in adjacent tabs still differ at a glance. The accent-filled
+ * square it replaced put Spartan's `#2F5D8C` under white type on near-black,
+ * and read as a sticker on the rail rather than part of it.
+ */
+function TenantSquare({ tenant, mark }: { tenant: TenantSummary; mark: string | null }) {
+  if (mark) {
+    return (
+      <span className="flex h-8 w-8 items-center justify-center" role="img" aria-label={tenant.name}>
+        {/* A data URL from the tenant row; next/image has nothing to optimise. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={mark} alt="" className="block h-7 w-7 object-contain" />
+      </span>
+    );
+  }
+  return (
+    <span
+      role="img"
+      aria-label={tenant.name}
+      className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-chrome-raised text-[12px] font-semibold tracking-[0.02em] text-on-chrome ring-1 ring-inset ring-chrome-border"
+      style={{ boxShadow: `inset 0 -2px 0 0 ${tenant.accentColor}` }}
+    >
+      {initialsOf(tenant.name)}
+    </span>
+  );
+}
+
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+/**
+ * The tenant's initials on its own accent colour — the expanded rail's
+ * fallback where no logo is stored.
  *
  * `onChrome` adds a hairline ring, and it is not decoration. A tenant's accent
  * is arbitrary and some of them are dark: Spartan's `#2F5D8C` is 2.64:1 against
@@ -316,11 +457,7 @@ export function TenantMark({
   onChrome?: boolean;
 }) {
 
-  const initials = tenant.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? '')
-    .join('');
+  const initials = initialsOf(tenant.name);
 
   return (
     <span
@@ -420,8 +557,8 @@ export function UserMenu({
         >
           {initial}
         </span>
-        {!collapsed && !inTopbar && (
-          <span className="min-w-0 flex-1">
+        {!inTopbar && (
+          <span className={`min-w-0 flex-1 ${collapsed ? 'lg:hidden' : ''}`}>
             <span className="block truncate text-[13px] font-medium text-on-chrome">
               {viewer.name ?? viewer.email}
             </span>

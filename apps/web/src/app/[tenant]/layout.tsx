@@ -30,7 +30,7 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const [platforms, logo, toured, refreshHours] = await Promise.all([
+  const [platforms, brand, toured, refreshHours] = await Promise.all([
     reportingPlatforms(session),
     tenantLogo(session),
     hasCompletedTour(session),
@@ -47,7 +47,8 @@ export default async function TenantLayout({
     <AppShell
       viewer={session.viewer}
       tenant={session.tenant}
-      logo={logo}
+      logo={brand.logo}
+      mark={brand.mark}
       platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
       tour={{ autoStart: !toured, onComplete: completeTour }}

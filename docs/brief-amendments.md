@@ -3492,3 +3492,23 @@ button stays Zeeraa-admin). Three things keep that safe:
 Tests: `packages/jobs/test/manual-sync.test.ts` (database: throttle, lock,
 tenant scope, scheduled runs ignored) and `apps/web/test/sync-route.test.ts`
 (every role admitted, tenant from the session, 429s).
+
+## §12 — a lime "Sync now", and a cleaner collapsed rail (25 September 2026)
+
+**"Sync now" is lime** (`--color-sync`, `#B8F23A`), with ink type, a 2px ink
+border and a 2px solid offset shadow that closes when pressed. It is the only
+control that acts on the data rather than the view, and the only place the
+token is used. Ink on lime is 13.6:1. Its hue is 79° against 152–155° for
+`--color-up*`, ΔE 55–72, so it does not read as "improving". The lime is 1.33:1
+on white, which is why the border is part of the design rather than
+decoration. This is a deliberate exception to "controls are chrome ink".
+
+**The collapsed rail.** The Zeeraa mark crops to the ring's own square with
+even padding (`RING` in `ZeeraaMark.tsx`) instead of the leading 28% of the
+lockup, which cut the ring. The tenant is a square mark stored on the tenant
+row (`tenants.mark_data_url`, migration 0038, written by
+`set-tenant-logo.ts --mark`), or with none a monogram in the rail's own
+materials with the tenant's accent as a 2px rule at its foot. The
+accent-filled square read as a sticker. Each platform has its own line icon,
+with its initial for one that has none, and every collapsed item has a
+tooltip with its page name, on hover and on keyboard focus.

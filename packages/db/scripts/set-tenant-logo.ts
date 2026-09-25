@@ -4,6 +4,10 @@
  *   DATABASE_URL_OWNER=… npx tsx packages/db/scripts/set-tenant-logo.ts spartan path/to/logo.svg --dry-run
  *   DATABASE_URL_OWNER=… npx tsx packages/db/scripts/set-tenant-logo.ts spartan path/to/logo.svg
  *   DATABASE_URL_OWNER=… npx tsx packages/db/scripts/set-tenant-logo.ts spartan --clear
+ *   DATABASE_URL_OWNER=… npx tsx packages/db/scripts/set-tenant-logo.ts spartan mark.png --mark --dry-run
+ *
+ * `--mark` writes the square mark the collapsed rail shows (migration 0038)
+ * instead of the logo; `--mark --clear` returns it to the monogram.
  *
  * The logo lives on the tenant row as a `data:` URL (migration 0025), so it is
  * read under the `tenants` policy and never has a public URL. This is the only
@@ -22,6 +26,8 @@ import * as schema from '../src/schema/index';
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const DRY_RUN = process.argv.includes('--dry-run');
 const CLEAR = process.argv.includes('--clear');
+const MARK = process.argv.includes('--mark');
+const column = MARK ? schema.tenants.markDataUrl : schema.tenants.logoDataUrl;
 const [slug, file] = args;
 
 if (!slug || (!file && !CLEAR)) {
@@ -29,8 +35,8 @@ if (!slug || (!file && !CLEAR)) {
   process.exit(2);
 }
 
-/** 256 KB of data URL, the column's own limit, is ~190 KB of image. */
-const MAX_BYTES = 190_000;
+/** The column's own limit in data URL (256 KB, or 64 KB for a mark), as image bytes. */
+const MAX_BYTES = MARK ? 48_000 : 190_000;
 
 function sniff(bytes: Buffer): string | null {
   if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
@@ -75,7 +81,7 @@ try {
   await withMaintenance(db, async (tx) => {
     const updated = await tx
       .update(schema.tenants)
-      .set({ logoDataUrl: dataUrl })
+      .set(MARK ? { markDataUrl: dataUrl } : { logoDataUrl: dataUrl })
       .where(eq(schema.tenants.slug, slug))
       .returning({ id: schema.tenants.id, name: schema.tenants.name });
     if (updated.length !== 1) {
@@ -85,12 +91,12 @@ try {
       );
     }
     const [row] = await tx
-      .select({ length: sql<number>`coalesce(length(${schema.tenants.logoDataUrl}), 0)::int` })
+      .select({ length: sql<number>`coalesce(length(${column}), 0)::int` })
       .from(schema.tenants)
       .where(eq(schema.tenants.slug, slug));
     console.log(
-      `${DRY_RUN ? 'Dry run' : 'Set'}: ${updated[0]!.name} — ${
-        dataUrl ? `${dataUrl.slice(5, dataUrl.indexOf(';'))}, ${row!.length} characters` : 'cleared, initials shown'
+      `${DRY_RUN ? 'Dry run' : 'Set'} ${MARK ? 'mark' : 'logo'}: ${updated[0]!.name} — ${
+        dataUrl ? `${dataUrl.slice(5, dataUrl.indexOf(';'))}, ${row!.length} characters` : MARK ? 'cleared, monogram shown' : 'cleared, initials shown'
       }`,
     );
     if (DRY_RUN) throw new Rollback();

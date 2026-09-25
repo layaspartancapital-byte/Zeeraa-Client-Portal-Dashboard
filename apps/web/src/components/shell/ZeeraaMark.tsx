@@ -6,8 +6,8 @@ import Image from 'next/image';
  * One asset, two presentations. `apps/web/public/zeeraa-logo.png` is the enso
  * and the wordmark on a black field, 196×67; the enso occupies the leftmost
  * ~28% of it. The collapsed rail is 64px and has no room for the wordmark, so
- * the mark-only form crops to that leading square rather than shipping a second
- * file that could drift from the first.
+ * the mark-only form crops to the ring's own square (`RING`) rather than
+ * shipping a second file that could drift from the first.
  *
  * The asset's field is `#000000` and the chrome is `#14161A`, which would show
  * as a slightly darker rectangle. The image is blended into the chrome rather
@@ -30,21 +30,28 @@ import Image from 'next/image';
  * with a raster there is one filter for both. Worth asking for one.
  */
 
-/** The enso's share of the asset's width, measured from the file. */
-const MARK_FRACTION = 0.28;
 const ASSET = { width: 196, height: 67 } as const;
+/**
+ * The enso's square in the asset, measured from the file: the ring's stroke
+ * spans x and y 13–59, and this adds five pixels on every side. The mark used
+ * to be the leading 28% of the width at the lockup's height, which cut the
+ * ring's right edge and sat it high in the square (25 September 2026).
+ */
+const RING = { x: 8, y: 8, size: 57 } as const;
 
 export function ZeeraaMark({
-  /** Rendered height in pixels. The lockup keeps the asset's 2.93:1 ratio. */
+  /** Rendered height in pixels. The lockup keeps the asset's 2.93:1 ratio; the mark is square. */
   height = 26,
   variant = 'lockup',
 }: {
   height?: number;
   variant?: 'lockup' | 'mark';
 }) {
-  const scale = height / ASSET.height;
-  const fullWidth = Math.round(ASSET.width * scale);
-  const width = variant === 'mark' ? Math.round(fullWidth * MARK_FRACTION) : fullWidth;
+  const mark = variant === 'mark';
+  const scale = mark ? height / RING.size : height / ASSET.height;
+  const fullWidth = ASSET.width * scale;
+  const fullHeight = ASSET.height * scale;
+  const width = mark ? height : Math.round(fullWidth);
 
   return (
     <span
@@ -63,8 +70,14 @@ export function ZeeraaMark({
         width={ASSET.width}
         height={ASSET.height}
         priority
-        className="absolute left-0 top-0 max-w-none mix-blend-screen"
-        style={{ width: fullWidth, height, filter: 'brightness(1.3) saturate(1.05)' }}
+        className="absolute max-w-none mix-blend-screen"
+        style={{
+          width: fullWidth,
+          height: fullHeight,
+          left: mark ? -RING.x * scale : 0,
+          top: mark ? -RING.y * scale : 0,
+          filter: 'brightness(1.3) saturate(1.05)',
+        }}
       />
     </span>
   );

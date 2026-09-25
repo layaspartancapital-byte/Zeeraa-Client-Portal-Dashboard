@@ -88,6 +88,15 @@
   --color-up-text: #027a48;
   --color-down-text: #b42318;
 
+  /*
+    "Sync now" and nothing else (25 September 2026). Ink on lime is 13.6:1.
+    Hue 79° against the improvement green's 152–155°, ΔE 55–72 from every
+    `--color-up*`, so it cannot be read as "improving". The lime is only 1.33:1
+    on white, so the button's 2px ink border is what gives it an edge.
+  */
+  --color-sync: #b8f23a;
+  --color-sync-hover: #a8e62a;
+
   --color-warn: #f79009;
   --color-warn-soft: #fffaeb;
 

@@ -450,6 +450,12 @@ secret (`67e4309c2482`, which still fails every credential).
   per tenant every five minutes (Zeeraa admins exempt), run as the ingestion
   role on their own tenant. See `docs/brief-amendments.md`, "§11 — Sync now for every member".
 
+- **Lime Sync now and the collapsed rail (25 September 2026).** See
+  `docs/brief-amendments.md`, "§12 — a lime Sync now". Spartan's mark is the
+  orange helmet cropped from its logo, loaded with `set-tenant-logo.ts
+  --mark`. `tenantLogo` is cached, so a changed logo or mark shows within ten
+  minutes, not at once.
+
 **Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
 no call-tracking drift.
 
