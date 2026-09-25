@@ -14,8 +14,10 @@ import { runIncrementalSync, type IncrementalResult, type SyncPlatform } from '.
  *   * **It syncs one tenant, always named.** `runIncrementalSync` with no
  *     `tenantId` syncs every tenant, so an empty one is refused here rather
  *     than passed through.
- *   * **At most one per tenant every five minutes** (`manualSyncVerdict`),
- *     whoever presses it. The check and the sync share one transaction holding
+ *   * **At most one per tenant every five minutes** (`manualSyncVerdict`)
+ *     for everyone but a Zeeraa admin (`throttle: false`, decided by
+ *     `isManualSyncThrottled` in core). An admin's run still starts the clock
+ *     for everybody else, and still takes the lock. The check and the sync share one transaction holding
  *     a per-tenant advisory lock, so two clicks at once cannot both pass it:
  *     the second finds the lock taken and is told a sync is running. Once the
  *     first has written its `sync_runs` rows, their start is the throttle.
@@ -28,6 +30,8 @@ export type ManualSyncOutcome =
 export async function runManualSync(options: {
   tenantId: string;
   platforms?: SyncPlatform[];
+  /** False for a Zeeraa admin: skip the five-minute check, keep the lock. */
+  throttle?: boolean;
   now?: Date;
   /** The sync itself; replaced in tests. */
   run?: typeof runIncrementalSync;
@@ -56,7 +60,7 @@ export async function runManualSync(options: {
           ),
         );
       const verdict = manualSyncVerdict(last?.at ? new Date(last.at) : null, now);
-      if (!verdict.allowed) return { status: 'throttled', lastAt: verdict.lastAt, nextAt: verdict.nextAt, message: verdict.message };
+      if (!verdict.allowed && options.throttle !== false) return { status: 'throttled', lastAt: verdict.lastAt, nextAt: verdict.nextAt, message: verdict.message };
 
       const result = await run({ tenantId, platforms, trigger: 'manual', now });
       return { status: 'ran', result };

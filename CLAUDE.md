@@ -24,7 +24,8 @@
   migration and say why — `0016` is the worked example. Verify the row count.
 - **"Sync now" is open to every member, so it is `runManualSync`.** The tenant
   comes from the viewer's membership, the sync runs as the ingestion role, and
-  the throttle (one per tenant per five minutes, under an advisory lock) is in
+  the throttle (one per tenant per five minutes, under an advisory lock; a
+  Zeeraa admin is exempt, `isManualSyncThrottled`) is in
   `packages/jobs/src/manual-sync.ts`. Never call `runIncrementalSync` from a
   request without a `tenantId`: with none it syncs every tenant.
 - **Ingestion uses `withJobTenant()`**, never `withMaintenance()`. A sync writes

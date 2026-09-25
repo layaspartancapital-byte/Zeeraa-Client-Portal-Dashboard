@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSyncNow, manualSyncVerdict, MANUAL_SYNC_INTERVAL_MINUTES, ROLES } from '../src';
+import { canSyncNow, isManualSyncThrottled, manualSyncVerdict, MANUAL_SYNC_INTERVAL_MINUTES, ROLES } from '../src';
 
 const at = (m: number, s = 0) => new Date(Date.UTC(2026, 8, 25, 14, m, s));
 
@@ -28,6 +28,10 @@ describe('manual sync throttle', () => {
   it('treats a start stamped in the future as just now, not as allowed', () => {
     const v = manualSyncVerdict(at(3), at(2));
     expect(v.allowed === false && v.message).toBe('Synced just now, next available in 6 min');
+  });
+
+  it('throttles every role but a Zeeraa admin', () => {
+    expect(ROLES.filter(isManualSyncThrottled)).toEqual(['zeeraa_member', 'client_admin', 'client_viewer']);
   });
 
   it('is open to every role', () => {

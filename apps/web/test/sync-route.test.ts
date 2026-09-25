@@ -35,12 +35,16 @@ beforeEach(() => {
 
 describe('POST /api/sync/[tenant]', () => {
   for (const role of ['client_viewer', 'client_admin', 'zeeraa_member', 'zeeraa_admin']) {
-    it(`lets a ${role} sync their own tenant, by the session's tenant id`, async () => {
+    it(`lets a ${role} sync their own tenant, by the session's tenant id, ${role === 'zeeraa_admin' ? 'unthrottled' : 'throttled'}`, async () => {
       memberOf(role);
       runManualSync.mockResolvedValue({ status: 'ran', result: { ok: true, outcomes: [{ platform: 'meta' }], durationMs: 1 } });
       const res = await call('spartan', 'meta');
       expect(res.status).toBe(200);
-      expect(runManualSync).toHaveBeenCalledWith({ tenantId: 'tenant-spartan', platforms: ['meta'] });
+      expect(runManualSync).toHaveBeenCalledWith({
+        tenantId: 'tenant-spartan',
+        platforms: ['meta'],
+        throttle: role !== 'zeeraa_admin',
+      });
     });
   }
 

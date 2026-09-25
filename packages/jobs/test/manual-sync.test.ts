@@ -64,6 +64,16 @@ describe('runManualSync', () => {
     expect(calls).toEqual([]);
   });
 
+  it('lets a Zeeraa admin through inside the window, and keeps clients waiting after', async () => {
+    const calls: IncrementalOptions[] = [];
+    const admin = await runManualSync({ tenantId: a, throttle: false, now: plus(3 * 60_000), run: fakeSync(calls) });
+    expect(admin.status).toBe('ran');
+    // The admin's run restarts the clock for everybody else.
+    const client = await runManualSync({ tenantId: a, now: plus(4 * 60_000), run: fakeSync(calls) });
+    expect(client).toMatchObject({ status: 'throttled', message: 'Synced 1 min ago, next available in 4 min' });
+    expect(calls).toHaveLength(1);
+  });
+
   it("does not throttle another tenant: A's sync is not B's", async () => {
     const calls: IncrementalOptions[] = [];
     const out = await runManualSync({ tenantId: b, now: plus(60_000), run: fakeSync(calls) });
@@ -73,7 +83,7 @@ describe('runManualSync', () => {
 
   it('runs again once five minutes have passed', async () => {
     const calls: IncrementalOptions[] = [];
-    const out = await runManualSync({ tenantId: a, now: plus(5 * 60_000), run: fakeSync(calls) });
+    const out = await runManualSync({ tenantId: a, now: plus(8 * 60_000), run: fakeSync(calls) });
     expect(out.status).toBe('ran');
   });
 

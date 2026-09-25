@@ -62,6 +62,15 @@ export function canSyncNow(role: Role): boolean {
   return ROLES.includes(role);
 }
 
+/**
+ * Whether the five-minute manual-sync throttle applies. A Zeeraa admin is
+ * exempt: they sync to debug a connector and re-check at once. Everybody else,
+ * clients included, is held to one per tenant every five minutes.
+ */
+export function isManualSyncThrottled(role: Role): boolean {
+  return !canAdministerTenant(role);
+}
+
 /** Admin screens, target reconciliation, and per-connector sync on Connections. */
 export function canAdministerTenant(role: Role): boolean {
   return role === 'zeeraa_admin';

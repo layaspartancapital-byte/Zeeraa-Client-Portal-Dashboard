@@ -3478,8 +3478,10 @@ button stays Zeeraa-admin). Three things keep that safe:
   client gains no write of any kind; row level security scopes the throttle's
   read and the sync's writes to that tenant. An empty tenant id is refused,
   because `runIncrementalSync` without one syncs every tenant.
-- **At most one manual sync per tenant every five minutes**, whoever presses
-  it (`manualSyncVerdict` in core). The clock is the latest `sync_runs` row
+- **At most one manual sync per tenant every five minutes** for every role but
+  `zeeraa_admin` (`manualSyncVerdict` and `isManualSyncThrottled` in core). A
+  Zeeraa admin is exempt, so a connector can be re-checked at once; their run
+  still starts the clock for everyone else, and still takes the lock. The clock is the latest `sync_runs` row
   with a `manual` trigger; scheduled runs do not start it. A press inside the
   window gets 429 and "Synced 2 min ago, next available in 3 min", shown in the
   toast as a wait, not a failure.
