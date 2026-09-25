@@ -100,7 +100,13 @@ keyword (Google) or ad (Meta) — "Not recorded" where no source holds it. Rules
 in `docs/brief-amendments.md`, "§7 — a funded-deals list". Migration 0041
 (`opportunities.name`, `platform_ads`), the `landing_url_parameters` config
 row, `backfill-opportunity-names.ts`, and a Meta sync step naming ads. The
-deploy's number checks hold the list to the count.
+deploy's number checks hold the list to the count. Since `f97f131` a campaign
+attribution does not credit falls back to the lead's `utm_campaign` (same
+platform only, exact id match for a name, marked "URL tag"). Production, last
+90 days: Google Ads 11 deals, 1 campaign and 1 keyword Not recorded; Meta 2
+deals, 1 campaign and 1 ad Not recorded — each the one lead whose URL carried
+only `utm_source=100A00`. The People sign-in audit row had still not been seen
+in production at 18:10Z; activity was recording.
 
 **People: user activity and the account audit log, 25 September 2026 —
 migrated (0040) and deployed as `71a77b0`.** Migration 0040 adds
