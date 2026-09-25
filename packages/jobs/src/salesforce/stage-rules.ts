@@ -15,6 +15,85 @@ import { leadSourceExclusion, type LeadExclusionConfig } from '@zeeraa/connector
  */
 
 /* ------------------------------------------------------------------------- */
+/* Merges                                                                    */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Two stages that are one step in this tenant's process.
+ *
+ * Spartan's UW approval and offer are the same step (25 September 2026): a
+ * deal is approved at its approval or its offer, whichever came first. The
+ * `from` events stay stored as themselves — they are what the CRM records,
+ * and the reconciliation still checks them — and wherever a deal's earliest
+ * `from` event is earlier than its earliest `into` event, or it has none, an
+ * `into` event is written at that time with `derived_from` set. A later offer
+ * on an approved deal is the same step again, not a second approval, so it
+ * derives nothing.
+ */
+export type StageMergeRule = { into: string; from: string[] };
+
+export function parseStageMerges(value: unknown): StageMergeRule[] {
+  if (value == null) return [];
+  const merges = (value as { merges?: unknown }).merges;
+  if (!Array.isArray(merges)) throw new Error('stage_merges must be { merges: [...] }.');
+  return merges.map((raw, i) => {
+    const r = raw as Partial<StageMergeRule>;
+    const from = Array.isArray(r.from) ? r.from.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+    if (typeof r.into !== 'string' || r.into === '' || from.length === 0 || from.includes(r.into)) {
+      throw new Error(
+        `stage_merges rule ${i} needs an \`into\` stage and a non-empty \`from\` list that does not contain it. ` +
+          'A malformed rule is refused rather than read as "merge nothing".',
+      );
+    }
+    return { into: r.into, from };
+  });
+}
+
+/**
+ * Recomputes every derived event for the whole tenant: deleted, then derived
+ * again from the events read as themselves, so removing a rule removes what
+ * it wrote on the next sync. Before the exclusions, which then judge a
+ * derived event like any other.
+ */
+export async function applyStageMerges(
+  tx: Database,
+  tenantId: string,
+  rules: readonly StageMergeRule[],
+): Promise<Record<string, number>> {
+  await tx
+    .delete(schema.stageEvents)
+    .where(and(eq(schema.stageEvents.tenantId, tenantId), sql`${schema.stageEvents.derivedFrom} is not null`));
+  const counts: Record<string, number> = {};
+  for (const rule of rules) {
+    const from = sql.join(rule.from.map((f) => sql`${f}`), sql`, `);
+    const rows = await tx.execute<{ id: string }>(sql`
+      insert into ${schema.stageEvents}
+        (tenant_id, opportunity_external_id, stage, occurred_at, occurred_on, occurred_precision,
+         origin, correction_source, derived_from)
+      select f.tenant_id, f.opportunity_external_id, ${rule.into}, f.occurred_at, f.occurred_on,
+             f.occurred_precision, f.origin, f.correction_source, f.stage
+      from (
+        select distinct on (e.opportunity_external_id) e.*
+        from ${schema.stageEvents} e
+        where e.tenant_id = ${tenantId} and e.stage in (${from}) and e.derived_from is null
+        order by e.opportunity_external_id, e.occurred_at asc
+      ) f
+      where not exists (
+        select 1 from ${schema.stageEvents} a
+        where a.tenant_id = f.tenant_id
+          and a.opportunity_external_id = f.opportunity_external_id
+          and a.stage = ${rule.into}
+          and a.derived_from is null
+          and a.occurred_at <= f.occurred_at
+      )
+      on conflict do nothing
+      returning id`);
+    counts[`${rule.from.join('+')}→${rule.into}`] = rows.length;
+  }
+  return counts;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Exclusions                                                                */
 /* ------------------------------------------------------------------------- */
 

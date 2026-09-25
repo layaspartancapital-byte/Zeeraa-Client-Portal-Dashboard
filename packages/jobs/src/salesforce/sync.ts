@@ -40,11 +40,13 @@ import {
 import {
   applyStageCorrections,
   applyStageExclusions,
+  applyStageMerges,
   applyLeadSourceExclusions,
   applyLenderExclusions,
   type LenderExclusion,
   type StageCorrection,
   type StageExclusionRule,
+  type StageMergeRule,
 } from './stage-rules';
 
 export type SyncContext = {
@@ -69,6 +71,8 @@ export type SyncContext = {
   lenderExclusions?: LenderExclusion | null;
   /** Stage dates a person has corrected over the CRM's. */
   stageCorrections?: StageCorrection[];
+  /** Stages that are one step: an offer that approves a deal (`stage_merges`). */
+  stageMerges?: StageMergeRule[];
 };
 
 export type SyncResult = {
@@ -78,6 +82,8 @@ export type SyncResult = {
   stageEvents: number;
   /** Stage events excluded from counting, per configured reason. */
   stageExclusions: Record<string, number>;
+  /** Events derived by a `stage_merges` rule, per rule. */
+  stageMerges: Record<string, number>;
   /** Hand-recorded corrections in force after this run. */
   stageCorrections: number;
   clickIds: number;
@@ -178,6 +184,7 @@ export async function runSalesforceSync(
       opportunities: 0,
       stageEvents: 0,
       stageExclusions: {},
+      stageMerges: {},
       stageCorrections: 0,
       clickIds: 0,
       deleted: 0,
@@ -363,7 +370,7 @@ export async function runSalesforceSync(
       );
 
       /*
-       * Corrections, then exclusions, over the whole table.
+       * Corrections, then merges, then exclusions, over the whole table.
        *
        * After the upsert because the upsert writes the CRM's version back
        * whenever a corrected deal is modified. Exclusions last, so a corrected
@@ -374,6 +381,7 @@ export async function runSalesforceSync(
         context.tenantId,
         context.stageCorrections ?? [],
       );
+      result.stageMerges = await applyStageMerges(tx, context.tenantId, context.stageMerges ?? []);
       result.stageExclusions = await applyStageExclusions(
         tx,
         context.tenantId,

@@ -16,7 +16,9 @@ import {
   applyLeadSourceExclusions,
   applyStageCorrections,
   applyStageExclusions,
+  applyStageMerges,
   parseStageCorrections,
+  parseStageMerges,
   parseStageExclusions,
 } from '../src/salesforce/stage-rules';
 
@@ -395,5 +397,86 @@ describe('Lead Source exclusions survive the stage exclusions (24 September 2026
       tx.select({ id: schema.leads.externalId }).from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn({ start: '2026-08-01', end: '2026-08-31' }))),
     );
     expect(counted.map((r) => r.id)).toEqual(['00QW']);
+  });
+});
+
+describe('stage merges', () => {
+  const MERGE = parseStageMerges({ merges: [{ into: 'uw_approved', from: ['offer'] }] });
+  const approvals = async () =>
+    (await readEvents())
+      .filter((e) => e.stage === 'uw_approved')
+      .map((e) => ({ opp: e.opportunityExternalId, at: e.occurredAt.toISOString(), derived: e.derivedFrom, excluded: e.excludedReason }))
+      .sort((a, b) => a.opp.localeCompare(b.opp) || a.at.localeCompare(b.at));
+
+  it('approves a deal at its offer where the offer came first, or alone, and not otherwise', async () => {
+    await run(async (tx) => {
+      await upsertStageEvents(
+        tx,
+        tenantId,
+        [
+          // Offer on 30 July, approval stamped on 2 August: approved on 30 July.
+          event('006A', 'offer', '2026-07-30T15:00:00Z'),
+          event('006A', 'uw_approved', '2026-08-02T15:00:00Z'),
+          // Approved first: the later offer is the same step, not a second approval.
+          event('006B', 'uw_approved', '2026-07-01T15:00:00Z'),
+          event('006B', 'offer', '2026-07-03T15:00:00Z'),
+          // An offer and no approval at all; two offers, the first counts.
+          event('006C', 'offer', '2026-07-10T15:00:00Z'),
+          event('006C', 'offer', '2026-07-20T15:00:00Z'),
+        ],
+        syncRunId,
+      );
+      await applyStageMerges(tx, tenantId, MERGE);
+    });
+    expect(await approvals()).toEqual([
+      { opp: '006A', at: '2026-07-30T15:00:00.000Z', derived: 'offer', excluded: null },
+      { opp: '006A', at: '2026-08-02T15:00:00.000Z', derived: null, excluded: null },
+      { opp: '006B', at: '2026-07-01T15:00:00.000Z', derived: null, excluded: null },
+      { opp: '006C', at: '2026-07-10T15:00:00.000Z', derived: 'offer', excluded: null },
+    ]);
+    // The offers themselves are still stored as offers.
+    expect((await readEvents()).filter((e) => e.stage === 'offer')).toHaveLength(4);
+  });
+
+  it('recomputes from scratch: running twice changes nothing, and no rule removes what it wrote', async () => {
+    await run(async (tx) => {
+      await upsertStageEvents(tx, tenantId, [event('006C', 'offer', '2026-07-10T15:00:00Z')], syncRunId);
+      await applyStageMerges(tx, tenantId, MERGE);
+      await applyStageMerges(tx, tenantId, MERGE);
+    });
+    expect(await approvals()).toHaveLength(1);
+    await run((tx) => applyStageMerges(tx, tenantId, []));
+    expect(await approvals()).toEqual([]);
+  });
+
+  it('keeps a real approval that lands on a derived one, and the exclusions judge derived events too', async () => {
+    await run(async (tx) => {
+      await upsertOpportunities(tx, tenantId, [opportunity('006R', 'Renewal')], syncRunId);
+      await upsertStageEvents(
+        tx,
+        tenantId,
+        [event('006C', 'offer', '2026-07-10T15:00:00Z'), event('006R', 'offer', '2026-07-11T15:00:00Z')],
+        syncRunId,
+      );
+      await applyStageMerges(tx, tenantId, MERGE);
+      // Salesforce later stamps the approval at exactly the offer's moment.
+      await upsertStageEvents(tx, tenantId, [event('006C', 'uw_approved', '2026-07-10T15:00:00Z')], syncRunId);
+      await applyStageMerges(tx, tenantId, MERGE);
+      await applyStageExclusions(
+        tx,
+        tenantId,
+        parseStageExclusions({ rules: [{ reason: 'renewal', dealTypes: ['Renewal'], stages: ['*'] }] }),
+      );
+    });
+    expect(await approvals()).toEqual([
+      { opp: '006C', at: '2026-07-10T15:00:00.000Z', derived: null, excluded: null },
+      { opp: '006R', at: '2026-07-11T15:00:00.000Z', derived: 'offer', excluded: 'renewal' },
+    ]);
+  });
+
+  it('refuses a malformed rule rather than merging nothing', () => {
+    expect(() => parseStageMerges({ merges: [{ into: 'uw_approved', from: [] }] })).toThrow(/needs an/);
+    expect(() => parseStageMerges({ merges: [{ into: 'offer', from: ['offer'] }] })).toThrow(/needs an/);
+    expect(parseStageMerges(null)).toEqual([]);
   });
 });

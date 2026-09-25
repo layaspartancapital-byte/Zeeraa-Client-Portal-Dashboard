@@ -15,7 +15,7 @@ import {
   withMaintenance,
 } from '@zeeraa/db';
 import type { SyncContext } from './sync';
-import { parseStageCorrections, parseLenderExclusions, parseStageExclusions } from './stage-rules';
+import { parseStageCorrections, parseLenderExclusions, parseStageExclusions, parseStageMerges } from './stage-rules';
 
 /**
  * Assembles a sync context from configuration rather than from constants.
@@ -111,6 +111,7 @@ export async function resolveSalesforceContext(
       // silently parsed to nothing would count every renewal again.
       stageExclusions: parseStageExclusions(byKey.get('stage_exclusions')),
       stageCorrections: parseStageCorrections(byKey.get('stage_corrections')),
+      stageMerges: parseStageMerges(byKey.get('stage_merges')),
       lenderExclusions: parseLenderExclusions(byKey.get('lender_exclusions')),
       // Absent or malformed, only a click ID credits a source: every other lead
       // is Direct & other rather than guessed into a channel.

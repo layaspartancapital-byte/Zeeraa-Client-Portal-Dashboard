@@ -239,6 +239,12 @@ export const stageEvents = pgTable(
      * must never be presented as something the CRM observed.
      */
     origin: stageOriginEnum('origin').notNull().default('observed'),
+    /**
+     * The stage this event was taken from, by a `stage_merges` rule — an
+     * approval written at the time of a deal's first offer — or null for an
+     * event read as itself. Recomputed on every sync. See migration 0039.
+     */
+    derivedFrom: text('derived_from'),
     syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
   },
   (t) => [

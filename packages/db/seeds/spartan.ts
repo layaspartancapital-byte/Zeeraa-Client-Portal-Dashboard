@@ -53,8 +53,13 @@ export const spartan: TenantSeed = {
      */
     { position: 3, key: 'application', label: 'Application' },
     { position: 4, key: 'sql', label: 'SQL' },
+    /*
+     * Approval and offer are one step in Spartan's process (25 September
+     * 2026): Offer is no longer a stage, and a deal is approved at its
+     * approval or its offer, whichever came first (`stage_merges` below). The
+     * offer field is still read, and its events stored as `offer`.
+     */
     { position: 5, key: 'uw_approved', label: 'UW approved', isOptimizationTarget: true },
-    { position: 6, key: 'offer', label: 'Offer', isOptimizationTarget: true },
     { position: 7, key: 'funded', label: 'Funded', isOptimizationTarget: true, countsValue: true },
   ],
 
@@ -457,6 +462,13 @@ export const spartan: TenantSeed = {
         // Labor Day. The rest of Spartan's holiday list has not arrived.
         holidays: ['2026-09-07'],
       },
+    },
+    {
+      key: 'stage_merges',
+      description:
+        'Stages that are one step: a deal reaches `into` at the earliest of its `into` ' +
+        'and `from` events. The `from` events stay stored as themselves.',
+      value: { merges: [{ into: 'uw_approved', from: ['offer'] }] },
     },
     {
       /*

@@ -317,6 +317,9 @@ export async function upsertStageEvents(
           occurredOn: sql`excluded.occurred_on`,
           origin: sql`excluded.origin`,
           syncRunId: sql`excluded.sync_run_id`,
+          // The CRM now records this event itself: it is no longer one a
+          // `stage_merges` rule derived, and the next merge must not delete it.
+          derivedFrom: null,
         },
       })
       .returning({ id: schema.stageEvents.id });

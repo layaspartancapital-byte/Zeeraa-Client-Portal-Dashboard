@@ -320,6 +320,28 @@ export async function runReconciliation(
         const exclusions = parseStageExclusions(byKey.get('stage_exclusions'));
         const renewalTypes = exclusions.find((r) => r.stages.includes('*'))?.dealTypes ?? RENEWAL_TYPES_FALLBACK;
         const corrections = parseStageCorrections(byKey.get('stage_corrections'));
+        // Deals counted at a stage only through a `stage_merges` rule — approved
+        // at their offer — which Salesforce's own approval field cannot show.
+        const derivedIn = async (stage: string, range: DateRange) =>
+          new Set(
+            (
+              await withJobTenant(tenantId, (tx) =>
+                tx
+                  .selectDistinct({ id: schema.stageEvents.opportunityExternalId })
+                  .from(schema.stageEvents)
+                  .where(
+                    and(
+                      eq(schema.stageEvents.tenantId, tenantId),
+                      eq(schema.stageEvents.stage, stage),
+                      gte(schema.stageEvents.occurredOn, range.start),
+                      lte(schema.stageEvents.occurredOn, range.end),
+                      sql`${schema.stageEvents.excludedReason} is null`,
+                      sql`${schema.stageEvents.derivedFrom} is not null`,
+                    ),
+                  ),
+              )
+            ).map((r) => r.id),
+          );
         const typeList = renewalTypes.map((t) => `'${t.replace(/'/g, "\\'")}'`).join(',');
         const notRenewal = `(Type = null OR Type NOT IN (${typeList}))`;
         const inbound = inboundClause(context.leadExclusion ?? NO_LEAD_EXCLUSION);
@@ -386,7 +408,7 @@ export async function runReconciliation(
                 )
               ).map((r) => r.id),
             );
-            checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections));
+            checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections, await derivedIn(stage, w.range)));
           }
 
           // Stages read from field history rather than a field — UW approved
@@ -427,7 +449,7 @@ export async function runReconciliation(
                   )
                 ).map((r) => r.id),
               );
-              checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections));
+              checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections, await derivedIn(stage, w.range)));
             }
           }
         }
@@ -504,21 +526,27 @@ function classifyIds(
   ours: Set<string>,
   theirs: Set<string>,
   corrections: { opportunity: string; stage: string; month: string }[],
+  /** Deals at this stage only through a `stage_merges` rule. */
+  derived: Set<string> = new Set(),
 ): Check {
   const onlyOurs = [...ours].filter((id) => !theirs.has(id));
   const onlyTheirs = [...theirs].filter((id) => !ours.has(id));
   const corrected = new Set(corrections.filter((c) => c.stage === stage).map((c) => c.opportunity));
-  const unexplained = [...onlyOurs, ...onlyTheirs].filter((id) => !corrected.has(id));
+  // Only ours can be merged: the merge adds a deal, it never removes one.
+  const merged = onlyOurs.filter((id) => derived.has(id) && !corrected.has(id));
+  const isExplained = (id: string) => corrected.has(id) || merged.includes(id);
+  const unexplained = [...onlyOurs, ...onlyTheirs].filter((id) => !isExplained(id));
   const explained = [...onlyOurs, ...onlyTheirs].filter((id) => corrected.has(id));
   const status: CheckStatus =
-    unexplained.length > 0 ? 'drift' : explained.length > 0 ? 'explained' : 'match';
+    unexplained.length > 0 ? 'drift' : explained.length + merged.length > 0 ? 'explained' : 'match';
   const parts: string[] = [];
   if (explained.length) parts.push(`${explained.length} moved by a recorded correction (${explained.join(', ')})`);
+  if (merged.length) parts.push(`${merged.length} approved at their offer (stage merge)`);
   if (onlyTheirs.filter((id) => !corrected.has(id)).length) {
     parts.push(`${onlyTheirs.filter((id) => !corrected.has(id)).length} in Salesforce not counted here`);
   }
-  if (onlyOurs.filter((id) => !corrected.has(id)).length) {
-    parts.push(`${onlyOurs.filter((id) => !corrected.has(id)).length} counted here not in Salesforce`);
+  if (onlyOurs.filter((id) => !isExplained(id)).length) {
+    parts.push(`${onlyOurs.filter((id) => !isExplained(id)).length} counted here not in Salesforce`);
   }
   return {
     source,

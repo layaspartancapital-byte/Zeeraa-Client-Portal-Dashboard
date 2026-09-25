@@ -18,7 +18,9 @@
  *
  * `--correct-channel-figures` corrects each month's frozen channel figures:
  * every one that now differs gets the next version with the reason
- * (`correctChannelFigures`). Run `--channel-figures` after it to freeze a
+ * (`correctChannelFigures`). With `--retire-missing`, a frozen figure the code
+ * no longer computes (a stage merged away) gets a next version with no value
+ * and `Retired: <reason>`. Run `--channel-figures` after it to freeze a
  * channel that did not exist when the month was frozen.
  */
 import { eq } from 'drizzle-orm';
@@ -56,10 +58,19 @@ if (correct) {
 }
 if (args.includes('--correct-channel-figures')) {
   for (const month of months) {
-    const changed = await correctChannelFigures({ tenantId: tenant.id, month, by, reason, dryRun });
+    const changed = await correctChannelFigures({
+      tenantId: tenant.id,
+      month,
+      by,
+      reason,
+      dryRun,
+      retireMissing: args.includes('--retire-missing'),
+    });
     if (changed.length === 0) console.log(`${month}  every frozen channel figure still agrees`);
     for (const r of changed) {
-      console.log(`${month}  ${r.key} v${r.version}${dryRun ? ' (dry run)' : ''}: ${r.before ?? 'blank'} → ${r.after ?? 'blank'}`);
+      console.log(
+        `${month}  ${r.key} v${r.version}${dryRun ? ' (dry run)' : ''}: ${r.before ?? 'blank'} → ${r.retired ? 'retired' : (r.after ?? 'blank')}`,
+      );
     }
   }
   process.exit(0);

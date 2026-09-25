@@ -400,6 +400,16 @@ export async function correctBaselineMonth(options: {
  * the screens show. Freeze the new channel's own figures with
  * `freezeChannelFigures` afterwards.
  */
+/**
+ * How a retired figure says so: a version with no value whose reason begins
+ * with this. The number check skips exactly these, and nothing else that
+ * the code has stopped computing.
+ */
+export const RETIRED_PREFIX = 'Retired: ';
+export function isRetired(notMeasuredReason: string | null | undefined): boolean {
+  return typeof notMeasuredReason === 'string' && notMeasuredReason.startsWith(RETIRED_PREFIX);
+}
+
 export async function correctChannelFigures(options: {
   tenantId: string;
   month: MonthKey;
@@ -407,7 +417,14 @@ export async function correctChannelFigures(options: {
   reason: string;
   now?: Date;
   dryRun?: boolean;
-}): Promise<{ key: string; version: number; before: number | null; after: number | null }[]> {
+  /**
+   * Retire a frozen figure the code no longer computes — a funnel stage that
+   * was merged away — with a next version holding no value and
+   * `Retired: <reason>` as why. Without it such a figure is left alone, and
+   * the number check reports it as not computed.
+   */
+  retireMissing?: boolean;
+}): Promise<{ key: string; version: number; before: number | null; after: number | null; retired?: boolean }[]> {
   const now = options.now ?? new Date();
   return withJobTenant(options.tenantId, async (tx) => {
     const context = await freezeContext(tx, options.tenantId, now);
@@ -420,6 +437,7 @@ export async function correctChannelFigures(options: {
         metric: schema.baselineSnapshots.metric,
         version: schema.baselineSnapshots.version,
         value: schema.baselineSnapshots.value,
+        notMeasuredReason: schema.baselineSnapshots.notMeasuredReason,
       })
       .from(schema.baselineSnapshots)
       .where(and(eq(schema.baselineSnapshots.tenantId, options.tenantId), eq(schema.baselineSnapshots.month, `${options.month}-01`)))
@@ -427,11 +445,30 @@ export async function correctChannelFigures(options: {
     const latest = new Map<string, (typeof rows)[number]>();
     for (const r of rows) if (!latest.has(`${r.platform}|${r.metric}`)) latest.set(`${r.platform}|${r.metric}`, r);
 
-    const out: { key: string; version: number; before: number | null; after: number | null }[] = [];
+    const out: { key: string; version: number; before: number | null; after: number | null; retired?: boolean }[] = [];
     for (const [key, current] of latest) {
       // The ramp's own figures are corrected by `correctBaselineMonth`, from `monthFigures`.
       if (current.platform === context.platform && (RAMP_METRICS as readonly string[]).includes(current.metric)) continue;
-      if (!figures.has(key)) continue;
+      if (!figures.has(key)) {
+        if (!options.retireMissing || isRetired(current.notMeasuredReason)) continue;
+        const version = current.version + 1;
+        if (!options.dryRun) {
+          await tx.insert(schema.baselineSnapshots).values({
+            tenantId: options.tenantId,
+            month: `${options.month}-01`,
+            platform: current.platform,
+            metric: current.metric,
+            version,
+            value: null,
+            notMeasuredReason: `${RETIRED_PREFIX}${options.reason}`,
+            frozenAt: now,
+            frozenBy: options.by,
+            reason: options.reason,
+          });
+        }
+        out.push({ key, version, before: current.value === null ? null : Number(current.value), after: null, retired: true });
+        continue;
+      }
       const after = figures.get(key) ?? null;
       const before = current.value === null ? null : Number(current.value);
       // To four places, as the value is stored and as the number check compares it.
