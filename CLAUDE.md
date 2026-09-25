@@ -94,7 +94,9 @@
   staff.** The Data quality card and its drawer items render only for
   `zeeraa_admin`. For a client, where the data cannot support something it is
   hidden rather than shown as a dead control or badge (24 September 2026): a
-  tab with nothing behind it is not drawn. A figure the client *does* see that
+  tab with nothing behind it is not drawn. The one exception is a platform in
+  the `integrating_platforms` row: an "Integrating" rail item and a holding
+  page with no figure, until `reportingPlatforms` includes it. A figure the client *does* see that
   cannot be measured for the period is still `Not measured`, never a zero.
 - **Coverage is by day, from `sync_days`.** Every pull records the days it
   covered and whether each had settled; a source resumes from its oldest day

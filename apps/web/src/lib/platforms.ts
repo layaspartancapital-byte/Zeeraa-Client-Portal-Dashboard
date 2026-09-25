@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { parseIntegratingPlatforms, stillIntegrating } from '@zeeraa/core';
 import { schema } from '@zeeraa/db';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
@@ -94,7 +95,11 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
     // Paid first, then organic: the rail reads in the order a reader asks the
     // questions, not alphabetically.
     const order = [...AD_PLATFORMS, ...ORGANIC_PLATFORMS] as readonly string[];
+    // One entry per platform: a tenant can hold two connections to one
+    // platform (a second ad account), and the rail drew it twice.
+    const seen = new Set<string>();
     return rows
+      .filter((r) => (seen.has(r.platform) ? false : (seen.add(r.platform), true)))
       .map((r) => ({
         key: r.platform,
         label: platformLabel(r.platform),
@@ -103,4 +108,34 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
       }))
       .sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   });
+}
+
+export type IntegratingPlatform = { key: string; label: string };
+
+/**
+ * Platforms configured as being connected (`integrating_platforms`) that are
+ * not reporting yet. The same `reportingPlatforms` test decides both lists, so
+ * a platform is in exactly one of them, and moves from this one to that one
+ * the day its connection has reported data.
+ */
+export async function integratingPlatforms(session: TenantSession): Promise<IntegratingPlatform[]> {
+  const [row, reporting] = await Promise.all([
+    queryTenant(session, (tx) =>
+      tx
+        .select({ value: schema.tenantConfig.value })
+        .from(schema.tenantConfig)
+        .where(
+          and(
+            eq(schema.tenantConfig.tenantId, session.tenant.id),
+            eq(schema.tenantConfig.key, 'integrating_platforms'),
+          ),
+        )
+        .limit(1),
+    ),
+    reportingPlatforms(session),
+  ]);
+  return stillIntegrating(
+    parseIntegratingPlatforms(row[0]?.value),
+    reporting.map((p) => p.key),
+  ).map((key) => ({ key, label: platformLabel(key) }));
 }

@@ -459,6 +459,19 @@ export const spartan: TenantSeed = {
       },
     },
     {
+      /*
+       * Platforms being connected for this engagement, shown on the rail as
+       * "Integrating" with a holding page until each one reports; then the
+       * item is the ordinary platform page, with no edit here. Keys only: what
+       * each will show is the platform's (`INTEGRATION_PREVIEWS` in core).
+       */
+      key: 'integrating_platforms',
+      description:
+        'Platforms being connected, shown on the rail as integrating until each ' +
+        'has reported data, then as its ordinary page.',
+      value: { platforms: ['linkedin_ads', 'semrush', 'microsoft_ads'] },
+    },
+    {
       key: 'attribution_default_model',
       description: 'The UI default. The other model stays available as a toggle.',
       value: { model: 'last_touch' },

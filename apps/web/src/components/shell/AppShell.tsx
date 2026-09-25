@@ -24,6 +24,7 @@ export function AppShell({
   platforms,
   logo = null,
   mark = null,
+  integrating = [],
   tour,
   refreshHours,
   children,
@@ -34,6 +35,8 @@ export function AppShell({
   logo?: string | null;
   /** The tenant's square mark for the collapsed rail; null shows a monogram. */
   mark?: string | null;
+  /** Platforms being connected, drawn as "Integrating" until they report. */
+  integrating?: { key: string; label: string }[];
   /** Serialised by the server component that renders this. */
   generatedAt: string;
   /** Connected ad platforms, resolved server-side in the tenant layout. */
@@ -49,7 +52,7 @@ export function AppShell({
     <ShellProvider>
       <TourProvider slug={tenant.slug} autoStart={tour.autoStart} onComplete={tour.onComplete}>
         <div className="min-h-dvh bg-canvas">
-          <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} mark={mark} />
+          <Sidebar viewer={viewer} tenant={tenant} platforms={platforms} logo={logo} mark={mark} integrating={integrating} />
           <Content tenant={tenant} generatedAt={generatedAt}>
             {children}
           </Content>

@@ -3,7 +3,7 @@ import { AppShell } from '@/components/shell/AppShell';
 
 import { requireTenant } from '@/lib/tenant';
 import { hasCompletedTour, recordTourCompleted } from '@/lib/tour';
-import { reportingPlatforms, tenantBusinessHours, tenantLogo } from '@/lib/cached-reports';
+import { integratingPlatforms, reportingPlatforms, tenantBusinessHours, tenantLogo } from '@/lib/cached-reports';
 
 /**
  * The browser tab title leads with the tenant name. Two tabs open on two
@@ -30,8 +30,9 @@ export default async function TenantLayout({
   const { tenant: slug } = await params;
   const session = await requireTenant(slug);
 
-  const [platforms, brand, toured, refreshHours] = await Promise.all([
+  const [platforms, integrating, brand, toured, refreshHours] = await Promise.all([
     reportingPlatforms(session),
+    integratingPlatforms(session),
     tenantLogo(session),
     hasCompletedTour(session),
     tenantBusinessHours(session),
@@ -50,6 +51,7 @@ export default async function TenantLayout({
       logo={brand.logo}
       mark={brand.mark}
       platforms={platforms.map((p) => ({ key: p.key, label: p.label }))}
+      integrating={integrating}
       generatedAt={new Date().toLocaleString('en-US', { timeZone: session.tenant.timezone })}
       tour={{ autoStart: !toured, onComplete: completeTour }}
       refreshHours={refreshHours}

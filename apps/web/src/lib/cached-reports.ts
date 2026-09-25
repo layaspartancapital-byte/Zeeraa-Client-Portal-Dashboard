@@ -35,6 +35,7 @@ export const breakdownAvailability = cached('breakdownAvailability', breakdown.b
 export const breakdownRows = cached('breakdownRows', breakdown.breakdownRows);
 export const declineReasonSummary = cached('declineReasonSummary', quality.declineReasonSummary);
 export const reportingPlatforms = cached('reportingPlatforms', platforms.reportingPlatforms);
+export const integratingPlatforms = cached('integratingPlatforms', platforms.integratingPlatforms);
 export const tenantLogo = cached('tenantLogo', tenant.tenantLogo);
 export const tenantBusinessHours = cached('tenantBusinessHours', tenant.tenantBusinessHours);
 

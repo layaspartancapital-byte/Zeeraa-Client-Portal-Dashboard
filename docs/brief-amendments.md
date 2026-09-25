@@ -3512,3 +3512,32 @@ materials with the tenant's accent as a 2px rule at its foot. The
 accent-filled square read as a sticker. Each platform has its own line icon,
 with its initial for one that has none, and every collapsed item has a
 tooltip with its page name, on hover and on keyboard focus.
+
+## §12 — platforms being connected show as "Integrating" (25 September 2026)
+
+**Reverses, for this one case,** two rules: a client is never shown a control
+with nothing behind it (24 September), and the rail lists only platforms that
+report ("a rail advertising Microsoft Ads to a client who has never connected
+it is a promise the product has not made"). On the client's instruction,
+platforms being connected are listed, and say that they are being connected.
+
+- **Which platforms** is the `integrating_platforms` config row (Spartan:
+  LinkedIn Ads, Semrush, Microsoft Ads), loaded with `load-config-row.ts`.
+  **What each will show** is the platform's, `INTEGRATION_PREVIEWS` in core.
+- **On the rail**, after the live platforms, each with its own icon and an
+  "Integrating" pill; collapsed, a dot on the icon and the tooltip "LinkedIn
+  Ads, integrating". The dot breathes slowly (`@keyframes integrating`), only
+  under `motion-safe:`, and not at all with reduced motion on. It is neutral,
+  because green and red never mark a status, amber means Not measured and gold
+  is the active item.
+- **The page** at the platform's ordinary URL gives the name, "Integration in
+  progress" and one line on what it will show. No figure, no chart and no
+  zero.
+- **The switch is automatic.** `stillIntegrating` removes a platform once
+  `reportingPlatforms` includes it, which means a connection *that has
+  reported data*. A connection row alone is not enough: an empty connection
+  would otherwise turn a holding page into a page of zeros. LinkedIn Ads and
+  Microsoft Ads are already ad platforms (`AD_PLATFORMS`), so their first
+  synced day turns the item into the ordinary page. **Semrush has no page type
+  yet.** It is neither an ad nor an organic platform, so it stays integrating
+  until its connector exists and registers what kind of page it gets.

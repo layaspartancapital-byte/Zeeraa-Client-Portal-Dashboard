@@ -15,6 +15,7 @@ import {
   Megaphone,
   MousePointerClick,
   Plug,
+  Radar,
   Scale,
   Search,
   Users,
@@ -65,6 +66,8 @@ type NavGroup = {
     label: string;
     icon: typeof LayoutDashboard;
     permitted?: (role: Role) => boolean;
+    /** A platform being connected: its holding page, and the badge. */
+    integrating?: boolean;
   }[];
 };
 
@@ -107,6 +110,7 @@ const PLATFORM_ICONS: Record<string, typeof LayoutDashboard> = {
   search_console: Search,
   microsoft_ads: MousePointerClick,
   linkedin_ads: Briefcase,
+  semrush: Radar,
 };
 
 /** A platform's initial in the icon's 16px box, for a platform with no icon. */
@@ -177,6 +181,7 @@ export function Sidebar({
   platforms = [],
   logo = null,
   mark = null,
+  integrating = [],
 }: {
   viewer: Viewer;
   tenant: TenantSummary;
@@ -184,6 +189,12 @@ export function Sidebar({
   logo?: string | null;
   /** The tenant's square mark for the collapsed rail; null shows a monogram. */
   mark?: string | null;
+  /**
+   * Platforms configured as being connected that have not reported yet
+   * (`integratingPlatforms`). Drawn after the live ones with an "Integrating"
+   * badge; each becomes an ordinary item the day it reports.
+   */
+  integrating?: { key: string; label: string }[];
   /**
    * Channels this client has actually connected, in a stable order.
    *
@@ -196,21 +207,19 @@ export function Sidebar({
   const { collapsed, setCollapsed, drawerOpen, setDrawerOpen } = useShell();
   const pathname = usePathname();
 
+  const platformItems: NavGroup['items'] = [
+    ...platforms.map((p) => ({ ...p, integrating: false })),
+    ...integrating.map((p) => ({ ...p, integrating: true })),
+  ].map((p) => ({
+    segment: `platforms/${p.key}`,
+    label: p.label,
+    icon: PLATFORM_ICONS[p.key] ?? platformInitial(p.label),
+    integrating: p.integrating,
+  }));
   const withPlatforms: NavGroup[] =
-    platforms.length === 0
+    platformItems.length === 0
       ? GROUPS
-      : [
-          ...GROUPS.slice(0, 2),
-          {
-            label: 'Platforms',
-            items: platforms.map((p) => ({
-              segment: `platforms/${p.key}`,
-              label: p.label,
-              icon: PLATFORM_ICONS[p.key] ?? platformInitial(p.label),
-            })),
-          },
-          ...GROUPS.slice(2),
-        ];
+      : [...GROUPS.slice(0, 2), { label: 'Platforms', items: platformItems }, ...GROUPS.slice(2)];
 
   // A group whose every item is filtered away loses its heading too, which
   // would otherwise advertise a section with nothing in it. A client viewer
@@ -341,15 +350,16 @@ export function Sidebar({
                     ? pathname.startsWith(href)
                     : pathname === `/${tenant.slug}` || pathname === `/${tenant.slug}/`;
                   const Icon = item.icon;
+                  const name = item.integrating ? `${item.label}, integrating` : item.label;
 
                   return (
                     <li key={item.segment || 'executive'}>
-                      <RailTip label={item.label} enabled={collapsed}>
+                      <RailTip label={name} enabled={collapsed}>
                       <Link
                         href={href}
                         onClick={() => setDrawerOpen(false)}
                         aria-current={active ? 'page' : undefined}
-                        aria-label={item.label}
+                        aria-label={name}
                         className={`relative flex items-center gap-2.5 rounded-[8px] px-2 py-2 text-[13px] font-medium transition-colors ${
                           active
                             ? 'bg-gold-wash text-gold'
@@ -364,6 +374,9 @@ export function Sidebar({
                         )}
                         <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                         <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
+                        {item.integrating && (
+                          <IntegratingBadge collapsed={collapsed} />
+                        )}
                       </Link>
                       </RailTip>
                     </li>
@@ -393,6 +406,34 @@ export function Sidebar({
           </button>
         </div>
       </aside>
+    </>
+  );
+}
+
+/**
+ * "Integrating": a pill beside the label, or collapsed a dot on the icon. The
+ * dot breathes slowly, and only where the reader has not asked for reduced
+ * motion (`motion-safe:`). Neutral on purpose: green and red never mark a
+ * status, amber means Not measured, and gold is the active item.
+ */
+function IntegratingBadge({ collapsed }: { collapsed: boolean }) {
+  const dot = 'block h-1.5 w-1.5 rounded-full bg-on-chrome-2 motion-safe:animate-[integrating_2.4s_ease-in-out_infinite]';
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-chrome-raised px-1.5 py-0.5 text-[10px] font-semibold leading-none text-on-chrome-2 ring-1 ring-inset ring-chrome-border ${
+          collapsed ? 'lg:hidden' : ''
+        }`}
+      >
+        <span className={dot} />
+        Integrating
+      </span>
+      {collapsed && (
+        <span aria-hidden="true" className="absolute right-2.5 top-1.5 hidden lg:block">
+          <span className={dot} />
+        </span>
+      )}
     </>
   );
 }

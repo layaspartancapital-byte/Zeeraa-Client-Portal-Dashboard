@@ -40,7 +40,8 @@ import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformView } from '@/lib/platform';
 import { organicView } from '@/lib/organic';
 import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
-import { reportingPlatforms } from '@/lib/platforms';
+import { integratingPlatforms, reportingPlatforms } from '@/lib/platforms';
+import { IntegratingPlatformView } from '@/components/platform/IntegratingPlatformView';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
@@ -119,7 +120,13 @@ export default async function PlatformPage({
   // exists and is quiet.
   const reporting = await reportingPlatforms(session);
   const entry = reporting.find((p) => p.key === platform);
-  if (!entry) notFound();
+  if (!entry) {
+    // Configured as being connected and not reporting yet: the holding page,
+    // from the same rule the rail draws its "Integrating" badge by.
+    const pending = (await integratingPlatforms(session)).find((p) => p.key === platform);
+    if (pending) return <IntegratingPlatformView session={session} label={pending.label} platform={platform} />;
+    notFound();
+  }
 
   const { range, preset, problem, today, earliest } = await resolvePageRange(session, query);
   const days = rangeLengthDays(range);

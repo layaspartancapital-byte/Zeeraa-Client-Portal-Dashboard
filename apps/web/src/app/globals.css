@@ -270,6 +270,13 @@
   .crossfade {
     animation: fade-in 150ms ease-out;
   }
+
+  /* The "Integrating" dot on the rail: a slow breath, never a blink. Applied
+     through `motion-safe:`, and the reduced-motion block below stops it too. */
+  @keyframes integrating {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.8); }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

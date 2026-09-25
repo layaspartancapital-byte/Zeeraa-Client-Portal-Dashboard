@@ -456,6 +456,11 @@ secret (`67e4309c2482`, which still fails every credential).
   --mark`. `tenantLogo` is cached, so a changed logo or mark shows within ten
   minutes, not at once.
 
+- **Integrating platforms (25 September 2026).** LinkedIn Ads, Semrush and
+  Microsoft Ads show on the rail as integrating, with a holding page, until
+  each reports. See `docs/brief-amendments.md`, "§12 — platforms being
+  connected". Semrush needs a connector and a page type before it can switch.
+
 **Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
 no call-tracking drift.
 
