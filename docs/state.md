@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 25 September 2026 (funded-deals list on Google Ads and Meta; People activity and audit log deployed).**
+**Last updated: 25 September 2026 (funded-deals list on Google Ads and Meta; People activity and audit log deployed and verified).**
 
 ---
 
@@ -105,11 +105,14 @@ attribution does not credit falls back to the lead's `utm_campaign` (same
 platform only, exact id match for a name, marked "URL tag"). Production, last
 90 days: Google Ads 11 deals, 1 campaign and 1 keyword Not recorded; Meta 2
 deals, 1 campaign and 1 ad Not recorded — each the one lead whose URL carried
-only `utm_source=100A00`. The People sign-in audit row had still not been seen
-in production at 18:10Z; activity was recording.
+only `utm_source=100A00`.
 
 **People: user activity and the account audit log, 25 September 2026 —
-migrated (0040) and deployed as `71a77b0`.** Migration 0040 adds
+migrated (0040), deployed as `71a77b0`, and verified in production.** A real
+client-admin sign-in at 18:39:43Z wrote its `sign_in` row to `audit_events`
+before the session was created, and read back through the deployed
+`lastSignIns` and `tenantRoster` (read-only, maintenance role) People showed
+Last sign-in 18:39Z, Online now (last seen 18:40:46Z) and last page Meta Ads. Migration 0040 adds
 `user_activity` (last seen and last page per tenant, written by
 `ActivityBeacon` on a pathname change at most once a minute, never on the
 auto-refresh) and `audit_events` (account created, password reset, access
@@ -117,8 +120,7 @@ granted or removed, sign-ins; append-only for every role, trigger-held).
 People shows Online now / Last seen / Last sign-in / Last page per person and
 an Audit log card below the forms, Zeeraa admins only. Rules in
 `docs/brief-amendments.md`, "§11 — user activity and the account audit log".
-Checked at 1440 and 390 locally; mutation test 63/63 killed. A successful
-production sign-in had not yet been observed when this was written. **The order it shipped in:** apply 0040 to
+Checked at 1440 and 390 locally; mutation test 63/63 killed. **The order it shipped in:** apply 0040 to
 Neon (`DATABASE_URL_OWNER="$NEON_DIRECT_URL" pnpm --filter @zeeraa/db
 migrate`), run preflight against it — the definer trigger function will land
 owned by `neondb_owner`, so
