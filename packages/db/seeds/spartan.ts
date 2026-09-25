@@ -447,14 +447,15 @@ export const spartan: TenantSeed = {
         "desk's hours, 9am–6pm Eastern, Monday to Friday. A lead that arrives " +
         'outside hours starts its clock at the next opening; one called before ' +
         'the opening is a zero wait. Holidays are closed days, YYYY-MM-DD in ' +
-        'this timezone — none recorded yet. The 24/7 median is still shown ' +
+        'this timezone. The 24/7 median is still shown ' +
         'beside the figure.',
       value: {
         timezone: 'America/New_York',
         days: ['mon', 'tue', 'wed', 'thu', 'fri'],
         open: '09:00',
         close: '18:00',
-        holidays: [],
+        // Labor Day. The rest of Spartan's holiday list has not arrived.
+        holidays: ['2026-09-07'],
       },
     },
     {
