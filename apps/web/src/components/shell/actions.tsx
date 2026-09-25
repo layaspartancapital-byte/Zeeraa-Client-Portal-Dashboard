@@ -36,6 +36,8 @@ type Outcome = {
 type SyncResponse = {
   ok?: boolean;
   error?: string;
+  /** Refused by the per-tenant throttle: `error` is the wait, not a fault. */
+  throttled?: boolean;
   durationMs?: number;
   outcomes?: Outcome[];
 };
@@ -69,7 +71,10 @@ const STATUS: Record<
 };
 
 /**
- * "Sync now", for `zeeraa_admin`.
+ * "Sync now", for every member of the tenant (`canSyncNow`).
+ *
+ * At most one manual sync per tenant every five minutes; a press inside that
+ * says "Synced 2 min ago, next available in 3 min" and is not a failure.
  *
  * Runs the same incremental sync the hourly cron runs — two days of paid media
  * and Salesforce since its last completed read — and waits for it, so what the
@@ -103,8 +108,10 @@ export function SyncNowButton({
 
   useEffect(() => setMounted(true), []);
 
+  const throttled = Boolean(result?.throttled);
   const failed =
-    Boolean(result?.error) || Boolean(result?.outcomes?.some((o) => o.status === 'failed'));
+    !throttled &&
+    (Boolean(result?.error) || Boolean(result?.outcomes?.some((o) => o.status === 'failed')));
 
   // A clean run clears itself; anything that failed waits for the reader.
   useEffect(() => {
@@ -139,7 +146,9 @@ export function SyncNowButton({
   const seconds = result?.durationMs ? (result.durationMs / 1000).toFixed(1) : null;
   const outcomes = result?.outcomes ?? [];
   const failures = outcomes.filter((o) => o.status === 'failed').length;
-  const heading = result?.error
+  const heading = throttled
+    ? (result?.error ?? 'Sync not available yet')
+    : result?.error
     ? 'Sync did not run'
     : failures > 0
       ? `Sync finished · ${failures} of ${outcomes.length} failed`
@@ -176,7 +185,7 @@ export function SyncNowButton({
                   </button>
                 </div>
 
-                {result.error && (
+                {result.error && !throttled && (
                   <p className="mt-2 flex gap-2 rounded-[8px] border border-[#FEDF89] bg-warn-soft px-2.5 py-2 text-[13px] text-text">
                     <XCircle aria-hidden="true" className="mt-[1px] h-4 w-4 shrink-0 text-[#B54708]" />
                     <span className="min-w-0">

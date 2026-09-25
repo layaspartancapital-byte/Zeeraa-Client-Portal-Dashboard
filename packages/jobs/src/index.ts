@@ -6,6 +6,7 @@ export * from './salesforce/context';
 export * from './salesforce/cadence';
 export * from './sync-runs';
 export * from './incremental';
+export * from './manual-sync';
 export * from './nightly';
 export * from './reconcile';
 export * from './freeze';

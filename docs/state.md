@@ -445,6 +445,11 @@ secret (`67e4309c2482`, which still fails every credential).
   107.3% → 100.0%, Offer→Funded 16.7% → 15.2%. Meta UW approved→Offer
   114.3% → 100.0% (7 of 7). Stage cards say "deals".
 
+- **"Sync now" for clients (25 September 2026).** Every member of a tenant
+  has it on Executive, Monthly performance and Funnel; at most one manual sync
+  per tenant every five minutes, run as the ingestion role on their own
+  tenant. See `docs/brief-amendments.md`, "§11 — Sync now for every member".
+
 **Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
 no call-tracking drift.
 

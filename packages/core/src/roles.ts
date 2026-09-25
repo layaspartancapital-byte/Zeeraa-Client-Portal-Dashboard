@@ -52,7 +52,17 @@ export function assignableRoles(role: Role): readonly Role[] {
   return role === 'zeeraa_admin' ? ROLES : [];
 }
 
-/** "Sync now", admin screens, target reconciliation. */
+/**
+ * "Sync now": every member, clients included (25 September 2026). Safe to open
+ * because the sync runs as the ingestion role on the member's own tenant,
+ * never with the member's own rights, and is throttled per tenant
+ * (`manualSyncVerdict`).
+ */
+export function canSyncNow(role: Role): boolean {
+  return ROLES.includes(role);
+}
+
+/** Admin screens, target reconciliation, and per-connector sync on Connections. */
 export function canAdministerTenant(role: Role): boolean {
   return role === 'zeeraa_admin';
 }

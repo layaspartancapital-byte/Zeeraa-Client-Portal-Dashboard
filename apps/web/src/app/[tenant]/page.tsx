@@ -1,4 +1,5 @@
 import {
+  canSyncNow,
   briefingPeriods,
   canAdministerTenant,
   channelCostPerDeal,
@@ -575,7 +576,7 @@ export default async function ExecutiveBriefing({
           none is named, which is what a button on a whole-engagement screen
           should do. The connections screen keeps its per-platform buttons.
         */}
-        {canAdministerTenant(session.tenant.role) && <SyncNowButton slug={slug} />}
+        {canSyncNow(session.tenant.role) && <SyncNowButton slug={slug} />}
       </TopBar>
 
       <PageMeta>

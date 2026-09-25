@@ -1,10 +1,16 @@
 import type { NextRequest } from 'next/server';
-import { canAdministerTenant } from '@zeeraa/core';
-import { runIncrementalSync, type SyncPlatform } from '@zeeraa/jobs';
+import { canSyncNow } from '@zeeraa/core';
+import { runManualSync, type SyncPlatform } from '@zeeraa/jobs';
 import { requireRole } from '@/lib/tenant';
 
 /**
- * "Sync now", for `zeeraa_admin`.
+ * "Sync now", for every member of the tenant (`canSyncNow`), clients included
+ * since 25 September 2026.
+ *
+ * The member's session decides only *which* tenant — the one they are signed
+ * in to, from their membership, never from anything else in the request — and
+ * `runManualSync` does the rest as the ingestion role, at most once per tenant
+ * every five minutes. A refusal is 429 with the sentence the button shows.
  *
  * Runs the same `runIncrementalSync` the hourly cron runs, scoped to one tenant
  * and optionally one platform, and waits for it so the button can report what
@@ -31,9 +37,10 @@ export async function POST(
   { params }: { params: Promise<{ tenant: string }> },
 ): Promise<Response> {
   const { tenant: slug } = await params;
-  // Asserted here rather than relied on from the button being hidden: the URL
-  // is typeable, and this one spends the client's API quota.
-  const session = await requireRole(slug, canAdministerTenant);
+  // Asserted here rather than relied on from the button being shown: the URL
+  // is typeable. `requireRole` resolves the tenant from the viewer's own
+  // memberships, so a slug they do not belong to never reaches the sync.
+  const session = await requireRole(slug, canSyncNow);
 
   const requested = request.nextUrl.searchParams.get('platform');
   if (requested && !PLATFORMS.includes(requested as SyncPlatform)) {
@@ -43,11 +50,20 @@ export async function POST(
     );
   }
 
-  const result = await runIncrementalSync({
+  const outcome = await runManualSync({
     tenantId: session.tenant.id,
     platforms: requested ? [requested as SyncPlatform] : undefined,
-    trigger: 'manual',
   });
+  if (outcome.status === 'throttled') {
+    return Response.json(
+      { ok: false, throttled: true, error: outcome.message, nextAt: outcome.nextAt.toISOString() },
+      { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((outcome.nextAt.getTime() - Date.now()) / 1000))) } },
+    );
+  }
+  if (outcome.status === 'running') {
+    return Response.json({ ok: false, throttled: true, error: outcome.message }, { status: 429 });
+  }
+  const { result } = outcome;
 
   if (result.outcomes.length === 0) {
     return Response.json(

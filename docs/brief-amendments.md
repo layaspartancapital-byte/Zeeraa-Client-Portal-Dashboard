@@ -3464,3 +3464,29 @@ Two consequences worth knowing:
 The deploy's number checks now fail if a cohort's size differs from its card's
 figure, or any rate leaves 0–100%. Stage cards read "deals" under an
 opportunity-grain figure, not "opportunities · target"; the target is in the ⓘ.
+
+## §11 — "Sync now" for every member, throttled per tenant (25 September 2026)
+
+§11 and the build so far gave "Sync now" to `zeeraa_admin` alone. Client
+admins and client viewers now have it on Executive, Monthly performance and
+Funnel (`canSyncNow` in core admits every role; Connections' per-connector
+button stays Zeeraa-admin). Three things keep that safe:
+
+- **The sync runs as the ingestion role.** The route resolves the tenant from
+  the viewer's own membership (`requireRole`) and hands only its id to
+  `runManualSync` in `@zeeraa/jobs`, which works under `withJobTenant`. A
+  client gains no write of any kind; row level security scopes the throttle's
+  read and the sync's writes to that tenant. An empty tenant id is refused,
+  because `runIncrementalSync` without one syncs every tenant.
+- **At most one manual sync per tenant every five minutes**, whoever presses
+  it (`manualSyncVerdict` in core). The clock is the latest `sync_runs` row
+  with a `manual` trigger; scheduled runs do not start it. A press inside the
+  window gets 429 and "Synced 2 min ago, next available in 3 min", shown in the
+  toast as a wait, not a failure.
+- **Two presses at once cannot both pass.** The check and the sync share one
+  transaction holding a per-tenant advisory lock
+  (`pg_try_advisory_xact_lock`); the second is told a sync is running.
+
+Tests: `packages/jobs/test/manual-sync.test.ts` (database: throttle, lock,
+tenant scope, scheduled runs ignored) and `apps/web/test/sync-route.test.ts`
+(every role admitted, tenant from the session, 429s).

@@ -22,3 +22,4 @@ export * from './sync-cadence';
 export * from './lead-channel';
 export * from './platform-metrics';
 export * from './platform-labels';
+export * from './manual-sync';

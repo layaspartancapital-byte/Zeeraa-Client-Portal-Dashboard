@@ -1,6 +1,7 @@
 import { Download } from 'lucide-react';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
+  canSyncNow,
   canAdministerTenant,
   formatCount,
   formatRate,
@@ -222,7 +223,7 @@ export default async function Funnel({
           Export CSV
         </ButtonLink>
         <PrintButton />
-        {canAdministerTenant(session.tenant.role) && (
+        {canSyncNow(session.tenant.role) && (
           <SyncNowButton slug={slug} platform="salesforce" />
         )}
       </TopBar>

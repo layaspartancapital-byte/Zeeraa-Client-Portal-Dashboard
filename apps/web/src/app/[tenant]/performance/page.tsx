@@ -3,6 +3,7 @@ import { RampTable } from '@/components/RampTable';
 import { buildRampPanels, rampTableRows } from '@/lib/ramp-panels';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import {
+  canSyncNow,
   addDays,
   formatTargetCurrency,
   canAdministerTenant,
@@ -361,7 +362,7 @@ export default async function Performance({
           Export CSV
         </ButtonLink>
         <PrintButton />
-        {canAdministerTenant(session.tenant.role) && (
+        {canSyncNow(session.tenant.role) && (
           <SyncNowButton slug={slug} platform="google_ads" />
         )}
       </TopBar>
