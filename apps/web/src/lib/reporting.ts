@@ -24,6 +24,7 @@ import {
   reasonCoverageByPeriod,
   responseSeconds,
   speedToLead,
+  stageCohorts,
   submissionOfferRate,
   pendingState,
   EMPTY_PENDING,
@@ -37,6 +38,7 @@ import {
   type AttemptsPerLead,
   type CallVolume,
   type SpeedToLead,
+  type StageCohorts,
   type StageDefinition,
   type SubmissionOfferRate,
 } from '@zeeraa/core';
@@ -121,6 +123,8 @@ export type ChannelRow = {
   cpc: number | null;
   /** Opportunities attributed to this channel, by stage. */
   stages: StageCounts;
+  /** Where this channel's records at each stage have got to since. */
+  cohorts: StageCohorts;
   /** Funded amount on deals attributed to this channel. */
   valueVolume: number;
   costPerDeal: ChannelCostPerDeal;
@@ -137,6 +141,7 @@ export type UnattributedRow = {
   kind: 'unattributed';
   label: string;
   stages: StageCounts;
+  cohorts: StageCohorts;
   valueVolume: number;
   /** Why these cannot be costed, in the interface's voice. */
   reason: string;
@@ -161,6 +166,7 @@ export type TotalRow = {
   ctr: number | null;
   cpc: number | null;
   stages: StageCounts;
+  cohorts: StageCohorts;
   valueVolume: number;
   costPerDeal: null;
   costPerDealAbsentBecause: string;
@@ -370,6 +376,24 @@ export async function monthlyPerformance(
       }
       leadCounts.set(stage.key, { byPlatform: byPlatformCounts, unattributed });
     }
+
+    /*
+     * The same leads one by one, for the cohort rates: which were qualified,
+     * and which opportunity each became, so a lead-grain cohort can be asked
+     * whether it has reached an opportunity stage since.
+     */
+    const cohortLeads =
+      leadStages.length === 0
+        ? []
+        : await tx
+            .select({
+              id: schema.leads.id,
+              channel: leadChannel(),
+              qualified: sql<boolean>`${schema.leads.mqlVerdict} is not distinct from 'qualified'`,
+              opportunity: schema.leads.convertedOpportunityId,
+            })
+            .from(schema.leads)
+            .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn(range)));
 
     const spendRows = await tx
       .select({
@@ -660,6 +684,49 @@ export async function monthlyPerformance(
       unattributedStages[stage.key] = counts.unattributed;
     }
 
+    /*
+     * Cohorts, per population: the records at each stage in the window, and
+     * whether each has reached every later stage at any time so far. A lead
+     * answers for an opportunity stage through the opportunity it became. The
+     * population is fixed by the earlier stage's record, so a channel's rate
+     * is its own records throughout.
+     */
+    const ALL = '\u0000all';
+    const NONE = '\u0000none';
+    const inWindowBy = new Map<string, Map<string, Set<string>>>();
+    const add = (population: string, stage: string, id: string) => {
+      for (const key of [population, ALL]) {
+        const byStage = inWindowBy.get(key) ?? inWindowBy.set(key, new Map()).get(key)!;
+        (byStage.get(stage) ?? byStage.set(stage, new Set()).get(stage)!).add(id);
+      }
+    };
+    const sourceOf = new Map(stages.map((st) => [st.key, st.source ?? 'stage_events']));
+    // A lead-grain stage is counted from `leads` alone, as its card is: MQL
+    // also has computed stage events, and folding those in counted it twice.
+    for (const row of stageRows) {
+      if (sourceOf.get(row.stage) !== 'stage_events') continue;
+      add(row.platform ?? NONE, row.stage, row.opportunityExternalId);
+    }
+    const leadOpportunity = new Map<string, string | null>();
+    const qualifiedLeads = new Set<string>();
+    for (const lead of cohortLeads) {
+      leadOpportunity.set(lead.id, lead.opportunity);
+      if (lead.qualified) qualifiedLeads.add(lead.id);
+      for (const stage of leadStages) {
+        if (stage.source === 'qualified_leads' && !lead.qualified) continue;
+        add(lead.channel || NONE, stage.key, lead.id);
+      }
+    }
+    const hasReached = (stage: string, id: string) => {
+      const source = sourceOf.get(stage);
+      if (source === 'leads') return leadOpportunity.has(id);
+      if (source === 'qualified_leads') return qualifiedLeads.has(id);
+      const opportunity = leadOpportunity.has(id) ? leadOpportunity.get(id) : id;
+      return opportunity ? (reachedStages.get(stage)?.has(opportunity) ?? false) : false;
+    };
+    const cohortsFor = (population: string) =>
+      stageCohorts(stages, inWindowBy.get(population) ?? new Map(), hasReached);
+
     const sumAmounts = (ids: Iterable<string>) =>
       [...ids].reduce((sum, id) => sum + (amounts.get(id) ?? 0), 0);
 
@@ -705,6 +772,7 @@ export async function monthlyPerformance(
         ctr: impressions === 0 ? null : clicks / impressions,
         cpc: clicks === 0 ? null : spend / clicks,
         stages: byPlatform.get(platform) ?? {},
+        cohorts: cohortsFor(platform),
         valueVolume: sumAmounts(valueDealsByPlatform.get(platform) ?? []),
         // An unpaid channel keeps its deal counts and has no cost: a value of
         // $0 would read as the cheapest channel in the table.
@@ -766,6 +834,7 @@ export async function monthlyPerformance(
         kind: 'unattributed',
         label: 'Direct & other',
         stages: unattributedStages,
+        cohorts: cohortsFor(NONE),
         valueVolume: sumAmounts(unattributedValueDeals),
         reason: UNATTRIBUTED_REASON,
       },
@@ -778,6 +847,7 @@ export async function monthlyPerformance(
         ctr: totalImpressions === 0 ? null : totalClicks / totalImpressions,
         cpc: totalClicks === 0 ? null : totalSpend / totalClicks,
         stages: totalStages,
+        cohorts: cohortsFor(ALL),
         valueVolume:
           channels.reduce((sum, c) => sum + c.valueVolume, 0) + sumAmounts(unattributedValueDeals),
         costPerDeal: null,

@@ -3431,3 +3431,36 @@ Funnel's Breakdown ran one 1.9-second statement after the main batch. Now:
 
 No figure changes: the report functions are unchanged and the number checks
 call them directly.
+
+## §9.3 — every funnel rate is a cohort (25 September 2026)
+
+**Reverses** "The funnel shows a real percentage between every stage" above,
+which divided this period's count at the later stage by the earlier one's and
+explained in the hover when that passed 100%. Meta over the last 90 days read
+114.3% from UW approved to Offer: eight offers against seven approvals, one on
+an approval from before the window. The client's rule is that no conversion
+rate exceeds 100%.
+
+Now each rate between two stages is **a cohort**: of the records reaching the
+earlier stage in the window, the share that have reached the later one so far,
+at any date. `stageCohorts` and `cohortConversionRate` in `packages/core/src/funnel.ts`;
+`monthlyPerformance` carries `cohorts` on every channel, the unattributed row
+and the total. A lead-grain cohort (Lead, MQL) is asked about an opportunity
+stage through `leads.converted_opportunity_id`, and the population is the
+earlier stage's record's, so a channel's rate is its own records throughout.
+The hover is one sentence: "Of the 7 deals that reached UW approved in this
+period, 7 have reached Offer so far."
+
+Two consequences worth knowing:
+
+- **A recent window reads lower** until its deals have had time to move. The
+  drawer says so.
+- **"So far" includes a later stage recorded first.** 28 of the 123 deals
+  approved in the last 90 days have their offer stamped before the approval,
+  and every one has an offer, so UW approved → Offer reads 100.0% for every
+  population. MQL → Application falls most (all sources 29.9% → 20.2%): it no
+  longer counts applications from leads created before the window.
+
+The deploy's number checks now fail if a cohort's size differs from its card's
+figure, or any rate leaves 0–100%. Stage cards read "deals" under an
+opportunity-grain figure, not "opportunities · target"; the target is in the ⓘ.

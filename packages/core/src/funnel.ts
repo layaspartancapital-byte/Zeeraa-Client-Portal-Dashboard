@@ -175,6 +175,62 @@ export function adjacentConversionRates(
 }
 
 /**
+ * Where each record that reached a stage in the window has got to since.
+ *
+ * `size` is how many records reached `from` in the window; `reached[to]` is
+ * how many of *those same records* have reached `to` at any time so far. The
+ * numerator is drawn from the denominator's records, so no rate built on it can
+ * exceed 100% — which a ratio of two period counts can, because a deal can
+ * reach Offer this period on an approval from last quarter.
+ *
+ * Plain data rather than sets, so a report carrying it can be cached.
+ */
+export type StageCohorts = Record<string, { size: number; reached: Record<string, number> }>;
+
+/**
+ * Builds the cohorts for every ordered pair of stages.
+ *
+ * `inWindow` is the records reaching each stage in the window, and
+ * `hasReached(stage, id)` answers whether record `id` has reached `stage` at
+ * any time. The caller owns the grain: a lead-grain cohort asked about an
+ * opportunity stage answers through the opportunity the lead became.
+ */
+export function stageCohorts(
+  stages: readonly StageDefinition[],
+  inWindow: ReadonlyMap<string, ReadonlySet<string>>,
+  hasReached: (stage: string, id: string) => boolean,
+): StageCohorts {
+  const ordered = [...stages].sort((a, b) => a.position - b.position);
+  const cohorts: StageCohorts = {};
+  for (const [i, from] of ordered.entries()) {
+    const ids = inWindow.get(from.key) ?? new Set<string>();
+    const reached: Record<string, number> = {};
+    for (const to of ordered.slice(i + 1)) {
+      let n = 0;
+      for (const id of ids) if (hasReached(to.key, id)) n += 1;
+      reached[to.key] = n;
+    }
+    cohorts[from.key] = { size: ids.size, reached };
+  }
+  return cohorts;
+}
+
+/**
+ * The funnel's stage-to-stage rate: of the records that reached `from` in the
+ * window, the share that have reached `to` so far. Null for an empty cohort.
+ */
+export function cohortConversionRate(
+  cohorts: StageCohorts,
+  from: string,
+  to: string,
+): ConversionRate {
+  const cohort = cohorts[from];
+  const denominator = cohort?.size ?? 0;
+  const numerator = cohort?.reached[to] ?? 0;
+  return { from, to, numerator, denominator, rate: denominator === 0 ? null : numerator / denominator };
+}
+
+/**
  * Median days between two stages, over opportunities that reached both.
  *
  * Median rather than mean: one deal that sat in underwriting for nine months

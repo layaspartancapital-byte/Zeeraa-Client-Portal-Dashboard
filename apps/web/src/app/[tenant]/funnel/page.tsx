@@ -131,9 +131,9 @@ export default async function Funnel({
   );
 
   const populations = [
-    { key: 'all', label: 'All sources', counts: data.total.stages },
-    ...data.channels.map((c) => ({ key: c.platform, label: c.label, counts: c.stages })),
-    { key: 'unattributed', label: data.unattributed.label, counts: data.unattributed.stages },
+    { key: 'all', label: 'All sources', counts: data.total.stages, cohorts: data.total.cohorts },
+    ...data.channels.map((c) => ({ key: c.platform, label: c.label, counts: c.stages, cohorts: c.cohorts })),
+    { key: 'unattributed', label: data.unattributed.label, counts: data.unattributed.stages, cohorts: data.unattributed.cohorts },
   ];
   const population = populations.find((p) => p.key === query.channel) ?? populations[0]!;
 
@@ -153,6 +153,13 @@ export default async function Funnel({
         `${population.label.toLowerCase()}'s denominator. A channel's rate is never its own ` +
         `numerator over everybody's denominator — that number improves whenever a different ` +
         `channel has a good month.`,
+    },
+    {
+      heading: 'Every rate is a cohort',
+      body:
+        'Between two stages, the rate is the share of the records reaching the earlier stage in ' +
+        'this period that have reached the later one so far, at any date. It cannot pass 100%, ' +
+        'and a recent period reads lower until its deals have had time to move.',
     },
     {
       heading: 'Rates across a grain boundary',
@@ -248,6 +255,7 @@ export default async function Funnel({
             <FunnelStages
               data={data}
               counts={population.counts}
+              cohorts={population.cohorts}
               populationLabel={population.label}
             />
           )}

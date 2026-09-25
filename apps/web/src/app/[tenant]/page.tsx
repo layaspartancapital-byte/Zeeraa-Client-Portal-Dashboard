@@ -672,6 +672,7 @@ export default async function ExecutiveBriefing({
             <FunnelStages
               data={current}
               counts={current.total.stages}
+              cohorts={current.total.cohorts}
               populationLabel="every source"
             />
           )}

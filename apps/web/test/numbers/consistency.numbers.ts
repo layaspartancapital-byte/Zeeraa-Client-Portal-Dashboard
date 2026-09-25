@@ -11,7 +11,7 @@
  * summed against the funnel's totals.
  */
 import { describe, expect, it } from 'vitest';
-import { addDays, monthRange, previousMonth, type DateRange } from '@zeeraa/core';
+import { addDays, cohortConversionRate, monthRange, previousMonth, type DateRange } from '@zeeraa/core';
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
@@ -78,6 +78,38 @@ describe('the same figure on every screen', () => {
         }
       }
     }
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('every funnel rate is a cohort of its stage, within 100% (25 September 2026)', async () => {
+    const problems: string[] = [];
+    let rates = 0;
+    for (const t of await tenants()) {
+      for (const range of [
+        { start: addDays(t.today, -89), end: t.today },
+        { start: `${t.today.slice(0, 7)}-01`, end: t.today },
+      ]) {
+        const mp = await monthlyPerformance(t.session, range, 'last_touch');
+        const rows = [...mp.channels, mp.unattributed, mp.total];
+        for (const row of rows) {
+          const label = `${t.slug} ${range.start}–${range.end} ${row.label}`;
+          for (const [i, from] of mp.stages.entries()) {
+            const cohort = row.cohorts[from.key];
+            // The chip's denominator is the card's figure: the cohort is the
+            // records the card counted.
+            if ((cohort?.size ?? 0) !== (row.stages[from.key] ?? 0)) {
+              problems.push(`${label} ${from.key}: cohort ${cohort?.size ?? 0}, card ${row.stages[from.key] ?? 0}`);
+            }
+            for (const to of mp.stages.slice(i + 1)) {
+              const r = cohortConversionRate(row.cohorts, from.key, to.key);
+              rates += 1;
+              if (r.rate !== null && (r.rate > 1 || r.rate < 0)) problems.push(`${label} ${from.key} → ${to.key}: ${r.numerator} of ${r.denominator}`);
+            }
+          }
+        }
+      }
+    }
+    console.log(`Cohorts: ${rates} funnel rates checked.`);
     expect(problems, problems.join('\n')).toEqual([]);
   });
 

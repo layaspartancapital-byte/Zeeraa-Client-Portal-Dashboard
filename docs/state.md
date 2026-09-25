@@ -436,6 +436,15 @@ secret (`67e4309c2482`, which still fails every credential).
 - **Inngest is disconnected (25 September 2026, by the user):** app archived,
   the Vercel integration removed, the Production `INNGEST_*` variables deleted.
 
+- **Funnel rates are cohorts (25 September 2026).** Of the records reaching
+  the earlier stage in the window, the share that have reached the later one
+  so far — never above 100%. See `docs/brief-amendments.md`, "§9.3 — every
+  funnel rate is a cohort". Production, last 90 days, all sources, old → new:
+  Lead→MQL 38.7% → 38.7%, MQL→Application 29.9% → 20.2%, Application→SQL
+  94.7% → 94.5%, SQL→UW approved 28.8% → 28.6%, UW approved→Offer
+  107.3% → 100.0%, Offer→Funded 16.7% → 15.2%. Meta UW approved→Offer
+  114.3% → 100.0% (7 of 7). Stage cards say "deals".
+
 **Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
 no call-tracking drift.
 

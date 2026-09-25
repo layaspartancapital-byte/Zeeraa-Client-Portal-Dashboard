@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjacentConversionRates,
+  cohortConversionRate,
+  stageCohorts,
   channelReach,
   reachedByStage,
   stageConversionRate,
@@ -195,5 +197,44 @@ describe('channelReach', () => {
   it('returns a null rate for a channel with nothing at the earlier stage', () => {
     const reach = channelReach(SPARTAN, events({ C: ['lead'] }), channelOf, 'google_ads');
     expect(stageConversionRate(reach, 'lead', 'offer').rate).toBeNull();
+  });
+});
+
+describe('cohort conversion', () => {
+  const window = new Map<string, Set<string>>([
+    ['uw_approved', new Set(['A', 'B'])],
+    // C reached Offer this period on an approval from an earlier one: it is in
+    // the Offer count but not in the approval cohort.
+    ['offer', new Set(['A', 'C'])],
+  ]);
+  const ever: Record<string, string[]> = { uw_approved: ['A', 'B', 'C'], offer: ['A', 'C'], funded: ['A'] };
+  const cohorts = stageCohorts(SPARTAN, window, (stage, id) => ever[stage]?.includes(id) ?? false);
+
+  it('draws the numerator from the records in the denominator', () => {
+    expect(cohortConversionRate(cohorts, 'uw_approved', 'offer')).toEqual({
+      from: 'uw_approved',
+      to: 'offer',
+      numerator: 1,
+      denominator: 2,
+      rate: 0.5,
+    });
+  });
+
+  it('stays within 100% where the period counts do not', () => {
+    // Three offers this period against two approvals is 150% as a ratio of
+    // counts. As a cohort it is the approved deals that went on to an offer.
+    const w = new Map([...window, ['offer', new Set(['A', 'C', 'D'])]]);
+    const c = stageCohorts(SPARTAN, w, (stage, id) => ever[stage]?.includes(id) ?? false);
+    expect(w.get('offer')!.size / w.get('uw_approved')!.size).toBe(1.5);
+    expect(cohortConversionRate(c, 'uw_approved', 'offer').rate).toBe(0.5);
+  });
+
+  it('counts a later stage reached after the window, and any stage further on', () => {
+    expect(cohortConversionRate(cohorts, 'uw_approved', 'funded').numerator).toBe(1);
+    expect(cohorts.uw_approved!.reached).toEqual({ offer: 1, funded: 1 });
+  });
+
+  it('returns null, not zero, for an empty cohort', () => {
+    expect(cohortConversionRate(cohorts, 'sql', 'offer')).toMatchObject({ denominator: 0, rate: null });
   });
 });

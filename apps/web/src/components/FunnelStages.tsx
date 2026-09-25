@@ -1,4 +1,4 @@
-import { formatCount, formatRate, stageConversionRate, type PopulationVerdict, type StageReach } from '@zeeraa/core';
+import { cohortConversionRate, formatCount, formatRate, type StageCohorts } from '@zeeraa/core';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { MonthlyPerformance, StageCounts } from '@/lib/reporting';
@@ -35,25 +35,34 @@ import type { MonthlyPerformance, StageCounts } from '@/lib/reporting';
  *     says so, because comparing it to a rate inside one grain is a category
  *     error.
  *
+ * **Every rate is a cohort** (25 September 2026): of the records that reached
+ * the earlier stage in the window, the share that have reached the later one
+ * so far. It replaced a ratio of the two period counts, which read 114.3% for
+ * Meta from UW approved to Offer over 90 days — deals offered this period on
+ * an approval from an earlier one.
+ *
  * Both halves of every rate come from the population the caller chose. This
  * component never mixes one.
  */
 export function FunnelStages({
   data,
   counts,
+  cohorts,
   populationLabel,
 }: {
   data: MonthlyPerformance;
   counts: StageCounts;
+  cohorts: StageCohorts;
   populationLabel: string;
 }) {
   const { stages, stageStatus, qualification, progression } = data;
   const mqlStageKey = stages.find((st) => st.key === 'mql')?.key ?? null;
-  const reach: StageReach[] = stages.map((stage) => ({
-    stage: stage.key,
-    count: counts[stage.key] ?? 0,
-    origin: stageStatus[stage.key]?.origin ?? 'observed',
-  }));
+
+  /** Who the earlier stage's cohort is, in the hover's words. */
+  const cohortNoun = (stage: (typeof stages)[number], n: number) =>
+    stage.source === 'leads'
+      ? `${n === 1 ? 'lead' : 'leads'} created`
+      : `${stage.source === 'qualified_leads' ? (n === 1 ? 'lead' : 'leads') : n === 1 ? 'deal' : 'deals'} that reached ${stage.label}`;
 
   const measured = stages.map((s) => !stageStatus[s.key]?.blocked);
 
@@ -66,20 +75,18 @@ export function FunnelStages({
   const grainOf = (source: string | undefined) =>
     source === 'leads' || source === 'qualified_leads' ? 'lead' : 'opportunity';
 
-  /** What the figure counts. One line, and the same shape on every card. */
-  const nounFor = (stage: (typeof stages)[number]) => {
-    const base =
-      stage.source === 'leads'
-        ? 'inbound leads'
-        : stage.source === 'qualified_leads'
-          ? 'leads past the bar'
-          : 'opportunities';
-    // `target` is text rather than the blue top border this card used to
-    // carry. Colour was the only thing marking an optimisation target, which
-    // both left it unexplained and broke the rule that colour is never the
-    // only encoding.
-    return stage.isOptimizationTarget ? `${base} · target` : base;
-  };
+  /**
+   * What the figure counts. One line, and the same shape on every card. An
+   * optimisation target says so in its ⓘ ("one of the stages this engagement
+   * is optimised for"); "opportunities · target" under the figure was CRM
+   * vocabulary a client does not use (25 September 2026).
+   */
+  const nounFor = (stage: (typeof stages)[number]) =>
+    stage.source === 'leads'
+      ? 'inbound leads'
+      : stage.source === 'qualified_leads'
+        ? 'leads past the bar'
+        : 'deals';
 
   /**
    * Everything that is not the figure, in one tooltip of at most two sentences.
@@ -106,7 +113,7 @@ export function FunnelStages({
         ? `Inbound leads created in this window, counted at lead grain rather than opportunity grain`
         : stage.source === 'qualified_leads'
           ? `Leads meeting the qualification bar, computed from what a lead reported rather than a gate it passes through`
-          : `Opportunities reaching ${stage.label} in this window`;
+          : `Deals reaching ${stage.label} in this window`;
 
     const clause = coverage
       ? `, read from ${coverage.source}, which begins ${coverage.from
@@ -150,7 +157,7 @@ export function FunnelStages({
       from: stages[from]!,
       to: stages[to]!,
       skipped: stages.slice(from + 1, to).map((s) => s.label),
-      rate: stageConversionRate(reach, stages[from]!.key, stages[to]!.key),
+      rate: cohortConversionRate(cohorts, stages[from]!.key, stages[to]!.key),
     };
   };
 
@@ -162,10 +169,8 @@ export function FunnelStages({
           const next = stages[i + 1];
           const bothMeasured = next ? measured[i] && measured[i + 1] : false;
           const bridge = next && !bothMeasured ? bridgeFor(i) : null;
-          const ratio =
-            next && bothMeasured && (counts[stage.key] ?? 0) > 0
-              ? (counts[next.key] ?? 0) / (counts[stage.key] ?? 0)
-              : null;
+          const cohort = next && bothMeasured ? cohortConversionRate(cohorts, stage.key, next.key) : null;
+          const ratio = cohort?.rate ?? null;
 
           return (
             <div
@@ -243,31 +248,27 @@ export function FunnelStages({
                 <div className="flex shrink-0 items-center justify-center px-1">
                   {ratio !== null ? (
                     /*
-                      A real percentage between every pair of measured stages:
-                      this period's count at the later stage over the earlier
-                      one's. It replaced "not a gate" and "not nested" on 24
-                      September 2026 — a client reads a withheld chip as a
-                      broken funnel. The hover says in one sentence what the
-                      two counts are, including when the later one is larger.
+                      A cohort rate between every pair of measured stages, so
+                      it can never pass 100%. The hover is one sentence naming
+                      both halves.
                     */
                     <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-border bg-surface px-1 py-[3px] font-semibold tabular text-text whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       {formatRate(ratio)}
                       <InfoTip label={`What ${formatRate(ratio)} means`} align="center">
-                        {formatCount(counts[next!.key] ?? 0)} reached {next!.label} this period, against{' '}
-                        {formatCount(counts[stage.key] ?? 0)} at {stage.label}
-                        {ratio > 1
-                          ? ' — more, because some deals reach a later stage without passing through the earlier one in the same period.'
-                          : '.'}
+                        Of the {formatCount(cohort!.denominator)} {cohortNoun(stage, cohort!.denominator)} in
+                        this period, {formatCount(cohort!.numerator)} {cohort!.numerator === 1 ? 'has' : 'have'}{' '}
+                        reached {next!.label} so far.
                       </InfoTip>
                     </span>
                   ) : bridge ? (
                     <span className="inline-flex flex-col items-center gap-0.5 rounded-[9px] border border-dashed border-warn bg-warn-soft px-1 py-[3px] font-semibold tabular text-[#B54708] whitespace-nowrap text-center text-[11px] leading-[1.15]">
                       {bridge.rate.rate === null ? '—' : formatRate(bridge.rate.rate)}
                       <InfoTip label="What this rate spans" align="center">
-                        {bridge.from.label} to {bridge.to.label},{' '}
-                        {formatCount(bridge.rate.numerator)} of{' '}
-                        {formatCount(bridge.rate.denominator)} — measured across{' '}
-                        {bridge.skipped.join(', ')}, which{' '}
+                        Of the {formatCount(bridge.rate.denominator)}{' '}
+                        {cohortNoun(bridge.from, bridge.rate.denominator)} in this period,{' '}
+                        {formatCount(bridge.rate.numerator)}{' '}
+                        {bridge.rate.numerator === 1 ? 'has' : 'have'} reached {bridge.to.label} so far,
+                        across {bridge.skipped.join(', ')}, which{' '}
                         {bridge.skipped.length === 1 ? 'is' : 'are'} not measured.
                       </InfoTip>
                     </span>
@@ -296,7 +297,7 @@ export function FunnelStages({
             <tr>
               <th scope="col">Stage</th>
               <th scope="col">Count</th>
-              <th scope="col">Conversion from previous stage</th>
+              <th scope="col">Share of the previous stage that has reached it so far</th>
               <th scope="col">Notes</th>
             </tr>
           </thead>
@@ -305,8 +306,8 @@ export function FunnelStages({
               const blocked = stageStatus[stage.key]?.blocked;
               const previous = stages[i - 1];
               const ratio =
-                previous && measured[i] && measured[i - 1] && (counts[previous.key] ?? 0) > 0
-                  ? (counts[stage.key] ?? 0) / (counts[previous.key] ?? 0)
+                previous && measured[i] && measured[i - 1]
+                  ? cohortConversionRate(cohorts, previous.key, stage.key).rate
                   : null;
               return (
                 <tr key={stage.key}>
