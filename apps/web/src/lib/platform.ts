@@ -464,6 +464,7 @@ async function fundedDealList(
         channel: schema.leads.channel,
         createdAt: schema.leads.createdAt,
         detail: param ? LEAD_PARAMETER[param] : sql<string | null>`null`,
+        campaignTag: schema.leads.utmCampaign,
       })
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, tenantId), inArray(schema.leads.convertedOpportunityId, ids))),
@@ -488,6 +489,21 @@ async function fundedDealList(
     adNames = new Map(named.map((r) => [r.id, r.name]));
   }
 
+  // The URL-tag fallback resolves a tag only by an exact id match.
+  const tags = [...new Set(leads.filter((l) => l.channel === platform).map((l) => l.campaignTag?.trim()).filter((t): t is string => !!t))];
+  const tagged = tags.length
+    ? await tx
+        .select({ id: schema.campaigns.externalCampaignId, name: schema.campaigns.name })
+        .from(schema.campaigns)
+        .where(
+          and(
+            eq(schema.campaigns.tenantId, tenantId),
+            eq(schema.campaigns.platform, platform),
+            inArray(schema.campaigns.externalCampaignId, tags),
+          ),
+        )
+    : [];
+
   const campaigns = new Map<string, string | null>();
   for (const row of funded) {
     if (row.attributedPlatform === platform) {
@@ -500,6 +516,7 @@ async function fundedDealList(
     credited,
     events: funded.map((f) => ({ opportunityId: f.opportunityExternalId, occurredOn: f.occurredOn })),
     campaigns,
+    campaignNamesById: new Map(tagged.map((c) => [c.id, c.name])),
     opportunities: new Map(
       opps.map((o) => [o.id, { name: o.name, fundedAmount: o.fundedAmount === null ? null : Number(o.fundedAmount) }]),
     ),

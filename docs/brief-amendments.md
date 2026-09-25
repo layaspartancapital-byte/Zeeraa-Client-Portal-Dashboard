@@ -3641,8 +3641,17 @@ changed.
   date is the deal's first value-stage event in the range; the amount is
   `funded_amount`; the campaign is the one attribution credits, exactly as
   "By campaign" reads it — so a Meta deal never has one, and the page already
-  says why. The campaign is not recovered from a UTM, which would be a second
-  attribution rule.
+  says why.
+- **Where attribution credits no campaign, the list falls back to the URL tag**
+  (added the same day, at the client's request): the deal's own lead's
+  `utm_campaign`, only where that lead's source is this platform, marked
+  "URL tag" in the cell. A tag that is exactly an ingested campaign's id on
+  the platform (Meta's template writes {{campaign.id}}; some Google leads carry
+  the numeric id) is shown by that campaign's name; any other tag is shown as
+  recorded — a Google tag cut short at an `&` stays cut short rather than being
+  matched to the campaign it probably was. The fallback is the list's alone:
+  "By campaign", the funded count and cost per funded deal still read
+  attribution, so the list's campaigns can name more than "By campaign" does.
 - **The keyword or ad comes from the deal's own lead's landing URL**, and only
   where that lead's source (`leads.channel`, decided at ingest) is this
   platform. Which parameter carries it is the `landing_url_parameters` config

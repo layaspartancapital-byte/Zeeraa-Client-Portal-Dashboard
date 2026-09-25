@@ -9,8 +9,14 @@
  * as "Not recorded". Nothing is inferred:
  *
  * - The campaign is the one attribution credits, as the page's "By campaign"
- *   card reads it. A Meta deal never has one (no click lookup), and a Google
- *   click older than `click_view`'s window may not.
+ *   card reads it. Where it credits none — a Meta deal never has one (no click
+ *   lookup), and a Google click older than `click_view`'s window may not — the
+ *   list falls back to the deal's own lead's `utm_campaign`, under the same
+ *   rule as the keyword below, and marks the cell as coming from the URL tag
+ *   (`campaignFromTag`). A tag that is exactly an ingested campaign's id on
+ *   this platform is shown by that campaign's name; any other tag is shown as
+ *   the lead recorded it, never matched by prefix or likeness. "By campaign"
+ *   and the count do not use the fallback.
  * - The keyword or ad is the deal's own lead's landing-URL parameter, named by
  *   the `landing_url_parameters` row, and only where that lead's source
  *   (`leads.channel`, decided at ingest) is this platform — a lead that came
@@ -26,6 +32,8 @@ export type FundedDeal = {
   fundedOn: string;
   fundedAmount: number | null;
   campaign: string | null;
+  /** True where `campaign` is the lead's URL tag rather than attribution's. */
+  campaignFromTag: boolean;
   /** The keyword (Google Ads) or ad (Meta), or null. */
   detail: string | null;
 };
@@ -45,7 +53,11 @@ export type FundedDealInputs = {
     channel: string | null;
     createdAt: Date;
     detail: string | null;
+    /** The lead's `utm_campaign`, verbatim. */
+    campaignTag: string | null;
   }[];
+  /** This platform's ingested campaigns, name by the platform's own id. */
+  campaignNamesById?: ReadonlyMap<string, string>;
   /** Ad names by id, for a platform whose detail is an id. */
   adNames?: ReadonlyMap<string, string>;
 };
@@ -60,7 +72,7 @@ export function assembleFundedDeals(input: FundedDealInputs): FundedDeal[] {
   }
 
   // The deal's own lead from this platform — the earliest, if it has several.
-  const lead = new Map<string, { createdAt: Date; detail: string | null }>();
+  const lead = new Map<string, { createdAt: Date; detail: string | null; campaignTag: string | null }>();
   for (const l of input.leads) {
     if (l.channel !== input.platform || !input.credited.has(l.opportunityId)) continue;
     const seen = lead.get(l.opportunityId);
@@ -70,13 +82,18 @@ export function assembleFundedDeals(input: FundedDealInputs): FundedDeal[] {
   return [...input.credited]
     .map((id) => {
       const opp = input.opportunities.get(id);
-      const raw = lead.get(id)?.detail?.trim() || null;
+      const own = lead.get(id);
+      const raw = own?.detail?.trim() || null;
+      const credited = input.campaigns.get(id) ?? null;
+      const tag = own?.campaignTag?.trim() || null;
+      const fromTag = credited === null && tag !== null;
       return {
         opportunityId: id,
         name: opp?.name?.trim() || null,
         fundedOn: firstFunded.get(id) ?? '',
         fundedAmount: opp?.fundedAmount ?? null,
-        campaign: input.campaigns.get(id) ?? null,
+        campaign: fromTag ? (input.campaignNamesById?.get(tag!) ?? tag) : credited,
+        campaignFromTag: fromTag,
         detail: raw && input.adNames ? (input.adNames.get(raw) ?? raw) : raw,
       };
     })

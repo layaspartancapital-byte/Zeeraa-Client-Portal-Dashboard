@@ -1,5 +1,6 @@
 import { AD_DETAIL, formatCount, formatCurrency } from '@zeeraa/core';
 import { Card, CardHeader, EmptyLine, CardBody } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { FundedDeal } from '@/lib/funded-deals';
 
@@ -43,8 +44,8 @@ export function FundedDealsCard({
         info={
           <InfoTip label="Where each column comes from" align="start">
             The deal, date and amount are Salesforce&rsquo;s; the campaign is the one attribution
-            credits. The {detail.label.toLowerCase()} is the one on the deal&rsquo;s own lead&rsquo;s
-            landing URL.
+            credits, or marked URL tag where it credits none and the lead&rsquo;s landing URL named
+            one. The {detail.label.toLowerCase()} is from that landing URL too.
           </InfoTip>
         }
       />
@@ -74,8 +75,25 @@ export function FundedDealsCard({
                   <td className="numeric px-3 py-3 tabular text-text">
                     {deal.fundedAmount === null ? <NotRecorded /> : formatCurrency(deal.fundedAmount, currency)}
                   </td>
-                  <td className="max-w-[240px] truncate px-3 py-3 text-text-2">
-                    {deal.campaign ?? <NotRecorded />}
+                  <td className="max-w-[280px] px-3 py-3 text-text-2">
+                    {deal.campaign === null ? (
+                      <NotRecorded />
+                    ) : (
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="min-w-0 truncate" title={deal.campaign}>
+                          {deal.campaign}
+                        </span>
+                        {deal.campaignFromTag && (
+                          <Badge
+                            tone="neutral"
+                            className="px-1.5 py-0 text-[11px] font-medium"
+                            title="From the lead's landing-URL campaign tag (utm_campaign); the click lookup found no campaign."
+                          >
+                            URL tag
+                          </Badge>
+                        )}
+                      </span>
+                    )}
                   </td>
                   <td className="max-w-[240px] truncate px-5 py-3 text-text-2">
                     {deal.detail ?? <NotRecorded />}
