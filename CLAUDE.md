@@ -88,6 +88,13 @@
   and §14 — the workspace and the delivery view are removed": keys prefixed
   `tenant/{tenant_id}/`, no public objects, every URL signed and
   authorization-checked.
+- **The account audit log is append-only for every role.** `audit_events`
+  (0040) takes INSERT and nothing else, and its trigger refuses UPDATE, DELETE
+  and TRUNCATE even to a superuser. An account action writes its entry with
+  `recordAccountAction` inside the transaction that performs it; a sign-in is
+  recorded before its session exists. Activity (`user_activity`) is written
+  only by `ActivityBeacon`, keyed on the pathname, at most once a minute —
+  never from a render, or the ten-minute refresh counts as a visit.
 - **No screen may surface a user outside the current tenant.** Enforced by the
   `users` and `memberships` policies, not by a query filter.
 - **A missing data dependency is an explicit blocked state — for Zeeraa

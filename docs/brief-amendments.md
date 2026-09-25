@@ -3573,3 +3573,52 @@ offer, whichever came first.
   Ads 1 → 4, Meta 2 → 4, Direct & other 0 → 1), July 40 → 43 (Google Ads
   20 → 23), August 29 → 31 (Direct & other 13 → 15), September 53 → 54
   (Google Ads 25 → 26).
+
+## §11 — user activity and the account audit log on People (25 September 2026)
+
+People (Zeeraa admins only) now shows, per person in the current tenant, an
+"Online now" badge (a page opened in the last five minutes), last seen, last
+sign-in and the last page viewed, and below the forms an audit log of account
+actions: account created, password reset, access granted, access removed, and
+every sign-in — who, to whom, when. Migration 0040.
+
+- **Activity is recorded cheaply.** `ActivityBeacon` in the tenant layout calls
+  a server action when the pathname changes, and never on `AutoRefresh`'s
+  re-render, so an unattended tab does not read as a person online. At most
+  once a minute per person and tenant: the beacon holds a later page until the
+  minute is up, and the upsert's `WHERE last_seen_at < now() - 1 minute`
+  refuses anything sooner across tabs and instances. Each write follows a page
+  view that already woke the database. The cost is that the last page can lag
+  by up to a minute, and a person reading one page for over five minutes reads
+  as not online.
+- **The audit log is append-only for every role**, on the `baseline_snapshots`
+  pattern: `zeeraa_app` holds SELECT and INSERT only, and a trigger refuses
+  UPDATE, DELETE and TRUNCATE even to a connection that bypasses row level
+  security. The only deletion is the tenant's own, told apart through
+  `app.tenant_index`. No foreign key to `users` — the record outlives the
+  account, so the addresses are copied onto the row.
+- **An account action is written in the transaction that performs it**, so an
+  entry and its change cannot disagree, and `tenant_admin_write` requires
+  `actor_user_id = app.current_user_id()` — an entry cannot name somebody else
+  as its author.
+- **A sign-in is one row per tenant the person holds**, written as themselves
+  under `withUserOnly` (`own_sign_in`: their own row, in a tenant
+  `app.is_member_of`). Recorded before the session is created, so a sign-in
+  the log could not record does not happen. A sign-in by an account with no
+  membership is not recorded; it reaches `/no-access` only. Last sign-in on the
+  roster is the newest of these rows, so it is blank for everybody until they
+  next sign in after the deploy.
+- **The CLAUDE.md policy set is narrowed on both tables.** `tenant_isolation`
+  admits `zeeraa_admin` rather than every member, because this is Zeeraa's
+  record, not the client's. `user_activity` has no `tenant_admin_write`:
+  nobody writes somebody else's activity, a Zeeraa admin included;
+  `own_activity` is the only writer.
+- **Not recorded:** failed sign-ins, a person changing their own password, and
+  anything before 25 September 2026. An empty cell is an em dash, never
+  "Never".
+
+Tests: `packages/db/test/audit-and-activity.test.ts` (policies, the trigger
+against a superuser, the tenant-deletion cascade) and
+`apps/web/test/activity-and-audit.test.ts` (each account action and the
+sign-in write their row; the beacon keys on the pathname alone; formatting in
+the tenant's timezone). Eight mutations in `mutation-test.ts`.

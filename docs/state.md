@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 25 September 2026 (nightly and reconciliation confirmed; Labor Day closed).**
+**Last updated: 25 September 2026 (People: user activity and the account audit log — built, NOT yet migrated or deployed).**
 
 ---
 
@@ -93,6 +93,23 @@ migration 0034, the deploy, `apply-client-fixes.ts` (band edges on the
 connection mapping, `lender_exclusions`, four blocked rows and the `offer_rate`
 metric deleted), `backfill-revenue-band.ts` (6,631 leads). The order matters:
 the old sync cleared every submission exclusion on each run.
+
+**People: user activity and the account audit log, 25 September 2026 —
+built and tested locally, not in production.** Migration 0040 adds
+`user_activity` (last seen and last page per tenant, written by
+`ActivityBeacon` on a pathname change at most once a minute, never on the
+auto-refresh) and `audit_events` (account created, password reset, access
+granted or removed, sign-ins; append-only for every role, trigger-held).
+People shows Online now / Last seen / Last sign-in / Last page per person and
+an Audit log card below the forms, Zeeraa admins only. Rules in
+`docs/brief-amendments.md`, "§11 — user activity and the account audit log".
+Checked at 1440 and 390 locally; mutation test 63/63 killed. **Production order matters:** apply 0040 to
+Neon (`DATABASE_URL_OWNER="$NEON_DIRECT_URL" pnpm --filter @zeeraa/db
+migrate`), run preflight against it — the definer trigger function will land
+owned by `neondb_owner`, so
+`ALTER FUNCTION app.audit_events_append_only() OWNER TO zeeraa_owner;` — and
+only then push. The code writes `audit_events` before creating a session,
+so deploying it ahead of the migration would fail every sign-in.
 
 **Not built, and why.** Product: the only product field, Opportunity
 `csbs__Product__c`, holds `MCA` on 4.9% of deals, so the tab is not drawn.

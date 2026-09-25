@@ -8,6 +8,7 @@ import {
   checkPassword,
   type Role,
 } from '@zeeraa/core';
+import { recordAccountAction } from '@/lib/audit';
 import { hashPassword, newInitialPassword } from '@/lib/password';
 import { destroyAllSessions } from '@/lib/session';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
@@ -48,6 +49,9 @@ export type RosterEntry = {
   /** Null where nobody has ever set a password — the account cannot sign in. */
   passwordUpdatedAt: Date | null;
   hasPassword: boolean;
+  /** The last page view recorded in this tenant; null where none has been. */
+  lastSeenAt: Date | null;
+  lastPath: string | null;
 };
 
 /** Everybody with a membership in this tenant. */
@@ -63,9 +67,19 @@ export function tenantRoster(session: TenantSession): Promise<RosterEntry[]> {
         mustChangePassword: schema.users.mustChangePassword,
         passwordUpdatedAt: schema.users.passwordUpdatedAt,
         hasPassword: schema.users.passwordHash,
+        lastSeenAt: schema.userActivity.lastSeenAt,
+        lastPath: schema.userActivity.lastPath,
       })
       .from(schema.memberships)
       .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+      // Admitted to a Zeeraa admin only (0040); anybody else reads nulls.
+      .leftJoin(
+        schema.userActivity,
+        and(
+          eq(schema.userActivity.tenantId, schema.memberships.tenantId),
+          eq(schema.userActivity.userId, schema.memberships.userId),
+        ),
+      )
       .where(eq(schema.memberships.tenantId, session.tenant.id))
       .orderBy(asc(schema.users.email)),
   ).then((rows) =>
@@ -191,6 +205,13 @@ export async function createUser(
       tenantId: session.tenant.id,
       role: input.role,
     });
+
+    await recordAccountAction(tx, session, {
+      action: 'create_account',
+      subjectUserId: userId,
+      subjectEmail: email,
+      role: input.role,
+    });
   });
 
   return { userId, email, initialPassword };
@@ -249,6 +270,15 @@ export async function grantMembership(
       .onConflictDoNothing()
       .returning({ id: schema.memberships.id });
 
+    if (inserted.length > 0) {
+      await recordAccountAction(tx, session, {
+        action: 'grant_access',
+        subjectUserId: user.id,
+        subjectEmail: email,
+        role: input.role,
+      });
+    }
+
     // Nothing inserted means the membership was already there. Saying "now has
     // access" would be true and useless; an admin who typed an address twice
     // should be told that is what happened.
@@ -286,6 +316,11 @@ export async function resetPassword(
     // `users_admin_manage` admits only a user who shares the current tenant, so
     // a target outside it updates nothing rather than erroring.
     if (!row) throw new UserAdminError('No such person in this engagement.', 404);
+    await recordAccountAction(tx, session, {
+      action: 'reset_password',
+      subjectUserId: userId,
+      subjectEmail: row.email,
+    });
     return row.email;
   });
 
@@ -310,8 +345,15 @@ export async function revokeMembership(
     throw new UserAdminError('You cannot remove your own access.', 400);
   }
 
-  const removed = await queryTenant(session, (tx) =>
-    tx
+  const removed = await queryTenant(session, async (tx) => {
+    // Read before the delete: once the membership is gone the account shares
+    // no tenant with this admin, and `users_visible_within_tenant` hides it.
+    const [person] = await tx
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+    if (!person) return [];
+    const rows = await tx
       .delete(schema.memberships)
       .where(
         and(
@@ -319,8 +361,17 @@ export async function revokeMembership(
           eq(schema.memberships.tenantId, session.tenant.id),
         ),
       )
-      .returning({ userId: schema.memberships.userId }),
-  ).catch((error: unknown) => {
+      .returning({ userId: schema.memberships.userId, role: schema.memberships.role });
+    if (rows.length > 0) {
+      await recordAccountAction(tx, session, {
+        action: 'remove_access',
+        subjectUserId: userId,
+        subjectEmail: person.email,
+        role: rows[0]!.role,
+      });
+    }
+    return rows;
+  }).catch((error: unknown) => {
     // `memberships_protect_last_zeeraa_admin` (0027): a tenant always keeps
     // one Zeeraa admin, or nobody can administer it.
     if (isLastZeeraaAdmin(error)) {

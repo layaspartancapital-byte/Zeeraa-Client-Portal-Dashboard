@@ -163,6 +163,57 @@ export const productTours = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.tour, t.version] })],
 );
 
+/**
+ * When somebody was last seen in a tenant, and where (migration 0040). Written
+ * by its own user at most once a minute; read by a Zeeraa admin only.
+ */
+export const userActivity = pgTable(
+  'user_activity',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastPath: text('last_path').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.userId] })],
+);
+
+export const AUDIT_ACTIONS = [
+  'create_account',
+  'reset_password',
+  'grant_access',
+  'remove_access',
+  'sign_in',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+/**
+ * Who did what to which account, and every sign-in (migration 0040).
+ * Append-only for every role; no foreign key to `users`, so the record
+ * outlives the account, which is why the addresses are copied onto the row.
+ */
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    action: text('action').$type<AuditAction>().notNull(),
+    actorUserId: uuid('actor_user_id').notNull(),
+    actorEmail: text('actor_email').notNull(),
+    subjectUserId: uuid('subject_user_id').notNull(),
+    subjectEmail: text('subject_email').notNull(),
+    role: text('role'),
+  },
+  (t) => [index('audit_events_tenant_time').on(t.tenantId, t.occurredAt)],
+);
+
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   memberships: many(memberships),
   connections: many(connections),

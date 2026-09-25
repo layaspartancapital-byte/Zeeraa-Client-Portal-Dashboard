@@ -478,6 +478,71 @@ const MUTATIONS: Mutation[] = [
     description: 'Grant DELETE on product_tours, so a completion can be erased',
     sql: 'grant delete on public.product_tours to zeeraa_app',
   },
+  {
+    // The audit log (0040) is append-only for every role. Grants keep the
+    // application out; only the trigger holds against a role that bypasses
+    // row level security, which is what an edit in a hurry would use.
+    name: 'audit-append-only-dropped',
+    description: 'Drop the trigger that refuses UPDATE and DELETE on audit_events',
+    sql: 'drop trigger audit_events_append_only on public.audit_events',
+  },
+  {
+    name: 'audit-truncate-guard-dropped',
+    description: 'Drop the trigger that refuses TRUNCATE on audit_events',
+    sql: 'drop trigger audit_events_no_truncate on public.audit_events',
+  },
+  {
+    name: 'audit-grant-update-delete',
+    description: 'Grant zeeraa_app UPDATE and DELETE on audit_events',
+    sql: 'grant update, delete on public.audit_events to zeeraa_app',
+  },
+  {
+    // The standard tenant_isolation shape, which is what somebody copying a
+    // neighbouring migration would write: every member reads the log.
+    name: 'audit-readable-by-members',
+    description: 'Let every member of the tenant read audit_events, not only a Zeeraa admin',
+    sql: `drop policy tenant_isolation on public.audit_events;
+          create policy tenant_isolation on public.audit_events
+            as permissive for select to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'audit-actor-forgeable',
+    description: 'Let a Zeeraa admin write an audit entry naming somebody else as the actor',
+    sql: `drop policy tenant_admin_write on public.audit_events;
+          create policy tenant_admin_write on public.audit_events
+            as permissive for insert to zeeraa_app
+            with check (action <> 'sign_in'
+                        and tenant_id = app.current_tenant_id() and app.has_tenant_access()
+                        and app.effective_role() = 'zeeraa_admin')`,
+  },
+  {
+    name: 'audit-sign-in-any-tenant',
+    description: 'Let a sign-in be recorded in a tenant the person does not hold',
+    sql: `drop policy own_sign_in on public.audit_events;
+          create policy own_sign_in on public.audit_events
+            as permissive for insert to zeeraa_app
+            with check (action = 'sign_in'
+                        and actor_user_id = app.current_user_id()
+                        and subject_user_id = app.current_user_id())`,
+  },
+  {
+    name: 'activity-readable-by-members',
+    description: 'Let every member of the tenant read user_activity, not only a Zeeraa admin',
+    sql: `drop policy tenant_isolation on public.user_activity;
+          create policy tenant_isolation on public.user_activity
+            as permissive for select to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'activity-write-anyone',
+    description: 'Let a member write anybody’s user_activity row in the tenant',
+    sql: `drop policy own_activity on public.user_activity;
+          create policy own_activity on public.user_activity
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
+            with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
 ];
 
 const env = {

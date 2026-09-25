@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import { ActivityBeacon } from '@/components/shell/ActivityBeacon';
 import { AppShell } from '@/components/shell/AppShell';
+import { recordActivity } from '@/lib/activity';
 
 import { requireTenant } from '@/lib/tenant';
 import { hasCompletedTour, recordTourCompleted } from '@/lib/tour';
@@ -44,6 +46,13 @@ export default async function TenantLayout({
     await recordTourCompleted(await requireTenant(slug));
   }
 
+  // Last seen and last page, for the People screen. Throttled in the beacon
+  // and again in the upsert.
+  async function noteActivity(path: string): Promise<void> {
+    'use server';
+    await recordActivity(await requireTenant(slug), path);
+  }
+
   return (
     <AppShell
       viewer={session.viewer}
@@ -56,6 +65,7 @@ export default async function TenantLayout({
       tour={{ autoStart: !toured, onComplete: completeTour }}
       refreshHours={refreshHours}
     >
+      <ActivityBeacon record={noteActivity} />
       {children}
     </AppShell>
   );

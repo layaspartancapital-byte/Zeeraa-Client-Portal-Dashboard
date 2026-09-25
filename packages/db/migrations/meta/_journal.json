@@ -281,6 +281,13 @@
       "when": 1790160000000,
       "tag": "0039_stage_event_derived_from",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790170000000,
+      "tag": "0040_user_activity_and_audit_log",
+      "breakpoints": true
     }
   ]
 }

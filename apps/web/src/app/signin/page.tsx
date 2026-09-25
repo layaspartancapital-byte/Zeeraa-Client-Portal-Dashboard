@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getAuthDb, schema } from '@zeeraa/db';
 import { getViewer } from '@/lib/tenant';
+import { recordSignIn } from '@/lib/audit';
 import { verifyPassword } from '@/lib/password';
 import { createSession, pruneExpiredSessions } from '@/lib/session';
 import { AuthShell } from '@/components/shell/AuthShell';
@@ -35,7 +36,11 @@ export default async function SignIn({
     const password = String(formData.get('password') ?? '');
 
     const [user] = await getAuthDb()
-      .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        passwordHash: schema.users.passwordHash,
+      })
       .from(schema.users)
       .where(eq(schema.users.email, email));
 
@@ -53,6 +58,9 @@ export default async function SignIn({
       redirect(`/signin?error=1${next ? `&next=${encodeURIComponent(next)}` : ''}`);
     }
 
+    // Before the session: a sign-in the audit log could not record does not
+    // happen.
+    await recordSignIn(user!.id, user!.email);
     await pruneExpiredSessions();
     await createSession(user!.id);
     redirect(redirectTo);

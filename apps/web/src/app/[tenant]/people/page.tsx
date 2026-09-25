@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
 import { CopyButton } from '@/components/CopyButton';
+import { ONLINE_WINDOW_MS, pageLabel } from '@/lib/activity';
+import { auditLog, lastSignIns, type AuditEntry } from '@/lib/audit';
 import { clearHandover, readHandover, setHandover } from '@/lib/handover';
 import { requireRole } from '@/lib/tenant';
 import {
@@ -17,6 +19,7 @@ import {
   UserAdminError,
   type RosterEntry,
 } from '@/lib/users';
+import { formatInstant, formatWhen } from '@/lib/when';
 
 export const metadata = { title: 'People' };
 
@@ -75,7 +78,14 @@ export default async function People({
   const session = await requireRole(slug, canManageUsers);
   const query = await searchParams;
 
-  const [roster, handover] = await Promise.all([tenantRoster(session), readHandover()]);
+  const [roster, handover, signIns, log] = await Promise.all([
+    tenantRoster(session),
+    readHandover(),
+    lastSignIns(session),
+    auditLog(session),
+  ]);
+  const now = new Date();
+  const timeZone = session.tenant.timezone;
   const grantable = assignableRoles(session.tenant.role);
 
   /**
@@ -253,11 +263,22 @@ export default async function People({
           />
           <CardBody flush>
             <div className="scroll-x relative min-w-0 overflow-x-auto px-5 pb-1">
-              <table className="w-full min-w-[720px] border-collapse text-[13px]">
+              <table className="w-full min-w-[1040px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] text-text-3">
                     <th className="py-2 pr-3 font-medium">Person</th>
                     <th className="py-2 pr-3 font-medium">Role</th>
+                    <th className="py-2 pr-3 font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        Last seen
+                        <InfoTip label="How activity is recorded" align="center">
+                          A page opened in this engagement in the last five minutes reads as online.
+                          Recorded at most once a minute, from 25 September 2026.
+                        </InfoTip>
+                      </span>
+                    </th>
+                    <th className="py-2 pr-3 font-medium">Last sign-in</th>
+                    <th className="py-2 pr-3 font-medium">Last page</th>
                     <th className="py-2 pr-3 font-medium">Password</th>
                     <th className="py-2 pr-3 text-right font-medium">Actions</th>
                   </tr>
@@ -268,6 +289,10 @@ export default async function People({
                       key={person.userId}
                       person={person}
                       isSelf={person.userId === session.viewer.userId}
+                      slug={slug}
+                      lastSignIn={signIns.get(person.userId) ?? null}
+                      now={now}
+                      timeZone={timeZone}
                       reset={reset}
                       revoke={revoke}
                     />
@@ -328,6 +353,8 @@ export default async function People({
             </p>
           </CardBody>
         </Card>
+
+        <AuditLogCard entries={log} now={now} timeZone={timeZone} />
       </Grid>
     </>
   );
@@ -336,22 +363,62 @@ export default async function People({
 function PersonRow({
   person,
   isSelf,
+  slug,
+  lastSignIn,
+  now,
+  timeZone,
   reset,
   revoke,
 }: {
   person: RosterEntry;
   isSelf: boolean;
+  slug: string;
+  lastSignIn: Date | null;
+  now: Date;
+  timeZone: string;
   reset: (formData: FormData) => Promise<void>;
   revoke: (formData: FormData) => Promise<void>;
 }) {
+  const online =
+    person.lastSeenAt !== null && now.getTime() - person.lastSeenAt.getTime() < ONLINE_WINDOW_MS;
   return (
     <tr className="border-b border-border last:border-0">
       <td className="py-2.5 pr-3">
         <span className="block font-medium text-text">{person.name ?? person.email}</span>
         <span className="block text-[12px] text-text-3">{person.email}</span>
+        {/* On a phone the activity columns are past the card's edge. */}
+        {person.lastSeenAt && (
+          <span className="mt-0.5 block text-[12px] text-text-2 md:hidden">
+            {online ? (
+              'Online now'
+            ) : (
+              <>
+                Seen <When at={person.lastSeenAt} now={now} timeZone={timeZone} />
+              </>
+            )}
+          </span>
+        )}
       </td>
       <td className="py-2.5 pr-3">
         <Badge tone="neutral">{ROLE_LABELS[person.role]}</Badge>
+      </td>
+      <td className="py-2.5 pr-3">
+        {person.lastSeenAt === null ? (
+          <Dash />
+        ) : online ? (
+          <Badge tone="primary" title={formatInstant(person.lastSeenAt, timeZone)}>
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+            Online now
+          </Badge>
+        ) : (
+          <When at={person.lastSeenAt} now={now} timeZone={timeZone} />
+        )}
+      </td>
+      <td className="py-2.5 pr-3">
+        {lastSignIn ? <When at={lastSignIn} now={now} timeZone={timeZone} /> : <Dash />}
+      </td>
+      <td className="py-2.5 pr-3 text-[12px] text-text-2">
+        {person.lastPath ? pageLabel(slug, person.lastPath) : <Dash />}
       </td>
       <td className="py-2.5 pr-3">
         {!person.hasPassword ? (
@@ -400,6 +467,106 @@ function PersonRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+function When({ at, now, timeZone }: { at: Date; now: Date; timeZone: string }) {
+  return (
+    <time
+      dateTime={at.toISOString()}
+      title={formatInstant(at, timeZone)}
+      className="whitespace-nowrap text-[12px] tabular text-text-2"
+    >
+      {formatWhen(at, now, timeZone)}
+    </time>
+  );
+}
+
+/** Nothing recorded — not "never", because recording began on 25 September 2026. */
+function Dash() {
+  return <span className="text-[12px] text-text-3">—</span>;
+}
+
+const ACTION_LABELS: Record<AuditEntry['action'], string> = {
+  create_account: 'Created account',
+  reset_password: 'Reset password',
+  grant_access: 'Granted access',
+  remove_access: 'Removed access',
+  sign_in: 'Signed in',
+};
+
+const AUDIT_LIMIT = 100;
+
+/**
+ * The account audit log: append-only in the database for every role, so this
+ * card has nothing to edit and nothing to delete, by construction.
+ */
+function AuditLogCard({
+  entries,
+  now,
+  timeZone,
+}: {
+  entries: AuditEntry[];
+  now: Date;
+  timeZone: string;
+}) {
+  return (
+    <Card span={12}>
+      <CardHeader
+        title="Audit log"
+        subtitle={
+          entries.length >= AUDIT_LIMIT
+            ? `The latest ${AUDIT_LIMIT} entries`
+            : `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`
+        }
+        info={
+          <InfoTip label="What the audit log records" align="start">
+            Accounts created, passwords reset, access granted or removed, and sign-ins, from 25
+            September 2026. Nobody can edit or delete an entry, Zeeraa included.
+          </InfoTip>
+        }
+      />
+      <CardBody flush>
+        {entries.length === 0 ? (
+          <p className="px-5 pb-5 text-[13px] text-text-3">Nothing recorded yet.</p>
+        ) : (
+          <div className="scroll-x relative min-w-0 overflow-x-auto px-5 pb-1">
+            <table className="w-full min-w-[640px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[12px] text-text-3">
+                  <th className="py-2 pr-3 font-medium">When</th>
+                  <th className="py-2 pr-3 font-medium">Action</th>
+                  <th className="py-2 pr-3 font-medium">Account</th>
+                  <th className="py-2 pr-3 font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3">
+                      <When at={entry.occurredAt} now={now} timeZone={timeZone} />
+                    </td>
+                    <td className="py-2 pr-3 text-text">
+                      {ACTION_LABELS[entry.action]}
+                      {entry.role && entry.role in ROLE_LABELS && (
+                        <span className="text-text-3">
+                          {entry.action === 'remove_access' ? ' — was ' : ' as '}
+                          {ROLE_LABELS[entry.role as Role]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-text-2">{entry.subjectEmail}</td>
+                    <td className="py-2 pr-3 text-text-2">
+                      {entry.action === 'sign_in' ? <Dash /> : entry.actorEmail}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
