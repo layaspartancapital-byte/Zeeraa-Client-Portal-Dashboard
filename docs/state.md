@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 24 September 2026 (lead sources and six client fixes — live).**
+**Last updated: 25 September 2026 (nightly and reconciliation confirmed; Labor Day closed).**
 
 ---
 
@@ -417,8 +417,27 @@ secret (`67e4309c2482`, which still fails every credential).
   after the deploy at 18:40 and 18:50 UTC. The proof of the new schedule is
   that no tick runs at 23:10 UTC.
 
-**Next:** confirm the first nightly (07:00 UTC) and reconciliation (08:00 UTC)
-runs on 24 September, and complete the Inngest disconnection steps above.
+- **Confirmed on production, 25 September 2026.** The nightly re-pull ran at
+  07:00:49Z on 24 and 25 September, all four platforms succeeded. The
+  reconciliation ran at 08:00Z both days (39 checks on the 25th, August and
+  September): no drift in spend or Salesforce, which is what the freeze reads.
+  The one drift is `weekdays_with_calls` — no calls on 7 September, Labor Day,
+  because `lead_response_hours` has no holidays. It does not block the freeze.
+  Salesforce held its schedule overnight: ten-minutely to 21:50Z, hourly
+  22:00Z–12:00Z, ten-minutely again from 13:00Z (9:00 ET). 0 of 61 merged
+  leads counted. One hourly Meta pull failed at 08:00Z ("Service temporarily
+  unavailable"); the next hour succeeded.
+
+- **Labor Day is a closed day (25 September 2026).** `lead_response_hours`
+  holds `holidays: ['2026-09-07']`, loaded with `load-lead-response-hours.ts
+  --replace` (dry run first). It clears the `weekdays_with_calls` drift from
+  the next reconciliation (08:00Z, 26 September) and closes that day for speed
+  to lead. The rest of the holiday list waits on Spartan.
+- **Inngest is disconnected (25 September 2026, by the user):** app archived,
+  the Vercel integration removed, the Production `INNGEST_*` variables deleted.
+
+**Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
+no call-tracking drift.
 
 
 
