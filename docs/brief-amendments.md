@@ -3541,3 +3541,35 @@ platforms being connected are listed, and say that they are being connected.
   synced day turns the item into the ordinary page. **Semrush has no page type
   yet.** It is neither an ad nor an organic platform, so it stays integrating
   until its connector exists and registers what kind of page it gets.
+
+## §8 — UW approved and Offer are one step (25 September 2026)
+
+On the client's instruction, Offer is no longer a funnel stage anywhere
+(funnel, Executive, Efficiency, Breakdown, CSV): each of those reads
+`funnel_stages`, and the row is gone. A deal is approved at its approval or its
+offer, whichever came first.
+
+- **How.** The `stage_merges` config row (`{ merges: [{ into: 'uw_approved',
+  from: ['offer'] }] }`). After every Salesforce sync, `applyStageMerges`
+  deletes every derived event and derives them again. Wherever a deal's
+  earliest offer is earlier than its earliest approval, or it has no approval,
+  it writes an approval at the offer's time with `stage_events.derived_from =
+  'offer'` (migration 0039). A later offer on an approved deal is the same
+  step, not a second approval. Merges run before the exclusions, so a
+  renewal's derived approval is excluded like any other. Offer events are still
+  read and stored as `offer`, because that is what Salesforce records.
+- **Reconciliation.** A deal approved only at its offer is `explained`
+  ("approved at their offer (stage merge)"), not drift. The offer check still
+  runs against the raw field.
+- **Baseline.** June–August approvals changed, so they were restated with this
+  as the reason: the ramp's approvals and CPA for June (1 → 4, $12,812.53 →
+  $3,203.13) and July (20 → 23, $1,453.87 → $1,264.23), and 24 channel-figure
+  versions. Each frozen `stage:offer` figure is retired with a next version
+  holding no value and `Retired: <reason>`
+  (`freeze-baseline --correct-channel-figures --retire-missing`). The number
+  check accepts exactly that, and fails if a retired figure is ever computed
+  again.
+- **Production, approvals before → after, last touch:** June 4 → 10 (Google
+  Ads 1 → 4, Meta 2 → 4, Direct & other 0 → 1), July 40 → 43 (Google Ads
+  20 → 23), August 29 → 31 (Direct & other 13 → 15), September 53 → 54
+  (Google Ads 25 → 26).

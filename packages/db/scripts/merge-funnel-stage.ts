@@ -30,6 +30,15 @@ if (!slug || !fromKey || !intoKey || fromKey === intoKey) {
 }
 
 type Merge = { into: string; from: string[] };
+
+/** JSON with its keys sorted: `jsonb` does not keep an object's key order. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
 class Rollback extends Error {}
 const { db, close } = getOwnerDb();
 
@@ -75,7 +84,7 @@ try {
     // Read back: under FORCE a denied write leaves both tables as they were.
     const [after] = await tx.select({ value: schema.tenantConfig.value }).from(schema.tenantConfig).where(configWhere);
     const [still] = await tx.select({ id: schema.funnelStages.id }).from(schema.funnelStages).where(stageWhere(fromKey));
-    const ruleLanded = JSON.stringify((after?.value as { merges?: Merge[] })?.merges ?? []) === JSON.stringify(merges);
+    const ruleLanded = canonical((after?.value as { merges?: Merge[] })?.merges ?? []) === canonical(merges);
     if (!ruleLanded || still) {
       throw new Error(
         'Refusing to commit: a write did not read back. A write that matched nothing is the ' +

@@ -461,7 +461,22 @@ secret (`67e4309c2482`, which still fails every credential).
   each reports. See `docs/brief-amendments.md`, "§12 — platforms being
   connected". Semrush needs a connector and a page type before it can switch.
 
-**Next:** Spartan's holiday list; confirm the 26 September reconciliation shows
+- **UW approved and Offer merged (25 September 2026).** Offer is not a stage;
+  a deal is approved at the earlier of its approval and its offer
+  (`stage_merges`, migration 0039). June–August restated; number checks pass;
+  the reconciliation calls the merged approvals explained. See
+  `docs/brief-amendments.md`, "§8 — UW approved and Offer are one step".
+  - **Open, and it blocks the September freeze on 5 October:** when
+    Salesforce moves a mapped date field, the event at the old timestamp stays
+    alongside the new one. On 25 September `006Vr00000rrmG5IAI` had its offer
+    moved from 23 to 25 September, and the reconciliation's `offer` check now
+    drifts by 1. It affects every field-mapped stage (SQL, Offer, Funded), and
+    since the merge, a stale earlier offer could date an approval early. The
+    fix is for the sync to drop a field-mapped event that the fetched record
+    no longer carries.
+
+**Next:** the stale field-event fix above, before 5 October; Spartan's
+holiday list; confirm the 26 September reconciliation shows
 no call-tracking drift.
 
 
