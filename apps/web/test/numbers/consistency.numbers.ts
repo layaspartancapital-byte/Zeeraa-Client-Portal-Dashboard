@@ -11,10 +11,11 @@
  * summed against the funnel's totals.
  */
 import { describe, expect, it } from 'vitest';
-import { addDays, cohortConversionRate, monthRange, previousMonth, type DateRange } from '@zeeraa/core';
+import { AD_DETAIL, addDays, cohortConversionRate, monthRange, platformLabel, previousMonth, type DateRange } from '@zeeraa/core';
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
+import { platformView } from '@/lib/platform';
 import { fromBucket, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, type Figures } from './figures';
 import { sql } from 'drizzle-orm';
 
@@ -172,6 +173,39 @@ describe('the same figure on every screen', () => {
         if (Number(outbound?.n ?? 0) > 0) problems.push(`${t.slug}: ${outbound!.n} outbound leads (${sources.join(', ')}) are counted`);
       }
     }
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('the funded-deals list has one row per deal the platform page counts (25 September 2026)', async () => {
+    const problems: string[] = [];
+    let rows = 0;
+    for (const t of await tenants()) {
+      const mp = await monthlyPerformance(t.session, { start: addDays(t.today, -89), end: t.today }, 'last_touch');
+      const value = mp.stages.find((s) => s.key === mp.valueStageKey);
+      if (!value) continue;
+      const month = previousMonth(t.today.slice(0, 7));
+      for (const platform of Object.keys(AD_DETAIL)) {
+        for (const range of [
+          monthRange(month),
+          { start: `${t.today.slice(0, 7)}-01`, end: t.today },
+          { start: addDays(t.today, -89), end: t.today },
+        ]) {
+          for (const model of ['first_touch', 'last_touch'] as const) {
+            const view = await platformView(t.session, platform, platformLabel(platform), range, { key: value.key, label: value.label }, model);
+            const list = view.outcomes.fundedDeals ?? [];
+            const ids = new Set(list.map((d) => d.opportunityId));
+            rows += list.length;
+            if (list.length !== view.outcomes.cost.attributedDeals || ids.size !== list.length) {
+              problems.push(
+                `${t.slug} ${platform} ${range.start}–${range.end} ${model}: ` +
+                  `${list.length} rows (${ids.size} distinct) against a count of ${view.outcomes.cost.attributedDeals}`,
+              );
+            }
+          }
+        }
+      }
+    }
+    console.log(`Funded-deals lists: ${rows} rows checked.`);
     expect(problems, problems.join('\n')).toEqual([]);
   });
 });

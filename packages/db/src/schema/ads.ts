@@ -6,6 +6,7 @@ import {
   integer,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -342,4 +343,23 @@ export const searchConsoleMetrics = pgTable(
       t.date,
     ),
   ],
+);
+
+/**
+ * An ad's name by its platform id (0041). Filled by the Meta sync for the ad
+ * ids its leads' landing URLs carry, and only where Meta confirms the id is an
+ * ad — the funded-deals list reads it, and an id with no row renders as the id.
+ */
+export const platformAds = pgTable(
+  'platform_ads',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    platform: text('platform').notNull(),
+    externalId: text('external_id').notNull(),
+    name: text('name').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.platform, t.externalId] })],
 );

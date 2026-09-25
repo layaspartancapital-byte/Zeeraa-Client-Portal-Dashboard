@@ -43,6 +43,7 @@ function opportunity(externalId: string, dealType: string | null): OpportunityRo
   return {
     externalId,
     leadExternalId: null,
+    name: null,
     createdAt: new Date('2026-05-13T10:00:00Z'),
     currentStage: 'Funded',
     amount: 10_000,

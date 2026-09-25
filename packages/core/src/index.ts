@@ -24,3 +24,4 @@ export * from './platform-metrics';
 export * from './platform-labels';
 export * from './manual-sync';
 export * from './integrating';
+export * from './landing-parameters';

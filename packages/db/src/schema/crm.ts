@@ -167,6 +167,8 @@ export const opportunities = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     externalId: text('external_id').notNull(),
     leadExternalId: text('lead_external_id'),
+    /** Salesforce's `Opportunity.Name`; null until the sync reads it (0041). */
+    name: text('name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     /** Free text: stage vocabulary is per tenant, defined in funnel_stages. */
     currentStage: text('current_stage').notNull(),

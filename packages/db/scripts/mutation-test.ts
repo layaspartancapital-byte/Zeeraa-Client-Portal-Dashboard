@@ -543,6 +543,22 @@ const MUTATIONS: Mutation[] = [
             using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
             with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
   },
+  {
+    // Ad names (0041) are ingested per tenant; a sync must not name another
+    // client's ads, and a member must not read them.
+    name: 'platform-ads-policy-open',
+    description: 'Let any application session read every platform_ads row',
+    sql: `drop policy tenant_isolation on public.platform_ads;
+          create policy tenant_isolation on public.platform_ads
+            as permissive for select to zeeraa_app using (true)`,
+  },
+  {
+    name: 'platform-ads-job-unscoped',
+    description: 'Let the ingestion role write platform_ads for any tenant',
+    sql: `drop policy job_tenant_isolation on public.platform_ads;
+          create policy job_tenant_isolation on public.platform_ads
+            as permissive for all to zeeraa_jobs using (true) with check (true)`,
+  },
 ];
 
 const env = {

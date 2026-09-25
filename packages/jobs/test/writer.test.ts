@@ -73,6 +73,7 @@ function opportunity(overrides: Partial<OpportunityRow> = {}): OpportunityRow {
   return {
     externalId: '0061',
     leadExternalId: '00Q1',
+    name: 'Acme Bakery - MCA',
     createdAt: new Date('2026-08-01T12:00:00Z'),
     currentStage: 'Underwriting',
     amount: 50_000,
@@ -326,7 +327,7 @@ describe('opportunities', () => {
         upsertOpportunities(
           tx,
           tenantId,
-          [opportunity({ leadExternalId: null, currentStage: 'Funded' })],
+          [opportunity({ leadExternalId: null, name: null, currentStage: 'Funded' })],
           syncRunId,
         ),
       jobs,
@@ -337,6 +338,8 @@ describe('opportunities', () => {
       jobs,
     );
     expect(row?.leadExternalId).toBe('00Q1');
+    // The deal's name is kept the same way (0041).
+    expect(row?.name).toBe('Acme Bakery - MCA');
     expect(row?.currentStage).toBe('Funded');
   });
 });

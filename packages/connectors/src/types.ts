@@ -88,6 +88,12 @@ export interface Connector {
    * interface: a caller cannot accidentally ask for a window.
    */
   fetchClicks?(conn: Connection, day: string): Promise<ClickRow[]>;
+  /**
+   * The names of these ads, by id — only ids the account confirms are its own
+   * ads. An id that is an ad set, a campaign or another account's ad is simply
+   * absent from the answer, never guessed at.
+   */
+  fetchAdNames?(conn: Connection, ids: readonly string[]): Promise<{ id: string; name: string }[]>;
 }
 
 /**

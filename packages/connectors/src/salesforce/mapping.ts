@@ -307,7 +307,7 @@ export function selectFields(
   const standard =
     object === 'Lead'
       ? ['Id', 'CreatedDate', 'SystemModstamp', 'IsConverted', 'ConvertedOpportunityId', 'MasterRecordId']
-      : ['Id', 'CreatedDate', 'SystemModstamp', 'StageName', 'IsClosed', 'IsWon'];
+      : ['Id', 'Name', 'CreatedDate', 'SystemModstamp', 'StageName', 'IsClosed', 'IsWon'];
   return [...new Set([...standard, ...fields])];
 }
 

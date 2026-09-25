@@ -61,6 +61,8 @@ export type LeadRow = {
 export type OpportunityRow = {
   externalId: string;
   leadExternalId: string | null;
+  /** `Opportunity.Name`, for the funded-deals list. */
+  name: string | null;
   createdAt: Date;
   currentStage: string;
   amount: number | null;
@@ -233,6 +235,7 @@ export function normalizeOpportunity(
   return {
     externalId: String(record.Id),
     leadExternalId,
+    name: str(record, 'Name'),
     createdAt: date(record, 'CreatedDate') ?? new Date(0),
     currentStage: str(record, 'StageName') ?? 'unknown',
     amount: num(record, mapping.opportunity.amount),

@@ -59,6 +59,11 @@ function configOf(conn: Connection): MetaConfig {
 
 const ACCOUNT_FIELDS = 'id,name,account_status,currency,timezone_name';
 const CAMPAIGN_FIELDS = 'id,name,status,effective_status,objective';
+/** Every `effective_status` an ad can hold; the edge's default omits the off ones. */
+const AD_STATUSES = [
+  'ACTIVE', 'PAUSED', 'DELETED', 'ARCHIVED', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED',
+  'PENDING_BILLING_INFO', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES',
+];
 const INSIGHT_FIELDS =
   'campaign_id,campaign_name,date_start,date_stop,spend,impressions,clicks,' +
   'inline_link_clicks,reach,frequency,actions,account_currency';
@@ -129,6 +134,32 @@ export function metaConnector(
         }
         return { state: 'failing', detail: String(error) };
       }
+    },
+
+    /**
+     * The account's own `/ads` edge, filtered by id — not a node read per id,
+     * and not `?ids=`, which v26 withdrew. The edge answers only for ads in
+     * this ad account, so an ad set's id, or an id from somebody else's
+     * account, comes back as nothing rather than as a name. Every delivery
+     * status is asked for: the ad behind a deal is often switched off by the
+     * time the deal funds.
+     */
+    async fetchAdNames(conn: Connection, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
+      const client = clientFactory(conn);
+      const wanted = [...new Set(ids.filter((id) => /^\d+$/.test(id)))];
+      const found: { id: string; name: string }[] = [];
+      for (let i = 0; i < wanted.length; i += 50) {
+        const rows = await client.edge<{ id: string; name?: string }>(`${client.account}/ads`, {
+          fields: 'id,name',
+          filtering: JSON.stringify([
+            { field: 'id', operator: 'IN', value: wanted.slice(i, i + 50) },
+            { field: 'effective_status', operator: 'IN', value: AD_STATUSES },
+          ]),
+          limit: '200',
+        });
+        for (const row of rows) if (row.name) found.push({ id: String(row.id), name: row.name });
+      }
+      return found;
     },
 
     async fetchEntities(conn: Connection): Promise<CampaignRow[]> {

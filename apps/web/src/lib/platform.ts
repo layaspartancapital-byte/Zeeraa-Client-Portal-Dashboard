@@ -1,11 +1,14 @@
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { schema, stageEventsIn } from '@zeeraa/db';
 import {
+  AD_DETAIL,
   channelCostPerDeal,
+  landingParameterFor,
   monthBucketsIn,
   type ChannelCostPerDeal,
   type DateRange,
 } from '@zeeraa/core';
+import { assembleFundedDeals, type FundedDeal } from '@/lib/funded-deals';
 import { mergeTypes, type CampaignTypeRow } from '@/lib/platform-types';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
@@ -83,6 +86,11 @@ export type PlatformOutcomes = {
    * rather than by coverage. Null when the platform does resolve campaigns.
    */
   campaignAttributionBlocked: string | null;
+  /**
+   * The deals `cost.attributedDeals` counts, one row each, for the platforms
+   * that name a keyword or ad (`AD_DETAIL`); null elsewhere.
+   */
+  fundedDeals: FundedDeal[] | null;
 };
 
 export type { CampaignTypeRow };
@@ -319,6 +327,7 @@ async function platformOutcomes(
       dealsResolvingToCampaign: 0,
       byCampaign: [],
       campaignAttributionBlocked: blocked,
+      fundedDeals: AD_DETAIL[platform] ? [] : null,
     };
   }
 
@@ -337,6 +346,7 @@ async function platformOutcomes(
   const funded = await tx
     .select({
       opportunityExternalId: schema.stageEvents.opportunityExternalId,
+      occurredOn: schema.stageEvents.occurredOn,
       attributedPlatform: schema.attribution.platform,
       campaignId: schema.attribution.campaignId,
       campaignName: schema.campaigns.name,
@@ -390,6 +400,10 @@ async function platformOutcomes(
   for (const id of here) elsewhere.delete(id);
   const unattributed = [...all].filter((id) => !here.has(id) && !elsewhere.has(id)).length;
 
+  const fundedDeals = AD_DETAIL[platform]
+    ? await fundedDealList(tx, tenantId, platform, here, funded)
+    : null;
+
   return {
     stageLabel: valueStage.label,
     cost: channelCostPerDeal({
@@ -404,7 +418,96 @@ async function platformOutcomes(
       .map((e) => ({ campaignId: e.campaignId, name: e.name, deals: e.deals.size }))
       .sort((a, b) => b.deals - a.deals),
     campaignAttributionBlocked: blocked,
+    fundedDeals,
   };
+}
+
+const LEAD_PARAMETER = {
+  utm_term: schema.leads.utmTerm,
+  utm_content: schema.leads.utmContent,
+  utm_campaign: schema.leads.utmCampaign,
+} as const;
+
+/**
+ * The rows behind the funded count: the deals in `credited`, exactly, with
+ * what Salesforce, attribution and the deal's own lead recorded about each.
+ * See `lib/funded-deals.ts` for what each cell may and may not come from.
+ */
+async function fundedDealList(
+  tx: Parameters<Parameters<typeof queryTenant>[1]>[0],
+  tenantId: string,
+  platform: string,
+  credited: Set<string>,
+  funded: { opportunityExternalId: string; occurredOn: string; attributedPlatform: string | null; campaignName: string | null; campaignId: string | null }[],
+): Promise<FundedDeal[]> {
+  if (credited.size === 0) return [];
+  const ids = [...credited];
+
+  const [config] = await tx
+    .select({ value: schema.tenantConfig.value })
+    .from(schema.tenantConfig)
+    .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'landing_url_parameters')));
+  const param = landingParameterFor(config?.value, platform);
+
+  const [opps, leads] = await Promise.all([
+    tx
+      .select({
+        id: schema.opportunities.externalId,
+        name: schema.opportunities.name,
+        fundedAmount: schema.opportunities.fundedAmount,
+      })
+      .from(schema.opportunities)
+      .where(and(eq(schema.opportunities.tenantId, tenantId), inArray(schema.opportunities.externalId, ids))),
+    tx
+      .select({
+        opportunityId: schema.leads.convertedOpportunityId,
+        channel: schema.leads.channel,
+        createdAt: schema.leads.createdAt,
+        detail: param ? LEAD_PARAMETER[param] : sql<string | null>`null`,
+      })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, tenantId), inArray(schema.leads.convertedOpportunityId, ids))),
+  ]);
+
+  // An ad is named by id only where its detail is an id; Google's keyword is text.
+  let adNames: Map<string, string> | undefined;
+  if (AD_DETAIL[platform]?.field === 'ad') {
+    const wanted = [...new Set(leads.map((l) => l.detail).filter((d): d is string => !!d))];
+    const named = wanted.length
+      ? await tx
+          .select({ id: schema.platformAds.externalId, name: schema.platformAds.name })
+          .from(schema.platformAds)
+          .where(
+            and(
+              eq(schema.platformAds.tenantId, tenantId),
+              eq(schema.platformAds.platform, platform),
+              inArray(schema.platformAds.externalId, wanted),
+            ),
+          )
+      : [];
+    adNames = new Map(named.map((r) => [r.id, r.name]));
+  }
+
+  const campaigns = new Map<string, string | null>();
+  for (const row of funded) {
+    if (row.attributedPlatform === platform) {
+      campaigns.set(row.opportunityExternalId, row.campaignId ? row.campaignName : null);
+    }
+  }
+
+  return assembleFundedDeals({
+    platform,
+    credited,
+    events: funded.map((f) => ({ opportunityId: f.opportunityExternalId, occurredOn: f.occurredOn })),
+    campaigns,
+    opportunities: new Map(
+      opps.map((o) => [o.id, { name: o.name, fundedAmount: o.fundedAmount === null ? null : Number(o.fundedAmount) }]),
+    ),
+    leads: leads
+      .filter((l): l is typeof l & { opportunityId: string } => l.opportunityId !== null)
+      .map((l) => ({ ...l, createdAt: new Date(l.createdAt) })),
+    adNames,
+  });
 }
 
 /** Month buckets over the window, for the time series. */

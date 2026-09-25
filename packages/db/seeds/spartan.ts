@@ -484,6 +484,20 @@ export const spartan: TenantSeed = {
       value: { platforms: ['linkedin_ads', 'semrush', 'microsoft_ads'] },
     },
     {
+      /**
+       * Which landing-URL parameter on a lead carries which ad detail, per
+       * platform — the funded-deals list on the Google Ads and Meta pages.
+       * Read off the tracking templates and confirmed 25 September 2026:
+       * Google's `utm_term` is ValueTrack {keyword}; Meta's `utm_content` is
+       * {{ad.id}} (Meta returned an `adset_id` for it; `utm_term` is the ad set).
+       */
+      key: 'landing_url_parameters',
+      description:
+        'Which landing-URL parameter holds the keyword (Google Ads) and the ad id ' +
+        '(Meta) on a lead, for the funded-deals list.',
+      value: { google_ads: { keyword: 'utm_term' }, meta: { ad: 'utm_content' } },
+    },
+    {
       key: 'attribution_default_model',
       description: 'The UI default. The other model stays available as a toggle.',
       value: { model: 'last_touch' },

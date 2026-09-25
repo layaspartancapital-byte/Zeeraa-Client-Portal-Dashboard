@@ -40,6 +40,7 @@ import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformView } from '@/lib/platform';
 import { organicView } from '@/lib/organic';
 import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
+import { FundedDealsCard } from '@/components/platform/FundedDealsCard';
 import { integratingPlatforms, reportingPlatforms } from '@/lib/platforms';
 import { IntegratingPlatformView } from '@/components/platform/IntegratingPlatformView';
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
@@ -647,6 +648,16 @@ export default async function PlatformPage({
             )}
           </CardBody>
         </Card>
+
+        {view.outcomes.fundedDeals && (
+          <FundedDealsCard
+            platform={platform}
+            label={view.label}
+            stageLabel={view.outcomes.stageLabel ?? 'Funded'}
+            deals={view.outcomes.fundedDeals}
+            currency={currency}
+          />
+        )}
         </>
         )}
       </Grid>

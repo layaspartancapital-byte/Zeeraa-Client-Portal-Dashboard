@@ -3,6 +3,7 @@ import { tenantDay, trailingWindow, type DateRange } from '@zeeraa/core';
 import { closeSyncRun, openSyncRun, recordSyncedDays } from '../sync-runs';
 import { buildAttribution, type JoinResult } from '../google-ads/join';
 import { upsertCampaigns, upsertDailyMetrics } from '../google-ads/writer';
+import { resolveMetaAdNames } from './ad-names';
 import type { MetaContext } from './context';
 
 /**
@@ -29,6 +30,8 @@ export type MetaSyncResult = {
   syncRunId: string;
   campaigns: number;
   dailyMetrics: number;
+  /** Ads named this run, for the funded-deals list (0041). */
+  adNames: number;
   join: JoinResult;
   /** Non-null when the ad account's day boundaries or currency differ. */
   accountWarning: string | null;
@@ -60,6 +63,7 @@ export async function runMetaSync(
     syncRunId,
     campaigns: 0,
     dailyMetrics: 0,
+    adNames: 0,
     join: {
       opportunities: 0,
       attributionRows: 0,
@@ -109,6 +113,17 @@ export async function runMetaSync(
     });
 
     result.join = await runInTenant((tx) => buildAttribution(tx, context.tenantId));
+
+    // Names for the funded-deals list. A failure here costs a name on a
+    // screen, not a figure, so it is said once and the sync stands.
+    try {
+      result.adNames = await resolveMetaAdNames(context, runInTenant);
+    } catch (error) {
+      result.status = 'partial';
+      result.accountWarning = [result.accountWarning, `Ad names could not be read: ${String(error)}`]
+        .filter(Boolean)
+        .join(' ');
+    }
 
     await runInTenant((tx) =>
       closeSyncRun(tx, syncRunId, result.status, totalRows(result), result.accountWarning),

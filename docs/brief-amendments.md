@@ -3622,3 +3622,35 @@ against a superuser, the tenant-deletion cascade) and
 `apps/web/test/activity-and-audit.test.ts` (each account action and the
 sign-in write their row; the beacon keys on the pathname alone; formatting in
 the tenant's timezone). Eight mutations in `mutation-test.ts`.
+
+## §7 — a funded-deals list on the Google Ads and Meta pages (25 September 2026)
+
+Below "Cost per funded deal" and "By campaign", each of the two pages lists
+the deals behind its funded count: deal name, funded date, funded amount,
+campaign, and keyword (Google Ads) or ad (Meta). Nothing else on the page
+changed.
+
+- **It is the count, row for row.** `platformOutcomes` builds the list from
+  the same set of opportunities it counts (`here`), under the page's range and
+  attribution model, so the list cannot disagree with the figure.
+  `consistency.numbers.ts` checks it on every deploy against production, for
+  both platforms, three ranges and both models.
+- **Every cell has a recorded source or reads "Not recorded"** (`lib/funded-deals.ts`):
+  the deal's name is Salesforce's `Opportunity.Name` (new, 0041; the sync reads
+  it and `backfill-opportunity-names.ts` filled the deals already stored); the
+  date is the deal's first value-stage event in the range; the amount is
+  `funded_amount`; the campaign is the one attribution credits, exactly as
+  "By campaign" reads it — so a Meta deal never has one, and the page already
+  says why. The campaign is not recovered from a UTM, which would be a second
+  attribution rule.
+- **The keyword or ad comes from the deal's own lead's landing URL**, and only
+  where that lead's source (`leads.channel`, decided at ingest) is this
+  platform. Which parameter carries it is the `landing_url_parameters` config
+  row, not code: for Spartan, Google's `utm_term` is ValueTrack {keyword} and
+  Meta's `utm_content` is {{ad.id}} — confirmed by asking Meta, which returned
+  an `adset_id` for that id and none for the `utm_term` one (the ad set).
+- **A Meta ad is shown by name** where the Meta sync has read it: it asks the
+  ad account's own `/ads` edge for the ids its leads carry (`fetchAdNames`;
+  the `?ids=` read was withdrawn in v26), which answers only for ads in that
+  account, and stores them in `platform_ads` (0041). An id with no name yet is
+  shown as the id the lead recorded.

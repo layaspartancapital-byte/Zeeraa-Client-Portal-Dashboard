@@ -337,3 +337,34 @@ describe('the connector', () => {
     ).rejects.toThrow(/set-credentials/);
   });
 });
+
+describe('fetchAdNames', () => {
+  it('asks the account’s own ads edge, filtered by id, in every status', async () => {
+    const fetchImpl = jsonFetch([{ data: [{ id: '120248746573600176', name: 'SCG Submit' }] }]);
+    const connector = metaConnector(() => new MetaClient(CREDENTIALS, CONFIG, fetchImpl));
+    const names = await connector.fetchAdNames!(CONNECTION, [
+      '120248746573600176',
+      '120248746573610176',
+      '120248746573600176',
+      'not-an-id',
+    ]);
+    expect(names).toEqual([{ id: '120248746573600176', name: 'SCG Submit' }]);
+
+    const url = new URL(String((fetchImpl as unknown as { mock: { calls: [string][] } }).mock.calls[0]![0]));
+    expect(url.pathname).toMatch(/\/act_648661540906332\/ads$/);
+    const filtering = JSON.parse(url.searchParams.get('filtering')!);
+    expect(filtering[0]).toEqual({
+      field: 'id',
+      operator: 'IN',
+      value: ['120248746573600176', '120248746573610176'],
+    });
+    expect(filtering[1].value).toContain('ARCHIVED');
+  });
+
+  it('batches fifty ids to a request', async () => {
+    const fetchImpl = jsonFetch([{ data: [] }, { data: [] }]);
+    const connector = metaConnector(() => new MetaClient(CREDENTIALS, CONFIG, fetchImpl));
+    await connector.fetchAdNames!(CONNECTION, Array.from({ length: 51 }, (_, i) => String(1000 + i)));
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+});

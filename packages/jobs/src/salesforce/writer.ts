@@ -220,7 +220,7 @@ export async function upsertOpportunities(
 
   const deduped = byUpsertKey(rows, (row) => row.externalId);
 
-  return inBatches(deduped, batchSize(13), async (batch) => {
+  return inBatches(deduped, batchSize(14), async (batch) => {
     const written = await tx
       .insert(schema.opportunities)
       .values(
@@ -228,6 +228,7 @@ export async function upsertOpportunities(
           tenantId,
           externalId: row.externalId,
           leadExternalId: row.leadExternalId,
+          name: row.name,
           createdAt: row.createdAt,
           currentStage: row.currentStage,
           amount: row.amount?.toFixed(2) ?? null,
@@ -251,6 +252,8 @@ export async function upsertOpportunities(
           // query does not know which lead converted into it, so a plain
           // assignment would blank the link the lead sync established.
           leadExternalId: sql`coalesce(excluded.lead_external_id, ${schema.opportunities.leadExternalId})`,
+          // Coalesced like the lead link: a record read without Name keeps it.
+          name: sql`coalesce(excluded.name, ${schema.opportunities}.name)`,
           currentStage: sql`excluded.current_stage`,
           amount: sql`excluded.amount`,
           fundedAmount: sql`excluded.funded_amount`,
