@@ -43,6 +43,7 @@ import { organicView } from '@/lib/organic';
 import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
 import { SeoPlatformView } from '@/components/platform/SeoPlatformView';
 import { seoView } from '@/lib/cached-reports';
+import { isSeoList, seoListPage, type SeoListKey, type SeoListRows } from '@/lib/seo-lists';
 import { FundedDealsCard } from '@/components/platform/FundedDealsCard';
 import { integratingPlatforms, reportingPlatforms } from '@/lib/platforms';
 import { IntegratingPlatformView } from '@/components/platform/IntegratingPlatformView';
@@ -152,6 +153,18 @@ export default async function PlatformPage({
   if (entry.kind === 'seo') {
     const links = rangeLinks(`/${slug}/platforms/${platform}`, {});
     const view = await seoView(session, range);
+    const seoRange = { start: range.start, end: range.end };
+    // The next 25 rows of one list. The tenant and role come from the
+    // viewer's membership again, and the range is the one this page resolved
+    // (bound into the action, not sent by the browser); only the list and the
+    // offset come from the client, and both are checked. It slices the same
+    // cached report, so a later page is in the first page's order.
+    async function moreSeoRows(list: SeoListKey, offset: number): Promise<SeoListRows[SeoListKey]> {
+      'use server';
+      if (!isSeoList(list) || !Number.isInteger(offset) || offset < 0) return [];
+      const again = await requireTenant(slug);
+      return seoListPage(await seoView(again, seoRange), list, offset);
+    }
     return (
       <SeoPlatformView
         session={session}
@@ -176,6 +189,7 @@ export default async function PlatformPage({
         }
         trackingNote={throughNote(own, 'Semrush Position Tracking', 'synced')}
         showOperational={canAdministerTenant(session.tenant.role)}
+        loadMore={moreSeoRows}
       />
     );
   }

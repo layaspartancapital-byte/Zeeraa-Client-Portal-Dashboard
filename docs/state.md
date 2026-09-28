@@ -528,7 +528,12 @@ secret (`67e4309c2482`, which still fails every credential).
   documentation says per request), so they are read weekly — see
   `docs/brief-amendments.md`. The reader was checked against the first real
   responses: a day not ranking is `"-"`, visibility is the `Vr` column.
-  `SEMRUSH_API_KEY` is in `.env` and, per the user, in Vercel. Remove any
+  `SEMRUSH_API_KEY` is in `.env` and, per the user, in Vercel.
+  **Long lists page 25 at a time** (28 September 2026): organic keywords,
+  tracked keywords, competitors, new and lost referring domains. The page
+  sends 25 rows and the count ("25 of 147"); "Load more" calls a server
+  action that re-checks the viewer's tenant and slices the same cached
+  `seoView` (`lib/seo-lists.ts`), so later rows are not in the initial HTML. Remove any
   leftover `DATAFORSEO_*` from Vercel if they were ever added there.
 
 - **UW approved and Offer merged (25 September 2026).** Offer is not a stage;

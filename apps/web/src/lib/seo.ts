@@ -325,7 +325,7 @@ export async function seoView(session: TenantSession, range: DateRange): Promise
         readOn: latest.readOn,
         completeFrom,
         inRange: rows.length,
-        rows: rows.slice(0, 25).map((r) => ({
+        rows: rows.map((r) => ({
           domain: r.domain,
           authorityScore: r.authorityScore,
           backlinks: r.backlinks,
@@ -436,11 +436,11 @@ export async function seoView(session: TenantSession, range: DateRange): Promise
       backlinkMonths,
       backlinks,
       backlinksPrevious: backlinkMonths.length > 1 ? backlinkMonths.at(-2)! : null,
-      topKeywords: { rows: top.rows.slice(0, 50), month: top.month, readOn: top.readOn, read: top.rows.length },
+      topKeywords: { rows: top.rows, month: top.month, readOn: top.readOn, read: top.rows.length },
       aiOverview: { rows: aio.rows, readOn: aio.readOn },
       competitors: {
         readOn: latestCompetitors?.readOn ?? null,
-        rows: competitorRows.slice(0, 10).map((c) => ({
+        rows: competitorRows.map((c) => ({
           domain: c.domain,
           relevance: Number(c.relevance),
           commonKeywords: c.commonKeywords,

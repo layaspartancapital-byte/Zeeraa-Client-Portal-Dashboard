@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { NotMeasuredCard } from '@/components/NotMeasuredCard';
-import { formatCount, intentLabels, positionMove, type ImprovementDirection } from '@zeeraa/core';
+import { formatCount, type ImprovementDirection } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Delta } from '@/components/ui/Delta';
@@ -12,6 +12,8 @@ import { PrintButton } from '@/components/shell/actions';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { MiniChart } from '@/components/charts/MiniChart';
 import type { SeoDomainChanges, SeoView } from '@/lib/seo';
+import { seoListPage, type SeoListKey, type SeoListRows } from '@/lib/seo-lists';
+import { SeoListTable, UrlCell } from '@/components/platform/SeoListTable';
 
 type SeoFormula = keyof SeoView['directions'];
 import type { TenantSession } from '@/lib/tenant';
@@ -33,6 +35,7 @@ export function SeoPlatformView({
   trackingNotMeasured,
   trackingNote = '',
   showOperational,
+  loadMore,
 }: {
   session: TenantSession;
   view: SeoView;
@@ -45,6 +48,8 @@ export function SeoPlatformView({
   trackingNote?: string;
   /** Zeeraa staff: the unit spend and the blocked states a client does not see. */
   showOperational: boolean;
+  /** The next 25 rows of a list, from the page's server action. */
+  loadMore: (list: SeoListKey, offset: number) => Promise<SeoListRows[SeoListKey]>;
 }) {
   const { current, previous, backlinks, backlinksPrevious, audit, tracking } = view;
   // Declared in core (`improvementDirectionFor`), carried on the view.
@@ -192,7 +197,7 @@ export function SeoPlatformView({
             reason={trackingNotMeasured}
           />
         ) : tracking ? (
-          <TrackingCard tracking={tracking} directions={view.directions} range={range} note={trackingNote} />
+          <TrackingCard view={view} tracking={tracking} directions={view.directions} range={range} note={trackingNote} loadMore={loadMore} />
         ) : (
           showOperational && (
             <NotMeasuredCard
@@ -211,7 +216,7 @@ export function SeoPlatformView({
             title="Top organic keywords"
             subtitle={
               view.topKeywords.readOn
-                ? `By share of estimated traffic · top ${formatCount(view.topKeywords.rows.length)} of ${formatCount(view.topKeywords.read)} read ${dayLabel(view.topKeywords.readOn)}`
+                ? `By share of estimated traffic · ${formatCount(view.topKeywords.read)} keywords read ${dayLabel(view.topKeywords.readOn)}`
                 : undefined
             }
           />
@@ -220,24 +225,13 @@ export function SeoPlatformView({
               <EmptyLine>No keywords have been read yet.</EmptyLine>
             </CardBody>
           ) : (
-            <Table
+            <SeoListTable
+              list="keywords"
+              initial={seoListPage(view, 'keywords', 0)}
+              total={view.topKeywords.rows.length}
               minWidth={760}
               head={['Keyword', 'Position', 'Change', 'Volume', 'Traffic share', 'Difficulty', 'URL']}
-              rows={view.topKeywords.rows.map((k) => [
-                <span key="k" className="flex items-center gap-1.5">
-                  <span className="truncate" title={k.keyword}>{k.keyword}</span>
-                  {k.aiOverview && <Badge tone="neutral">AI Overview</Badge>}
-                  {intentLabels(k.intents).length > 0 && (
-                    <span className="sr-only">Intent: {intentLabels(k.intents).join(', ')}</span>
-                  )}
-                </span>,
-                String(k.position),
-                <PositionChange key="c" before={k.previousPosition} after={k.position} />,
-                formatCount(k.searchVolume),
-                k.trafficShare === null ? '—' : `${k.trafficShare.toFixed(1)}%`,
-                k.keywordDifficulty === null ? '—' : String(Math.round(k.keywordDifficulty)),
-                <UrlCell key="u" url={k.url} />,
-              ])}
+              loadMore={loadMore}
             />
           )}
         </Card>
@@ -288,21 +282,35 @@ export function SeoPlatformView({
               <EmptyLine>No competitors have been read yet.</EmptyLine>
             </CardBody>
           ) : (
-            <Table
+            <SeoListTable
+              list="competitors"
+              initial={seoListPage(view, 'competitors', 0)}
+              total={view.competitors.rows.length}
               minWidth={420}
               head={['Domain', 'Shared keywords', 'Keywords', 'Est. traffic']}
-              rows={view.competitors.rows.map((c) => [
-                <span key="d" className="truncate" title={c.domain}>{c.domain}</span>,
-                formatCount(c.commonKeywords),
-                formatCount(c.organicKeywords),
-                formatCount(c.organicTraffic),
-              ])}
+              loadMore={loadMore}
             />
           )}
         </Card>
 
-        <DomainChangesCard title="New referring domains" changes={view.newDomains} range={range} verb="first seen" />
-        <DomainChangesCard title="Lost referring domains" changes={view.lostDomains} range={range} verb="last seen" />
+        <DomainChangesCard
+          title="New referring domains"
+          list="new_domains"
+          view={view}
+          changes={view.newDomains}
+          range={range}
+          verb="first seen"
+          loadMore={loadMore}
+        />
+        <DomainChangesCard
+          title="Lost referring domains"
+          list="lost_domains"
+          view={view}
+          changes={view.lostDomains}
+          range={range}
+          verb="last seen"
+          loadMore={loadMore}
+        />
 
         {audit ? (
           <Card span={12}>
@@ -440,11 +448,15 @@ function Kpi({
 }
 
 function TrackingCard({
+  view,
   tracking,
   directions,
   range,
   note,
+  loadMore,
 }: {
+  view: SeoView;
+  loadMore: (list: SeoListKey, offset: number) => Promise<SeoListRows[SeoListKey]>;
   tracking: NonNullable<SeoView['tracking']>;
   directions: SeoView['directions'];
   range: { start: string; end: string };
@@ -491,16 +503,13 @@ function TrackingCard({
         </div>
       )}
       {tracking.keywords.length > 0 && (
-        <Table
+        <SeoListTable
+          list="tracked"
+          initial={seoListPage(view, 'tracked', 0)}
+          total={tracking.keywords.length}
           minWidth={560}
           head={['Keyword', 'Volume', tracking.firstDay ? dayLabel(tracking.firstDay) : 'Start', tracking.lastDay ? dayLabel(tracking.lastDay) : 'End', 'Change']}
-          rows={tracking.keywords.slice(0, 100).map((k) => [
-            <span key="k" className="truncate" title={k.keyword}>{k.keyword}</span>,
-            k.searchVolume === null ? '—' : formatCount(k.searchVolume),
-            k.start === null ? 'Not in top 100' : String(k.start),
-            k.end === null ? 'Not in top 100' : String(k.end),
-            <PositionChange key="c" before={k.start} after={k.end} />,
-          ])}
+          loadMore={loadMore}
         />
       )}
     </Card>
@@ -509,11 +518,17 @@ function TrackingCard({
 
 function DomainChangesCard({
   title,
+  list,
+  view,
   changes,
   range,
   verb,
+  loadMore,
 }: {
   title: string;
+  list: 'new_domains' | 'lost_domains';
+  view: SeoView;
+  loadMore: (list: SeoListKey, offset: number) => Promise<SeoListRows[SeoListKey]>;
   changes: SeoDomainChanges;
   range: { start: string; end: string };
   verb: string;
@@ -533,45 +548,16 @@ function DomainChangesCard({
           <EmptyLine>{changes.readOn ? `None ${verb} in this range.` : 'Not read yet.'}</EmptyLine>
         </CardBody>
       ) : (
-        <Table
+        <SeoListTable
+          list={list}
+          initial={seoListPage(view, list, 0)}
+          total={changes.rows.length}
           minWidth={380}
           head={['Domain', 'Authority', 'Links', verb[0]!.toUpperCase() + verb.slice(1)]}
-          rows={changes.rows.map((d) => [
-            <span key="d" className="truncate" title={d.domain}>{d.domain}</span>,
-            String(d.authorityScore),
-            formatCount(d.backlinks),
-            dayLabel(d.on),
-          ])}
+          loadMore={loadMore}
         />
       )}
     </Card>
-  );
-}
-
-/**
- * A position change. Whether it is an improvement is `positionMove` in core —
- * a smaller position is better — so the colour is the metric's, not the card's.
- */
-function PositionChange({ before, after }: { before: number | null; after: number | null }) {
-  const move = positionMove(before, after);
-  if (move === 'absent' || move === 'unchanged') return <span className="text-text-3">—</span>;
-  if (move === 'entered') return <span className="text-text-2">New</span>;
-  if (move === 'dropped') return <span className="text-down-text">Dropped out</span>;
-  const places = Math.abs((before ?? 0) - (after ?? 0));
-  return (
-    <span className={move === 'improved' ? 'text-up-text' : 'text-down-text'}>
-      {move === 'improved' ? '▲' : '▼'} {places}
-      <span className="sr-only">{move === 'improved' ? ' places up' : ' places down'}</span>
-    </span>
-  );
-}
-
-function UrlCell({ url }: { url: string }) {
-  const path = url.replace(/^https?:\/\/[^/]+/, '') || '/';
-  return (
-    <span className="block max-w-[220px] truncate text-text-2" title={url}>
-      {path}
-    </span>
   );
 }
 
