@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 28 September 2026 (SEO from Semrush: built and synced locally; not yet migrated or deployed to production).**
+**Last updated: 28 September 2026 (SEO from Semrush: migrated, deployed as `ec3e027`, first production sync done).**
 
 ---
 
@@ -515,7 +515,19 @@ secret (`67e4309c2482`, which still fails every credential).
   keywords, 499 referring domains, Authority Score 18, Site Health 93.
   **Units spent 28 September: 61,020 of the 2,000,000** — 9,230 on the sync, the rest
   probing, of which 50,200 was one site-audit `history?limit=5` call (about
-  10,000 a snapshot, undocumented). Balance after: 1,938,980.
+  10,000 a snapshot, undocumented). Balance after the local work: 1,938,980; after the tracking probes (500) and the production sync, 1,921,150.
+  **Production, 28 September 2026:** 0042 applied to Neon (43 migrations; ten
+  tables owned by `zeeraa_owner`, forced RLS, four policies each);
+  `configure-semrush` dry run then real (campaign 29644497_4791801, 80
+  keywords, allowance 650,000); deployed `ec3e027` (preflight and numbers
+  passed on Vercel); first sync `succeeded`, **17,330 units** by Semrush's
+  own balance (1,938,480 → 1,921,150), including 8,000 for tracked positions:
+  5,280 rows, 80 keywords over the 66 days Semrush harvested between 1 July
+  and 28 September. On 28 September 13 tracked keywords rank, 6 in the top
+  10; visibility 4.0%. **Tracked positions cost 100 units per keyword** (the
+  documentation says per request), so they are read weekly — see
+  `docs/brief-amendments.md`. The reader was checked against the first real
+  responses: a day not ranking is `"-"`, visibility is the `Vr` column.
   `SEMRUSH_API_KEY` is in `.env` and, per the user, in Vercel. Remove any
   leftover `DATAFORSEO_*` from Vercel if they were ever added there.
 
@@ -2558,15 +2570,13 @@ Next, in order (rewritten 25 September 2026; the list before it named the
 Vercel environment, which is live, and phase 5 collaboration, which went with
 the workspace on 21 September):
 
-1. **Ship SEO from Semrush to production.** Built 28 September 2026 (see
-   "SEO, from Semrush" below). In order: migration 0042 against Neon;
-   `configure-semrush spartan --project 29644497 --domain
-   spartancapitalgroup.com --dry-run`, then without; deploy; `sync-semrush
-   spartan --plan`, then `sync-semrush spartan` (about 9,300 units, the first
-   read of every report). Then record the Position Tracking campaign with
-   `configure-semrush spartan --campaign <id>` and check the first tracked
-   response against `parseTrackedPositions` — its shape is from the
-   documentation, not yet from a real response.
+1. **Watch the first nightly Semrush reads.** Production synced by hand on
+   28 September 2026 (17,330 units). From tonight the nightly reads only
+   what is due — visibility daily (100), tracked positions weekly (8,000),
+   the rest weekly or monthly. Check `seo_report_reads` after a week: the
+   trailing-year sum should track about 606,000 a year. The SEO page in
+   production has not been looked at signed in; the layout was checked
+   locally at 1440 and 390.
 2. **Watch the Opportunity click-ID coverage.** The six fields are mapped
    Lead → Opportunity (17 September 2026) and pay only from the next
    conversion; until then `backfillClickIdsFromConvertedLeads` does the work.
