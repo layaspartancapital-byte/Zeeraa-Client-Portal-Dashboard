@@ -24,7 +24,7 @@ async function handle(request: NextRequest): Promise<Response> {
   // hourly run is the ad platforms and the organic sources.
   const result = await runIncrementalSync({
     trigger: 'cron-hourly',
-    platforms: ['google_ads', 'meta', 'ga4', 'search_console'],
+    platforms: ['google_ads', 'meta', 'linkedin_ads', 'ga4', 'search_console'],
   });
 
   for (const outcome of result.outcomes) {

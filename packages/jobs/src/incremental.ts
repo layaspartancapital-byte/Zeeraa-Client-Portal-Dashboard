@@ -4,6 +4,8 @@ import { listGoogleAdsConnections, resolveGoogleAdsContext } from './google-ads/
 import { runGoogleAdsSync } from './google-ads/sync';
 import { listMetaConnections, resolveMetaContext } from './meta/context';
 import { runMetaSync } from './meta/sync';
+import { listLinkedInConnections, resolveLinkedInContext } from './linkedin/context';
+import { runLinkedInSync } from './linkedin/sync';
 import { listOrganicConnections, resolveOrganicContext } from './google-organic/context';
 import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
 import { listSalesforceConnections, resolveSalesforceContext } from './salesforce/context';
@@ -45,7 +47,14 @@ import { lastCompletedWatermark, recordSkippedRun, resumeWindow, salesforceRunIn
  * captured — and because the caller is an HTTP handler that has to answer.
  */
 
-export type SyncPlatform = 'google_ads' | 'meta' | 'ga4' | 'search_console' | 'salesforce' | 'semrush';
+export type SyncPlatform =
+  | 'google_ads'
+  | 'meta'
+  | 'linkedin_ads'
+  | 'ga4'
+  | 'search_console'
+  | 'salesforce'
+  | 'semrush';
 
 export type PlatformOutcome = {
   tenantId: string;
@@ -231,6 +240,31 @@ export async function runIncrementalSync(
           // there is no click backfill to name here and no remedy to offer: a
           // missing campaign on a Meta deal is the platform, not an outstanding
           // job.
+          remedy: undefined,
+        };
+      });
+    }
+  }
+
+  // LinkedIn third: the Meta shape — campaigns and one analytics request per
+  // thirty days, no click ledger, channel-level attribution only.
+  if (wanted('linkedin_ads')) {
+    for (const connection of await listLinkedInConnections()) {
+      if (!mine(connection.tenantId)) continue;
+      await unit(connection.tenantId, 'linkedin_ads', async () => {
+        const context = await resolveLinkedInContext(connection.tenantId, connection.connectionId);
+        const range = await windowFor(
+          connection.tenantId,
+          'linkedin_ads',
+          context.connection.tenantTimezone,
+          spendWindowDays,
+        );
+        const result = await runLinkedInSync(context, { trigger, now: startedAt, range });
+        return {
+          status: result.status === 'failed' ? ('failed' as const) : result.status,
+          detail:
+            `${range.start} → ${range.end}: ${result.campaigns} campaigns, ${result.dailyMetrics} metric rows` +
+            (result.accountWarning ? ` — ${result.accountWarning}` : ''),
           remedy: undefined,
         };
       });

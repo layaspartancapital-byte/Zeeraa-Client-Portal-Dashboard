@@ -1015,6 +1015,10 @@ export type ConnectionCard = {
    */
   detail: string | null;
   since: Date | null;
+  /** Whether a credential is stored — not whether it works, which `status` says. */
+  authorized: boolean;
+  /** When an OAuth grant must be renewed (LinkedIn: a year after Connect). */
+  grantEndsAt: string | null;
 };
 
 export async function connectionHealth(session: TenantSession): Promise<ConnectionCard[]> {
@@ -1083,6 +1087,8 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
         rowsWritten: run ? Number(run.rowsWritten) : null,
         detail: row.blockedReason ?? row.lastError ?? reasons.get(row.platform) ?? null,
         since: row.blockedSince ?? null,
+        authorized: row.credentialsEncrypted !== null,
+        grantEndsAt: (row.config as { refreshTokenExpiresAt?: string | null } | null)?.refreshTokenExpiresAt ?? null,
       };
     });
   });

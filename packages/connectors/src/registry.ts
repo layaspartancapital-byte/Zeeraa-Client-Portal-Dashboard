@@ -1,6 +1,7 @@
 import type { Connector } from './types';
 import { googleAdsConnector } from './google-ads/connector';
 import { metaConnector } from './meta/connector';
+import { linkedInConnector } from './linkedin/connector';
 
 /**
  * Platform registry.
@@ -22,6 +23,7 @@ export function register(connector: Connector): void {
 // cannot be built and then quietly left unwired.
 register(googleAdsConnector());
 register(metaConnector());
+register(linkedInConnector());
 
 export function getConnector(key: string): Connector | undefined {
   return registry.get(key);

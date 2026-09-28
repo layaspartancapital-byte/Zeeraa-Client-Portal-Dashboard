@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",
+    "@zeeraa/connectors": "workspace:*",
     "@zeeraa/core": "workspace:*",
     "@zeeraa/db": "workspace:*",
     "@zeeraa/jobs": "workspace:*",

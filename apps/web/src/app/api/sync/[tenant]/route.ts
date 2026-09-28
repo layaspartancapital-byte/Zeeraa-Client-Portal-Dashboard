@@ -27,6 +27,7 @@ import { requireRole } from '@/lib/tenant';
 const PLATFORMS: SyncPlatform[] = [
   'google_ads',
   'meta',
+  'linkedin_ads',
   'ga4',
   'search_console',
   'salesforce',

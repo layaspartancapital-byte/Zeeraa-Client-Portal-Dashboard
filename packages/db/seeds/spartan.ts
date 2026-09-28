@@ -420,7 +420,12 @@ export const spartan: TenantSeed = {
         },
         // None: 100A00 marks the shared ad landing page, not a platform.
         markerSources: {},
-        referrerParams: { google_ads: ['gclid', 'gbraid', 'wbraid', 'gad_source'], meta: ['fbclid'] },
+        // li_fat_id: LinkedIn's click id, appended to the landing URL (28 September 2026).
+        referrerParams: {
+          google_ads: ['gclid', 'gbraid', 'wbraid', 'gad_source'],
+          meta: ['fbclid'],
+          linkedin_ads: ['li_fat_id'],
+        },
         referrerHosts: {
           meta: ['facebook.com', 'm.facebook.com', 'l.facebook.com', 'lm.facebook.com', 'instagram.com', 'l.instagram.com'],
         },
@@ -664,7 +669,13 @@ export const spartan: TenantSeed = {
              * are empty in this org and could never resolve to a campaign; the
              * third has no Opportunity counterpart to convert into.
              */
-            clickIds: { google_ads: 'gclid__c', meta: 'acq_fbclid__c' },
+            // `Li_Fat_ID__c` joined on 28 September 2026 with the LinkedIn
+            // connector, for the same reason `acq_fbclid__c` joined with Meta:
+            // reading it before LinkedIn spend was ingested would have made a
+            // channel row of deals against no spend. The casing is the org's
+            // canonical name (describe, 28 September). Empty on every lead so
+            // far — the forms do not capture it yet.
+            clickIds: { google_ads: 'gclid__c', meta: 'acq_fbclid__c', linkedin_ads: 'Li_Fat_ID__c' },
             // The MQL bar's two inputs. Confirmed against the org by the probe
             // on 17 September 2026 — these are the real API names, and the
             // only fields in the org that carry either concept at any rate.
@@ -968,7 +979,20 @@ export const spartan: TenantSeed = {
         clickMetric: 'inline_link_clicks',
       },
     },
-    { platform: 'linkedin_ads', accountIdentifier: 'pending', status: 'not_configured' },
+    {
+      // Ad account 509908440. Authorised by pressing Connect on Connections
+      // (OAuth, r_ads + r_ads_reporting); `configure-linkedin` records the
+      // account in a hosted database. Days are LinkedIn's UTC days.
+      platform: 'linkedin_ads',
+      accountIdentifier: '509908440',
+      status: 'not_configured',
+      config: {
+        adAccountId: '509908440',
+        apiVersion: '202609',
+        clickMetric: 'landingPageClicks',
+        conversionMetrics: ['externalWebsiteConversions', 'oneClickLeads'],
+      },
+    },
     {
       /*
        * GA4 and Search Console read the *Google Ads* credential — one OAuth

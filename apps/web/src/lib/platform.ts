@@ -127,6 +127,10 @@ export const NO_CLICK_LOOKUP: Record<string, string> = {
     'grain. Deals are attributable to Meta as a channel and never to a Meta campaign, ' +
     'so this breakdown is empty by construction rather than for want of data — no ' +
     'amount of further ingestion changes it.',
+  linkedin_ads:
+    'LinkedIn publishes no lookup from an li_fat_id to the campaign that produced it. ' +
+    'Deals are attributable to LinkedIn as a channel and never to a LinkedIn campaign, ' +
+    'so this breakdown is empty by construction rather than for want of data.',
 };
 
 const n = (v: unknown): number => Number(v ?? 0);

@@ -3724,3 +3724,43 @@ vendor's credentials and references are removed.
   `partial` saying why, the card is hidden from a client and shown to a Zeeraa
   admin as Not measured. Spartan's is 29644497_4791801 (80 keywords, US,
   Google, English, desktop).
+
+## §6 — LinkedIn Ads, read-only, authorised by Connect (28 September 2026)
+
+LinkedIn Ads follows the Meta pattern — campaigns, then daily spend,
+impressions, clicks and conversions per campaign, hourly (two days, resuming
+from the oldest unread day) and in the nightly ninety-day re-pull, then the
+shared attribution join. Ad account 509908440; Advertising API, Development
+tier, scopes `r_ads` and `r_ads_reporting` only.
+
+- **Days are UTC.** LinkedIn's analytics `dateRange` is "specified in UTC" and
+  there is no hourly grain to re-bucket from, so the rule that dates are
+  normalised into the tenant zone at ingest cannot be met. A LinkedIn day is
+  stored as LinkedIn reports it and the connection is `degraded` with that
+  stated — the rule and wording already used for a Meta account in another
+  zone. Spend near midnight Eastern falls on the neighbouring day; monthly
+  totals differ only at the month edge.
+- **What a conversion is**: `externalWebsiteConversions` plus `oneClickLeads`
+  (Lead Gen Form leads) — separate actions, so the sum does not double count.
+  `conversionMetrics` on the connection narrows it. Clicks are
+  `landingPageClicks`, the counterpart of Meta's link clicks; LinkedIn's
+  chargeable `clicks` is kept as all clicks.
+- **The grant.** A Zeeraa admin presses Connect on Connections; the OAuth
+  callback checks a single-use state cookie, re-checks the role, requires both
+  scopes, confirms the grant can read the ad account, and only then stores the
+  tokens encrypted through that admin's own tenant-scoped transaction
+  (`tenant_admin_write`). The ingestion role still cannot write `connections`:
+  a sync mints an access token from the refresh token in memory once the
+  stored one lapses (60 days), and nothing is written back, because LinkedIn
+  does not extend a refresh token's expiry when it is used. The grant lasts a
+  year from Connect; the page shows the date, and from thirty days before it
+  every run says so.
+- **No campaign outcomes.** LinkedIn serves no lookup from an `li_fat_id` to a
+  campaign, so a LinkedIn deal is credited to the channel only, like Meta.
+- **`li_fat_id` is LinkedIn click evidence** in both places a click id is
+  read: the landing-URL parameters in `lead_source_rules`, and the Lead's
+  `Li_Fat_ID__c` in the Salesforce mapping (the org's canonical casing, by
+  describe). On 28 September no lead had ever carried either, in Salesforce or
+  in 7,901 stored referrer URLs — the forms do not capture it yet — so until
+  they do, LinkedIn deals are attributed only through a UTM or lead source
+  rule, and there is none configured for LinkedIn.

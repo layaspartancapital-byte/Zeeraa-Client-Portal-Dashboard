@@ -40,3 +40,9 @@ export * from './webhook-delivery';
 export * from './channel-figures';
 export * from './semrush/context';
 export * from './semrush/sync';
+export * from './linkedin/context';
+export {
+  runLinkedInSync,
+  RECONNECT_WARNING_DAYS as LINKEDIN_RECONNECT_WARNING_DAYS,
+  type LinkedInSyncResult,
+} from './linkedin/sync';

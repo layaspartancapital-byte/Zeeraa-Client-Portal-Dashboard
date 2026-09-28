@@ -56,6 +56,30 @@ export function ButtonLink({
   );
 }
 
+/**
+ * A plain anchor with button styling, for a link that must be followed only
+ * when clicked — an OAuth start that issues a single-use state. `next/link`
+ * prefetches, which would issue it on hover.
+ */
+export function ButtonAnchor({
+  children,
+  href,
+  variant = 'secondary',
+  className = '',
+  ...rest
+}: {
+  children: ReactNode;
+  href: string;
+  variant?: ButtonVariant;
+  className?: string;
+} & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>) {
+  return (
+    <a href={href} className={`${BASE} ${VARIANTS[variant]} ${className}`} {...rest}>
+      {children}
+    </a>
+  );
+}
+
 /** 36×36, for an icon with no room for a label. Always carries an aria-label. */
 export function IconButton({
   children,

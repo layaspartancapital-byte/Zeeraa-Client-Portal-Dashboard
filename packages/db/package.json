@@ -25,7 +25,8 @@
     "grant-membership": "tsx scripts/grant-membership.ts",
     "delete-account": "tsx scripts/delete-account.ts",
     "webhook-deliveries": "tsx scripts/webhook-deliveries.ts",
-    "configure-semrush": "tsx scripts/configure-semrush.ts"
+    "configure-semrush": "tsx scripts/configure-semrush.ts",
+    "configure-linkedin": "tsx scripts/configure-linkedin.ts"
   },
   "dependencies": {
     "@zeeraa/core": "workspace:*",

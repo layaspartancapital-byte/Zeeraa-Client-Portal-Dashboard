@@ -16,6 +16,7 @@ import { InfoTip } from '@/components/ui/InfoTip';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
+import { ButtonAnchor } from '@/components/ui/Button';
 import {
   connectionHealth,
   reconciliationBySource,
@@ -44,7 +45,16 @@ const STATUS: Record<string, { label: string; tone: BadgeTone }> = {
 };
 
 /** Which platforms have a connector that "Sync now" can actually drive. */
-const SYNCABLE = new Set(['google_ads', 'meta', 'salesforce']);
+const SYNCABLE = new Set(['google_ads', 'meta', 'linkedin_ads', 'salesforce']);
+
+/**
+ * Platforms authorised by the member pressing Connect (OAuth), and where that
+ * flow starts. Until a grant is stored their Sync now is not offered — there
+ * is nothing it could read.
+ */
+const OAUTH_CONNECT: Record<string, string> = {
+  linkedin_ads: '/api/oauth/linkedin/start',
+};
 
 /**
  * A line icon per platform, from one family.
@@ -66,8 +76,16 @@ const ICONS: Record<string, typeof Plug> = {
   call_tracking: PhoneCall,
 };
 
-export default async function Connections({ params }: { params: Promise<{ tenant: string }> }) {
+export default async function Connections({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ tenant: string }>;
+  /** Where the LinkedIn Connect flow ended, from its callback. */
+  searchParams: Promise<{ linkedin?: string; detail?: string }>;
+}) {
   const { tenant: slug } = await params;
+  const query = await searchParams;
   const session = await requireRole(slug, canManageConnections);
 
   const [connections, reconciliation] = await Promise.all([
@@ -93,6 +111,12 @@ export default async function Connections({ params }: { params: Promise<{ tenant
             <Badge tone="neutral">{formatCount(unconfigured.length)} not configured</Badge>
             <AutoRefresh />
           </div>
+          {query.linkedin && (
+            <p role="status" className="mt-2 text-[13px] text-text-2">
+              <span className="font-medium text-text">LinkedIn Ads:</span>{' '}
+              {query.detail ?? (query.linkedin === 'connected' ? 'Connected.' : 'Not connected.')}
+            </p>
+          )}
         </Card>
 
         {connections.map((connection) => (
@@ -101,6 +125,7 @@ export default async function Connections({ params }: { params: Promise<{ tenant
             connection={connection}
             slug={slug}
             canSync={canAdministerTenant(session.tenant.role)}
+            canConnect={canManageConnections(session.tenant.role)}
             timezone={session.tenant.timezone}
             checks={reconciliation.get(connection.platform === 'aloware' ? 'call_tracking' : connection.platform) ?? []}
           />
@@ -114,18 +139,22 @@ function ConnectionTile({
   connection,
   slug,
   canSync,
+  canConnect,
   timezone,
   checks,
 }: {
   connection: ConnectionCard;
   slug: string;
   canSync: boolean;
+  /** A Zeeraa admin: may start an OAuth Connect for a platform that uses one. */
+  canConnect: boolean;
   timezone: string;
   /** The latest reconciliation checks for this source, from the daily job. */
   checks: ReconciliationRow[];
 }) {
   const status = STATUS[connection.status] ?? { label: connection.status, tone: 'neutral' as const };
-  const syncable = SYNCABLE.has(connection.platform);
+  const syncable = SYNCABLE.has(connection.platform) && (!OAUTH_CONNECT[connection.platform] || connection.authorized);
+  const connectHref = OAUTH_CONNECT[connection.platform];
   const Icon = ICONS[connection.platform] ?? Plug;
 
   return (
@@ -183,6 +212,10 @@ function ConnectionTile({
                 : ''}
             </InfoTip>
           </p>
+        ) : connection.status === 'not_configured' && connectHref ? (
+          <div className="mt-3">
+            <EmptyLine>Not connected yet.</EmptyLine>
+          </div>
         ) : connection.status === 'not_configured' ? (
           <div className="mt-3">
             <EmptyLine
@@ -201,9 +234,21 @@ function ConnectionTile({
         <Reconciled checks={checks} label={connection.label} timezone={timezone} />
       </CardBody>
 
-      {canSync && syncable && (
-        <div className="border-t border-border px-5 py-3 print-hidden">
-          <SyncNowButton slug={slug} platform={connection.platform} />
+      {((canSync && syncable) || (canConnect && connectHref)) && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3 print-hidden">
+          {canSync && syncable && <SyncNowButton slug={slug} platform={connection.platform} />}
+          {canConnect && connectHref && (
+            <>
+              <ButtonAnchor href={`${connectHref}?tenant=${encodeURIComponent(slug)}`}>
+                {connection.authorized ? `Reconnect ${connection.label}` : `Connect ${connection.label}`}
+              </ButtonAnchor>
+              {connection.grantEndsAt && (
+                <span className="text-[12px] tabular text-text-3">
+                  Grant ends {connection.grantEndsAt.slice(0, 10)}
+                </span>
+              )}
+            </>
+          )}
         </div>
       )}
     </Card>

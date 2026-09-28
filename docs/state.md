@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 28 September 2026 (SEO from Semrush: migrated, deployed as `ec3e027`, first production sync done).**
+**Last updated: 28 September 2026 (LinkedIn Ads connector built and deployed; waiting on Connect).**
 
 ---
 
@@ -489,6 +489,18 @@ secret (`67e4309c2482`, which still fails every credential).
   orange helmet cropped from its logo, loaded with `set-tenant-logo.ts
   --mark`. `tenantLogo` is cached, so a changed logo or mark shows within ten
   minutes, not at once.
+
+- **LinkedIn Ads (28 September 2026).** `connectors/src/linkedin` (REST
+  `adAnalytics`, version 202609, campaign pivot, daily, 30-day chunks;
+  campaigns by `adCampaigns?q=search`), `jobs/src/linkedin` (hourly in
+  `/api/cron/sync`, nightly, Sync now), OAuth at `/api/oauth/linkedin/start`
+  and `/callback` (`lib/linkedin-oauth.ts`), Connect on Connections,
+  `configure-linkedin.ts` (connection config, `li_fat_id` in
+  `lead_source_rules`, `Li_Fat_ID__c` on the Lead mapping), `sync-linkedin.ts`.
+  App credentials `LINKEDIN_CLIENT_ID` / `_SECRET` from the environment; the
+  member's grant encrypted on the row. Rules in `docs/brief-amendments.md`,
+  "§6 — LinkedIn Ads". LinkedIn days are UTC, so the connection reads
+  `degraded` by design. No lead has ever carried `li_fat_id`.
 
 - **Integrating platforms (25 September 2026).** LinkedIn Ads, Semrush and
   Microsoft Ads show on the rail as integrating, with a holding page, until
@@ -2582,6 +2594,11 @@ the workspace on 21 September):
    trailing-year sum should track about 606,000 a year. The SEO page in
    production has not been looked at signed in; the layout was checked
    locally at 1440 and 390.
+2. **Press Connect for LinkedIn Ads, then backfill.** Built 28 September
+   2026 (see "LinkedIn Ads" below). After Connect: `sync-linkedin spartan
+   --days 90`, then check the page appears on the rail in place of the
+   Integrating item. Then capture `li_fat_id` on the forms, or nothing is
+   attributable to LinkedIn.
 2. **Watch the Opportunity click-ID coverage.** The six fields are mapped
    Lead → Opportunity (17 September 2026) and pay only from the next
    conversion; until then `backfillClickIdsFromConvertedLeads` does the work.

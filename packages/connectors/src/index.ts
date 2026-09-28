@@ -47,5 +47,8 @@ export type {
 } from './meta/index';
 export * from './google-organic/index';
 export * from './semrush/index';
+// LinkedIn's names carry their platform (`normalizeLinkedIn…`), so `export *`
+// collides with nothing.
+export * from './linkedin/index';
 export * from './aloware/csv';
 export * from './aloware/calls';

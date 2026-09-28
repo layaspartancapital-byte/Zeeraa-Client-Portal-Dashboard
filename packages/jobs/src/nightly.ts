@@ -4,6 +4,8 @@ import { listGoogleAdsConnections, resolveGoogleAdsContext } from './google-ads/
 import { runGoogleAdsSync } from './google-ads/sync';
 import { listMetaConnections, resolveMetaContext } from './meta/context';
 import { runMetaSync } from './meta/sync';
+import { listLinkedInConnections, resolveLinkedInContext } from './linkedin/context';
+import { runLinkedInSync } from './linkedin/sync';
 import { listOrganicConnections, resolveOrganicContext } from './google-organic/context';
 import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
 import { listSemrushConnections, resolveSemrushContext } from './semrush/context';
@@ -96,6 +98,19 @@ export async function runNightlyRepull(options: NightlyOptions = {}): Promise<In
       const context = await resolveMetaContext(connection.tenantId, connection.connectionId);
       const range = trailingWindow(tenantDay(startedAt, context.connection.tenantTimezone), adsDays);
       const result = await runMetaSync(context, { trigger, now: startedAt, range });
+      return {
+        status: result.status === 'failed' ? 'failed' : result.status,
+        detail: `${range.start} → ${range.end}: ${result.dailyMetrics} metric rows re-read`,
+      };
+    });
+  }
+
+  for (const connection of await listLinkedInConnections()) {
+    if (!mine(connection.tenantId)) continue;
+    await unit(connection.tenantId, 'linkedin_ads', async () => {
+      const context = await resolveLinkedInContext(connection.tenantId, connection.connectionId);
+      const range = trailingWindow(tenantDay(startedAt, context.connection.tenantTimezone), adsDays);
+      const result = await runLinkedInSync(context, { trigger, now: startedAt, range });
       return {
         status: result.status === 'failed' ? 'failed' : result.status,
         detail: `${range.start} → ${range.end}: ${result.dailyMetrics} metric rows re-read`,
