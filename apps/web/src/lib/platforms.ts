@@ -1,7 +1,6 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { parseIntegratingPlatforms, stillIntegrating } from '@zeeraa/core';
+import { parseIntegratingPlatforms, platformNavLabel, stillIntegrating } from '@zeeraa/core';
 import { schema } from '@zeeraa/db';
-import { platformLabel } from '@/lib/reporting';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
 /**
@@ -40,11 +39,19 @@ export const AD_PLATFORMS = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ad
  */
 export const ORGANIC_PLATFORMS = ['ga4', 'search_console'] as const;
 
-export type PlatformKind = 'ads' | 'organic';
+/**
+ * SEO, from Semrush: rankings, AI Overview presence, backlinks and the site
+ * audit. Its own page again — nothing on it is a day's traffic, and nothing
+ * on it can reach a deal. The rail calls it "SEO" (`platformNavLabel`).
+ */
+export const SEO_PLATFORMS = ['semrush'] as const;
+
+export type PlatformKind = 'ads' | 'organic' | 'seo';
 
 export function platformKind(key: string): PlatformKind | null {
   if ((AD_PLATFORMS as readonly string[]).includes(key)) return 'ads';
   if ((ORGANIC_PLATFORMS as readonly string[]).includes(key)) return 'organic';
+  if ((SEO_PLATFORMS as readonly string[]).includes(key)) return 'seo';
   return null;
 }
 
@@ -67,7 +74,7 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
       .where(
         and(
           eq(schema.connections.tenantId, session.tenant.id),
-          inArray(schema.connections.platform, [...AD_PLATFORMS, ...ORGANIC_PLATFORMS]),
+          inArray(schema.connections.platform, [...AD_PLATFORMS, ...ORGANIC_PLATFORMS, ...SEO_PLATFORMS]),
           // Reported anything at all, ever, into whichever table this source
           // writes. Deliberately not scoped to the window the page happens to
           // be showing: a platform that spent nothing in the last 30 days still
@@ -87,14 +94,18 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
               select 1 from ${schema.searchConsoleMetrics} sc
               where sc.tenant_id = ${schema.connections.tenantId}
             ))
+            or (${schema.connections.platform} = 'semrush' and exists (
+              select 1 from ${schema.seoDomainMonths} sd
+              where sd.tenant_id = ${schema.connections.tenantId}
+            ))
           )`,
         ),
       )
       .orderBy(asc(schema.connections.platform));
 
-    // Paid first, then organic: the rail reads in the order a reader asks the
+    // Paid first, then organic, then SEO: the rail reads in the order a reader asks the
     // questions, not alphabetically.
-    const order = [...AD_PLATFORMS, ...ORGANIC_PLATFORMS] as readonly string[];
+    const order = [...AD_PLATFORMS, ...ORGANIC_PLATFORMS, ...SEO_PLATFORMS] as readonly string[];
     // One entry per platform: a tenant can hold two connections to one
     // platform (a second ad account), and the rail drew it twice.
     const seen = new Set<string>();
@@ -102,7 +113,7 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
       .filter((r) => (seen.has(r.platform) ? false : (seen.add(r.platform), true)))
       .map((r) => ({
         key: r.platform,
-        label: platformLabel(r.platform),
+        label: platformNavLabel(r.platform),
         kind: platformKind(r.platform)!,
         status: r.status,
       }))
@@ -137,5 +148,5 @@ export async function integratingPlatforms(session: TenantSession): Promise<Inte
   return stillIntegrating(
     parseIntegratingPlatforms(row[0]?.value),
     reporting.map((p) => p.key),
-  ).map((key) => ({ key, label: platformLabel(key) }));
+  ).map((key) => ({ key, label: platformNavLabel(key) }));
 }

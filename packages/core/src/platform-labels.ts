@@ -25,3 +25,17 @@ export function platformLabel(platform: string): string {
   if (platform.startsWith('vendor:')) return platform.slice('vendor:'.length);
   return PLATFORM_LABELS[platform] ?? platform;
 }
+
+/**
+ * The rail's name for a platform, where it is not the connector's.
+ *
+ * Semrush is the source; what the reader opens is the SEO section, and the
+ * connections page still says Semrush because that is what is connected.
+ */
+const NAV_LABELS: Record<string, string> = {
+  semrush: 'SEO',
+};
+
+export function platformNavLabel(platform: string): string {
+  return NAV_LABELS[platform] ?? platformLabel(platform);
+}

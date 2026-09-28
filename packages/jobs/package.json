@@ -25,7 +25,8 @@
     "repull": "tsx scripts/repull.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "freeze-baseline": "tsx scripts/freeze-baseline.ts",
-    "redate-webhook-calls": "tsx scripts/redate-webhook-calls.ts"
+    "redate-webhook-calls": "tsx scripts/redate-webhook-calls.ts",
+    "sync-semrush": "tsx scripts/sync-semrush.ts"
   },
   "dependencies": {
     "@zeeraa/connectors": "workspace:*",

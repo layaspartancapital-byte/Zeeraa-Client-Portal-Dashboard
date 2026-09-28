@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 25 September 2026 (funded-deals list on Google Ads and Meta; People activity and audit log deployed and verified).**
+**Last updated: 28 September 2026 (SEO from Semrush: built and synced locally; not yet migrated or deployed to production).**
 
 ---
 
@@ -493,7 +493,31 @@ secret (`67e4309c2482`, which still fails every credential).
 - **Integrating platforms (25 September 2026).** LinkedIn Ads, Semrush and
   Microsoft Ads show on the rail as integrating, with a holding page, until
   each reports. See `docs/brief-amendments.md`, "§12 — platforms being
-  connected". Semrush needs a connector and a page type before it can switch.
+  connected". Semrush has a connector and a page since 28 September; its item
+  is called "SEO" and becomes the page once `seo_domain_months` has a row.
+
+- **SEO, from Semrush (28 September 2026).** Replaces the earlier plan to use
+  a second vendor, whose env vars and references are gone. Migration 0042 (ten
+  `seo_*` tables, standard policy set), `SEMRUSH_REPORTS` in core (cadence and
+  unit price per report; 605,700 units a year at every cap, of which tracked
+  positions, weekly at 100 per keyword, are 416,000),
+  `connectors/src/semrush`, `jobs/src/semrush` (nightly, after the ads;
+  reads only what is due; measures each read's cost from the balance and logs
+  it in `seo_report_reads`; per-run and trailing-year caps), the page at
+  `/[tenant]/platforms/semrush` (`SeoPlatformView`), `configure-semrush.ts`
+  and `sync-semrush.ts --plan`. AI visibility is Google's AI Overview only;
+  Semrush has no API for ChatGPT, Gemini or Perplexity, nor for Backlink
+  Audit. See `docs/brief-amendments.md`, "§6 and §7 — SEO is Semrush".
+  Locally synced 28 September: 9,230 units, exactly the per-line estimate.
+  Mutation suite 69/69 killed (four new SEO mutations); preflight passes.
+  Semrush figures that day (from Semrush's API, not our production database):
+  1,607 organic keywords, 73 on page one, 26 AI Overview citations across 10
+  keywords, 499 referring domains, Authority Score 18, Site Health 93.
+  **Units spent 28 September: 61,020 of the 2,000,000** — 9,230 on the sync, the rest
+  probing, of which 50,200 was one site-audit `history?limit=5` call (about
+  10,000 a snapshot, undocumented). Balance after: 1,938,980.
+  `SEMRUSH_API_KEY` is in `.env` and, per the user, in Vercel. Remove any
+  leftover `DATAFORSEO_*` from Vercel if they were ever added there.
 
 - **UW approved and Offer merged (25 September 2026).** Offer is not a stage;
   a deal is approved at the earlier of its approval and its offer
@@ -2530,29 +2554,36 @@ Done:
   blocked stage, rather than leaving the funnel looking severed.
 - **Four charts** on the performance screen.
 
-Next, in order:
+Next, in order (rewritten 25 September 2026; the list before it named the
+Vercel environment, which is live, and phase 5 collaboration, which went with
+the workspace on 21 September):
 
-1. **Finish the Vercel environment.** The hourly cron is the schedule now
-   (Inngest is gone); what remains is setting the connection strings, secrets
-   and `CRON_SECRET` in the project, and running the first backfill against
-   Neon.
-2. **The rest of phase 5.** Uploads, versioning and the approval flow are done
-   (19 September 2026). What remains is collaboration: the mention picker,
-   `@mentions`, asset comments, the activity rail and notifications. Also
-   unbuilt: recording a hand-kept count from the UI — the `manual` rows are
-   written by hand in SQL today, which is fine for backlinks and prompts but
-   will not stay fine.
-3. Chase the Opportunity click-ID fields and the decline-reason field.
-4. Campaign and keyword-tier drill-down on the performance table. The breakdown
-   tab set is on screen with each dimension's blocker stated; campaign is the
-   one that is Zeeraa build work rather than a CRM gap.
-5. **Reconcile the cost-per-funded-deal target.** The executive hero now shows
-   every connected channel side by side rather than one, so there is no north
-   star channel left to choose. What is still outstanding is the target: the
-   engagement states one number, configuration carries no per-channel target,
-   and it currently renders once in the card header rather than against either
-   channel. Decide whether it is a blended target, a Google Ads target, or one
-   per channel.
+1. **Ship SEO from Semrush to production.** Built 28 September 2026 (see
+   "SEO, from Semrush" below). In order: migration 0042 against Neon;
+   `configure-semrush spartan --project 29644497 --domain
+   spartancapitalgroup.com --dry-run`, then without; deploy; `sync-semrush
+   spartan --plan`, then `sync-semrush spartan` (about 9,300 units, the first
+   read of every report). Then record the Position Tracking campaign with
+   `configure-semrush spartan --campaign <id>` and check the first tracked
+   response against `parseTrackedPositions` — its shape is from the
+   documentation, not yet from a real response.
+2. **Watch the Opportunity click-ID coverage.** The six fields are mapped
+   Lead → Opportunity (17 September 2026) and pay only from the next
+   conversion; until then `backfillClickIdsFromConvertedLeads` does the work.
+   Check the share of new opportunities carrying one before relying on it.
+3. **Keyword-tier drill-down.** The Breakdown's campaign dimension is built
+   (Google by click, Meta by UTM campaign); a keyword tier is not.
+4. **Record a hand-kept count from the UI.** The `manual` rows in
+   `organic_metrics` and `ai_visibility` are written in SQL today.
+   Item 1 should retire most of them; whatever remains needs a form.
+5. **The Aloware webhook in the console**, if it is not already pointed at
+   `https://zeeraa.cloud/api/webhooks/aloware/spartan` (see Blocked).
+
+Decided 25 September 2026: **the cost-per-funded-deal target is Google Ads
+only.** The M1–M8 engagement model is contracted for Google Ads, and that is how
+the executive scorecard and ramp already render it. There is no blended target
+and no per-channel target for Meta; Meta's cost per funded deal is shown without
+one.
 
 ## Scheduling: where it really stands (17 September 2026)
 

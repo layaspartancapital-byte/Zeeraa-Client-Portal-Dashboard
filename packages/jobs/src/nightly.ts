@@ -6,6 +6,8 @@ import { listMetaConnections, resolveMetaContext } from './meta/context';
 import { runMetaSync } from './meta/sync';
 import { listOrganicConnections, resolveOrganicContext } from './google-organic/context';
 import { runGa4Sync, runSearchConsoleSync } from './google-organic/sync';
+import { listSemrushConnections, resolveSemrushContext } from './semrush/context';
+import { runSemrushSync } from './semrush/sync';
 import { recordSkippedRun } from './sync-runs';
 import type { IncrementalResult, PlatformOutcome, SyncPlatform } from './incremental';
 
@@ -117,6 +119,22 @@ export async function runNightlyRepull(options: NightlyOptions = {}): Promise<In
         };
       });
     }
+  }
+
+  // Semrush last: it reads only what is due (most nights the two Position
+  // Tracking reports, 200 units), and its cost is metered against Zeeraa's
+  // allowance, so it never runs from the hourly path or from "Sync now".
+  for (const connection of await listSemrushConnections()) {
+    if (!mine(connection.tenantId)) continue;
+    await unit(connection.tenantId, 'semrush', async () => {
+      const context = await resolveSemrushContext(connection.tenantId, connection.connectionId);
+      const result = await runSemrushSync(context, { trigger, now: startedAt });
+      const read = result.outcomes.filter((o) => o.status === 'read').map((o) => o.report);
+      return {
+        status: result.status === 'failed' ? 'failed' : result.status,
+        detail: `${read.length ? read.join(', ') : 'nothing due'} · ${result.unitsSpent} units`,
+      };
+    });
   }
 
   return {

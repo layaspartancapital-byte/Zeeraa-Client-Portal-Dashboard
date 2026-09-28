@@ -1,6 +1,6 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
-import { platformLabel } from '@zeeraa/core';
+import { platformNavLabel } from '@zeeraa/core';
 import { schema } from '@zeeraa/db';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
@@ -62,6 +62,6 @@ const PAGES: Record<string, string> = {
 export function pageLabel(slug: string, path: string): string {
   const rest = path.slice(slug.length + 1).replace(/^\/|\/$/g, '');
   const [first = '', second] = rest.split('/');
-  if (first === 'platforms' && second) return platformLabel(second);
+  if (first === 'platforms' && second) return platformNavLabel(second);
   return PAGES[first] ?? `/${rest}`;
 }

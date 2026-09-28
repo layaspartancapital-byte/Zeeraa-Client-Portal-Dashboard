@@ -15,6 +15,7 @@ import {
   linkClickShare,
   tenantDay,
   rangeLengthDays,
+  canAdministerTenant,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
@@ -40,6 +41,8 @@ import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformView } from '@/lib/platform';
 import { organicView } from '@/lib/organic';
 import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
+import { SeoPlatformView } from '@/components/platform/SeoPlatformView';
+import { seoView } from '@/lib/cached-reports';
 import { FundedDealsCard } from '@/components/platform/FundedDealsCard';
 import { integratingPlatforms, reportingPlatforms } from '@/lib/platforms';
 import { IntegratingPlatformView } from '@/components/platform/IntegratingPlatformView';
@@ -141,6 +144,41 @@ export default async function PlatformPage({
   const cutoff = entry.kind === 'organic' ? 'published' : 'synced';
   const ownWhy = notMeasuredReason(own, entry.label, cutoff);
   const ownNote = throughNote(own, entry.label, cutoff);
+
+  /*
+   * SEO, from Semrush: snapshots as of their read, and Position Tracking by
+   * day. Only Position Tracking follows the range, so only it asks coverage.
+   */
+  if (entry.kind === 'seo') {
+    const links = rangeLinks(`/${slug}/platforms/${platform}`, {});
+    const view = await seoView(session, range);
+    return (
+      <SeoPlatformView
+        session={session}
+        view={view}
+        label={entry.label}
+        range={range}
+        rangeControl={
+          <DateRangePicker
+            range={range}
+            preset={preset}
+            presetHref={links.presetHref}
+            preserve={links.preserve}
+            problem={problem}
+            earliest={earliest}
+            today={today}
+          />
+        }
+        trackingNotMeasured={
+          view.trackingConfigured && isUnmeasured(own)
+            ? notMeasuredReason(own, 'Semrush Position Tracking', 'synced')
+            : undefined
+        }
+        trackingNote={throughNote(own, 'Semrush Position Tracking', 'synced')}
+        showOperational={canAdministerTenant(session.tenant.role)}
+      />
+    );
+  }
 
   /*
    * Organic sources take a different page, not the same page with the numbers

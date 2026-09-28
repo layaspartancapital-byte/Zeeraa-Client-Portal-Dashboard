@@ -559,6 +559,40 @@ const MUTATIONS: Mutation[] = [
           create policy job_tenant_isolation on public.platform_ads
             as permissive for all to zeeraa_jobs using (true) with check (true)`,
   },
+  {
+    // Semrush (0042): a lender's keywords and competitors are its
+    // acquisition map. Ten tables, one generated policy set; each mutation
+    // below must be caught by that table's own test in seo-isolation.
+    name: 'seo-keywords-policy-open',
+    description: 'Let any application session read every seo_keywords row',
+    sql: `drop policy tenant_isolation on public.seo_keywords;
+          create policy tenant_isolation on public.seo_keywords
+            as permissive for select to zeeraa_app using (true)`,
+  },
+  {
+    name: 'seo-audit-issues-policy-open',
+    description: 'Let any application session read every seo_site_audit_issues row',
+    sql: `drop policy tenant_isolation on public.seo_site_audit_issues;
+          create policy tenant_isolation on public.seo_site_audit_issues
+            as permissive for select to zeeraa_app using (true)`,
+  },
+  {
+    name: 'seo-tracked-positions-job-unscoped',
+    description: 'Let the ingestion role write seo_tracked_positions for any tenant',
+    sql: `drop policy job_tenant_isolation on public.seo_tracked_positions;
+          create policy job_tenant_isolation on public.seo_tracked_positions
+            as permissive for all to zeeraa_jobs using (true) with check (true)`,
+  },
+  {
+    name: 'seo-competitors-member-write',
+    description: 'Let any member write seo_competitors, not only a Zeeraa admin',
+    sql: `grant insert on public.seo_competitors to zeeraa_app;
+          drop policy tenant_admin_write on public.seo_competitors;
+          create policy tenant_admin_write on public.seo_competitors
+            as permissive for all to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())
+            with check (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
 ];
 
 const env = {

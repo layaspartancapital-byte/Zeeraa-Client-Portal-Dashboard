@@ -5,3 +5,4 @@ export * from './ads';
 export * from './crm';
 export * from './config';
 export * from './notifications';
+export * from './seo';

@@ -55,7 +55,7 @@ export type SourcesThrough = {
 };
 
 /** Sources whose coverage comes from the day ledger rather than the last run. */
-const LEDGERED = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ads', 'ga4', 'search_console', 'call_tracking'];
+const LEDGERED = ['google_ads', 'meta', 'microsoft_ads', 'linkedin_ads', 'ga4', 'search_console', 'call_tracking', 'semrush'];
 
 export async function sourcesThrough(session: TenantSession): Promise<SourcesThrough> {
   const tz = session.tenant.timezone;

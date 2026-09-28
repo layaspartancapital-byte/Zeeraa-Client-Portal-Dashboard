@@ -45,7 +45,7 @@ import { lastCompletedWatermark, recordSkippedRun, resumeWindow, salesforceRunIn
  * captured — and because the caller is an HTTP handler that has to answer.
  */
 
-export type SyncPlatform = 'google_ads' | 'meta' | 'ga4' | 'search_console' | 'salesforce';
+export type SyncPlatform = 'google_ads' | 'meta' | 'ga4' | 'search_console' | 'salesforce' | 'semrush';
 
 export type PlatformOutcome = {
   tenantId: string;

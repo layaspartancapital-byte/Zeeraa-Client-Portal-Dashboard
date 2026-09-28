@@ -46,5 +46,6 @@ export type {
   ReportingZone as MetaReportingZone,
 } from './meta/index';
 export * from './google-organic/index';
+export * from './semrush/index';
 export * from './aloware/csv';
 export * from './aloware/calls';

@@ -3663,3 +3663,64 @@ changed.
   the `?ids=` read was withdrawn in v26), which answers only for ads in that
   account, and stores them in `platform_ads` (0041). An id with no name yet is
   shown as the id the lead recorded.
+
+## §6 and §7 — SEO is Semrush; AI visibility is Google's AI Overview only (28 September 2026)
+
+**Replaces** the brief's weekly "Semrush rankings and backlinks, AI-visibility
+prompt sweep" and the plan in `docs/state.md` of 25 September to build SEO from
+a second vendor. On the client's instruction, the SEO section reads Semrush
+project 29644497 (www.spartancapitalgroup.com) and nothing else, and the other
+vendor's credentials and references are removed.
+
+- **What is read, how often, and what it costs** is `SEMRUSH_REPORTS` in core:
+  Position Tracking visibility daily, tracked positions weekly; domain overview (keywords, position bands,
+  estimated traffic, AI Overview counts), backlinks summary and the site audit
+  weekly; top 200 organic keywords, AI Overview citations, 20 organic
+  competitors, and new and lost referring domains (100 each) monthly; Semrush's
+  own monthly history once for two years, then the latest two months monthly.
+  At every row cap that is **605,700 units a year** against the 2M allowance
+  (`plannedAnnualUnits`, 80 tracked keywords). The link-level new/lost list was
+  declined.
+- **Tracked positions are read weekly, not daily** (the user's choice, 28
+  September 2026). Semrush bills them at 100 units per keyword per call — the
+  documentation says per request — so 80 keywords daily would be about 2.9M a
+  year. One call returns every day since the last read, so positions are still
+  stored by day; a weekly read makes them up to a week stale. Visibility, 100
+  per call for any number of days, is read daily and is the fresh line.
+  Spartan's allowance is 650,000 (`annualUnitBudget`).
+- **Every read is logged with its measured cost** (`seo_report_reads`, from
+  Semrush's free balance endpoint before and after the call), and the log is
+  what decides whether a report is due. Before each call the sync checks the
+  most it could cost against a per-run cap (25,000) and the tenant's
+  trailing-year allowance (400,000, `annualUnitBudget` on the connection) and
+  skips, saying so, rather than spend past either. The published price is not
+  always the charge: an exploratory site-audit `history?limit=5` call on 28
+  September cost 50,200 units (about 10,000 a snapshot). History and snapshot
+  detail are never read; `info` carries the health score and every issue count
+  for 100.
+- **AI visibility is Google's AI Overview only.** Semrush's API exposes which
+  ranking keywords show an AI Overview (`FK52`) and where the domain is cited
+  in one (`FP52`, one per keyword and cited URL: Spartan's 26 citations span
+  10 keywords). Its AI Visibility Toolkit — ChatGPT, Gemini, Perplexity — has
+  no API, and on the client's decision no other source is used for them. The
+  `ai_visibility` table from migration 0000 is kept, unused, because it may
+  hold hand-entered rows.
+- **Backlink Audit (toxic score) is not synced**: Semrush's Projects API
+  covers Position Tracking and Site Audit only.
+- **Snapshots are not ranges.** Keywords, traffic, AI Overviews, backlinks and
+  the audit are each "as of" their read and are compared with the month (or
+  crawl) before, since a stock is compared with its earlier level. Only
+  Position Tracking follows the page's `DateRangePicker`, and only it asks
+  coverage — by day, in `sync_days` under `semrush`, recording only days
+  Semrush answered for.
+- **Estimated traffic is Semrush's model** and says so beside the figure;
+  Search Console and GA4 are the measured sources.
+- **On the rail it is "SEO"** (`platformNavLabel`); the connection is still
+  "Semrush" on Connections. It is a third platform kind, `seo`, and leaves
+  `integrating_platforms` the moment `seo_domain_months` holds a row. There is
+  no "Sync now" for it: every read spends Zeeraa's units.
+- **The Position Tracking campaign id** is recorded with `configure-semrush
+  --campaign`. Until then the tracking reports are skipped, the sync run is
+  `partial` saying why, the card is hidden from a client and shown to a Zeeraa
+  admin as Not measured. Spartan's is 29644497_4791801 (80 keywords, US,
+  Google, English, desktop).

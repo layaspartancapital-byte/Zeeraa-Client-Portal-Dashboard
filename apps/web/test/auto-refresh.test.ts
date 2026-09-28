@@ -44,6 +44,7 @@ describe('AutoRefresh', () => {
       'app/[tenant]/funnel/page.tsx',
       'app/[tenant]/platforms/[platform]/page.tsx',
       'components/platform/OrganicPlatformView.tsx',
+      'components/platform/SeoPlatformView.tsx',
       'app/[tenant]/connections/page.tsx',
     ]) {
       expect(read(page), page).toMatch(/<AutoRefresh \/>/);

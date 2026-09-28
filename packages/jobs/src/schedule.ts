@@ -45,9 +45,13 @@ export const SCHEDULE: JobSchedule[] = [
     windowDays: 90,
   },
   {
-    id: 'organic.weekly',
-    cadence: 'weekly',
-    description: 'Search Console, Semrush rankings and backlinks, AI-visibility prompt sweep.',
+    id: 'seo.semrush',
+    cadence: 'nightly, inside ads.nightly; each report on its own cadence',
+    description:
+      'Semrush, reading only the reports that are due (SEMRUSH_REPORTS in core): ' +
+      'tracked visibility daily; tracked positions, domain overview, backlinks and site audit weekly; ' +
+      'keywords, AI Overview citations, competitors and referring-domain changes ' +
+      'monthly. Budgeted in units; about 606,000 a year at every cap.',
     windowDays: null,
   },
   {

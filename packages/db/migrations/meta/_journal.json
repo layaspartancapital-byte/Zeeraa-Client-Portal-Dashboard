@@ -295,6 +295,13 @@
       "when": 1790180000000,
       "tag": "0041_deal_name_and_platform_ads",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790190000000,
+      "tag": "0042_semrush_seo",
+      "breakpoints": true
     }
   ]
 }

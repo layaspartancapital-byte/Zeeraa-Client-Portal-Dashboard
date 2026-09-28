@@ -1002,7 +1002,20 @@ export const spartan: TenantSeed = {
         breakdownLimit: 250,
       },
     },
-    { platform: 'semrush', accountIdentifier: 'pending', status: 'not_configured' },
+    {
+      // Semrush project 29644497. The Position Tracking campaign is recorded
+      // with `configure-semrush --campaign` once known.
+      platform: 'semrush',
+      accountIdentifier: '29644497',
+      status: 'healthy',
+      config: {
+        projectId: 29644497,
+        domain: 'spartancapitalgroup.com',
+        database: 'us',
+        trackingCampaignId: null,
+        trackingUrl: '*.spartancapitalgroup.com/*',
+      },
+    },
     {
       /*
        * Corrected 18 September 2026. This said the vendor had not been

@@ -51,6 +51,15 @@ const FORMULA_DIRECTION: Record<string, ImprovementDirection | null> = {
   connect_rate: 'up',
   leads_created: 'up',
   calls_connected: 'up',
+  /* SEO, from Semrush. More of each is the domain being found more. */
+  organic_keywords: 'up',
+  estimated_organic_traffic: 'up',
+  ai_overview_citations: 'up',
+  referring_domains: 'up',
+  authority_score: 'up',
+  site_health: 'up',
+  tracked_visibility: 'up',
+  tracked_top_10: 'up',
 
   /**
    * Declared neutral, not left out.

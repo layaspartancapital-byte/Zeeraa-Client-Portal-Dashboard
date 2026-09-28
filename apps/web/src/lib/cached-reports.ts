@@ -7,6 +7,7 @@ import * as breakdown from '@/lib/breakdown';
 import * as quality from '@/lib/quality-measures';
 import * as platforms from '@/lib/platforms';
 import * as tenant from '@/lib/tenant';
+import * as seo from '@/lib/seo';
 
 /**
  * The report functions the dashboard pages read, each kept between syncs by
@@ -36,6 +37,7 @@ export const breakdownRows = cached('breakdownRows', breakdown.breakdownRows);
 export const declineReasonSummary = cached('declineReasonSummary', quality.declineReasonSummary);
 export const reportingPlatforms = cached('reportingPlatforms', platforms.reportingPlatforms);
 export const integratingPlatforms = cached('integratingPlatforms', platforms.integratingPlatforms);
+export const seoView = cached('seoView', seo.seoView);
 export const tenantLogo = cached('tenantLogo', tenant.tenantLogo);
 export const tenantBusinessHours = cached('tenantBusinessHours', tenant.tenantBusinessHours);
 
