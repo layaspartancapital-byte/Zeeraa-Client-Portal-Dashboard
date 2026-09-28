@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 28 September 2026 (LinkedIn Ads connector built and deployed; waiting on Connect).**
+**Last updated: 28 September 2026 (LinkedIn Ads connected, no active campaigns; "Connected · no campaigns yet" state).**
 
 ---
 
@@ -2594,11 +2594,12 @@ the workspace on 21 September):
    trailing-year sum should track about 606,000 a year. The SEO page in
    production has not been looked at signed in; the layout was checked
    locally at 1440 and 390.
-2. **Press Connect for LinkedIn Ads, then backfill.** Built 28 September
-   2026 (see "LinkedIn Ads" below). After Connect: `sync-linkedin spartan
-   --days 90`, then check the page appears on the rail in place of the
-   Integrating item. Then capture `li_fat_id` on the forms, or nothing is
-   attributable to LinkedIn.
+2. **LinkedIn Ads is connected and idle.** Connected 28 September 2026; the
+   grant (`r_ads,r_ads_reporting`) runs to 28 September 2027. No campaign is
+   active and nothing has spent since November 2025, so the rail and page say
+   "Connected · no campaigns yet"; the hourly sync switches them to the
+   ordinary page the day spend lands. Before a campaign launches, capture
+   `li_fat_id` on the forms, or nothing is attributable to LinkedIn.
 2. **Watch the Opportunity click-ID coverage.** The six fields are mapped
    Lead → Opportunity (17 September 2026) and pay only from the next
    conversion; until then `backfillClickIdsFromConvertedLeads` does the work.

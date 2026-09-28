@@ -29,8 +29,7 @@ import {
   canManageUsers,
   canSwitchTenant,
   ROLE_LABELS,
-  type Role,
-} from '@zeeraa/core';
+  type Role, PENDING_STATE_LABELS, type PendingPlatformState } from '@zeeraa/core';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { useShell } from '@/components/shell/shell-state';
 import { ZeeraaMark } from '@/components/shell/ZeeraaMark';
@@ -66,8 +65,8 @@ type NavGroup = {
     label: string;
     icon: typeof LayoutDashboard;
     permitted?: (role: Role) => boolean;
-    /** A platform being connected: its holding page, and the badge. */
-    integrating?: boolean;
+    /** A platform on the integrating list that has not reported: its holding page, and the badge. */
+    pending?: PendingPlatformState;
   }[];
 };
 
@@ -194,7 +193,7 @@ export function Sidebar({
    * (`integratingPlatforms`). Drawn after the live ones with an "Integrating"
    * badge; each becomes an ordinary item the day it reports.
    */
-  integrating?: { key: string; label: string }[];
+  integrating?: { key: string; label: string; state: PendingPlatformState }[];
   /**
    * Channels this client has actually connected, in a stable order.
    *
@@ -208,13 +207,13 @@ export function Sidebar({
   const pathname = usePathname();
 
   const platformItems: NavGroup['items'] = [
-    ...platforms.map((p) => ({ ...p, integrating: false })),
-    ...integrating.map((p) => ({ ...p, integrating: true })),
+    ...platforms.map((p) => ({ ...p, pending: undefined as PendingPlatformState | undefined })),
+    ...integrating.map((p) => ({ ...p, pending: p.state })),
   ].map((p) => ({
     segment: `platforms/${p.key}`,
     label: p.label,
     icon: PLATFORM_ICONS[p.key] ?? platformInitial(p.label),
-    integrating: p.integrating,
+    pending: p.pending,
   }));
   const withPlatforms: NavGroup[] =
     platformItems.length === 0
@@ -350,7 +349,9 @@ export function Sidebar({
                     ? pathname.startsWith(href)
                     : pathname === `/${tenant.slug}` || pathname === `/${tenant.slug}/`;
                   const Icon = item.icon;
-                  const name = item.integrating ? `${item.label}, integrating` : item.label;
+                  const name = item.pending
+                    ? `${item.label}, ${PENDING_STATE_LABELS[item.pending].toLowerCase().replace(' · ', ', ')}`
+                    : item.label;
 
                   return (
                     <li key={item.segment || 'executive'}>
@@ -373,9 +374,22 @@ export function Sidebar({
                           />
                         )}
                         <Icon aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                        <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
-                        {item.integrating && (
-                          <IntegratingBadge collapsed={collapsed} />
+                        {item.pending === 'connected' ? (
+                          // Too long for beside the label: it sits under it.
+                          <span className={`flex min-w-0 flex-col ${collapsed ? 'lg:hidden' : ''}`}>
+                            <span>{item.label}</span>
+                            <span className="text-[11px] font-medium leading-tight text-on-chrome-2">
+                              {PENDING_STATE_LABELS.connected}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
+                        )}
+                        {item.pending === 'integrating' && <IntegratingBadge collapsed={collapsed} />}
+                        {item.pending === 'connected' && collapsed && (
+                          <span aria-hidden="true" className="absolute right-2.5 top-1.5 hidden lg:block">
+                            <span className="block h-1.5 w-1.5 rounded-full bg-on-chrome-2" />
+                          </span>
                         )}
                       </Link>
                       </RailTip>

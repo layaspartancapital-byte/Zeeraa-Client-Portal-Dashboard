@@ -26,3 +26,28 @@ export function stillIntegrating(configured: readonly string[], reporting: reado
   const live = new Set(reporting);
   return configured.filter((key) => !live.has(key));
 }
+
+/**
+ * Where a platform on the `integrating_platforms` list stands until it
+ * reports (28 September 2026).
+ *
+ *   * `integrating` — not connected yet.
+ *   * `connected` — the connection holds a working grant, and the platform has
+ *     reported no spend: an account with no live campaigns. Said in words, with
+ *     no figure, because a row of zeros would read as campaigns that failed.
+ *
+ * Either way the item becomes the ordinary page the day the first spend lands.
+ */
+export type PendingPlatformState = 'integrating' | 'connected';
+
+export const PENDING_STATE_LABELS: Record<PendingPlatformState, string> = {
+  integrating: 'Integrating',
+  connected: 'Connected · no campaigns yet',
+};
+
+/** Connected means a stored grant on a connection that is not refused or failing. */
+export function pendingPlatformState(connection: { authorized: boolean; status: string } | undefined): PendingPlatformState {
+  return connection?.authorized && (connection.status === 'healthy' || connection.status === 'degraded')
+    ? 'connected'
+    : 'integrating';
+}

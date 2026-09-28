@@ -129,7 +129,9 @@ export default async function PlatformPage({
     // Configured as being connected and not reporting yet: the holding page,
     // from the same rule the rail draws its "Integrating" badge by.
     const pending = (await integratingPlatforms(session)).find((p) => p.key === platform);
-    if (pending) return <IntegratingPlatformView session={session} label={pending.label} platform={platform} />;
+    if (pending) {
+      return <IntegratingPlatformView session={session} label={pending.label} platform={platform} state={pending.state} />;
+    }
     notFound();
   }
 

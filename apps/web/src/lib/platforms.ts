@@ -1,5 +1,11 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { parseIntegratingPlatforms, platformNavLabel, stillIntegrating } from '@zeeraa/core';
+import {
+  parseIntegratingPlatforms,
+  pendingPlatformState,
+  platformNavLabel,
+  stillIntegrating,
+  type PendingPlatformState,
+} from '@zeeraa/core';
 import { schema } from '@zeeraa/db';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
@@ -121,7 +127,7 @@ export async function reportingPlatforms(session: TenantSession): Promise<Report
   });
 }
 
-export type IntegratingPlatform = { key: string; label: string };
+export type IntegratingPlatform = { key: string; label: string; state: PendingPlatformState };
 
 /**
  * Platforms configured as being connected (`integrating_platforms`) that are
@@ -130,7 +136,7 @@ export type IntegratingPlatform = { key: string; label: string };
  * the day its connection has reported data.
  */
 export async function integratingPlatforms(session: TenantSession): Promise<IntegratingPlatform[]> {
-  const [row, reporting] = await Promise.all([
+  const [row, reporting, connections] = await Promise.all([
     queryTenant(session, (tx) =>
       tx
         .select({ value: schema.tenantConfig.value })
@@ -144,9 +150,23 @@ export async function integratingPlatforms(session: TenantSession): Promise<Inte
         .limit(1),
     ),
     reportingPlatforms(session),
+    queryTenant(session, (tx) =>
+      tx
+        .select({
+          platform: schema.connections.platform,
+          status: schema.connections.status,
+          authorized: sql<boolean>`${schema.connections.credentialsEncrypted} is not null`,
+        })
+        .from(schema.connections)
+        .where(eq(schema.connections.tenantId, session.tenant.id)),
+    ),
   ]);
   return stillIntegrating(
     parseIntegratingPlatforms(row[0]?.value),
     reporting.map((p) => p.key),
-  ).map((key) => ({ key, label: platformNavLabel(key) }));
+  ).map((key) => ({
+    key,
+    label: platformNavLabel(key),
+    state: pendingPlatformState(connections.find((c) => c.platform === key)),
+  }));
 }

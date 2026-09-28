@@ -3764,3 +3764,15 @@ tier, scopes `r_ads` and `r_ads_reporting` only.
   in 7,901 stored referrer URLs — the forms do not capture it yet — so until
   they do, LinkedIn deals are attributed only through a UTM or lead source
   rule, and there is none configured for LinkedIn.
+
+- **"Connected · no campaigns yet"** (28 September 2026, on the client's
+  instruction). A platform on the `integrating_platforms` list whose
+  connection holds a working grant (healthy or degraded) and has reported no
+  spend is drawn with that line — under its name on the rail, and on its
+  holding page — instead of "Integrating", with no figure and no zero
+  (`pendingPlatformState` and `PENDING_STATE_LABELS` in core). It becomes the
+  ordinary page when the first spend row lands, by the same
+  `reportingPlatforms` test as before. LinkedIn is the first: account
+  509908440 has 75 campaigns, none active, and its last spend was November
+  2025 (27 months with spend from February 2023), so the last ninety days hold
+  nothing to draw.

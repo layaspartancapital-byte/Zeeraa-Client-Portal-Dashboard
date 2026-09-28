@@ -1,6 +1,6 @@
 'use client';
 
-import type { BusinessHours } from '@zeeraa/core';
+import type { BusinessHours, PendingPlatformState } from '@zeeraa/core';
 import type { TenantSummary, Viewer } from '@/lib/tenant';
 import { RefreshHoursProvider } from '@/components/shell/AutoRefresh';
 import { ShellProvider, useShell } from '@/components/shell/shell-state';
@@ -36,7 +36,7 @@ export function AppShell({
   /** The tenant's square mark for the collapsed rail; null shows a monogram. */
   mark?: string | null;
   /** Platforms being connected, drawn as "Integrating" until they report. */
-  integrating?: { key: string; label: string }[];
+  integrating?: { key: string; label: string; state: PendingPlatformState }[];
   /** Serialised by the server component that renders this. */
   generatedAt: string;
   /** Connected ad platforms, resolved server-side in the tenant layout. */
