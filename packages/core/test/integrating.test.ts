@@ -37,7 +37,7 @@ describe('pendingPlatformState', () => {
   });
 
   it('says so in words, with no figure', () => {
-    expect(PENDING_STATE_LABELS.connected).toBe('Connected · no campaigns yet');
+    expect(PENDING_STATE_LABELS.connected).toBe('Connected · no active campaigns');
     expect(PENDING_STATE_LABELS.connected).not.toMatch(/\d/);
   });
 });

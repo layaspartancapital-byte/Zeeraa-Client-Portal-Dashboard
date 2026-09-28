@@ -42,7 +42,7 @@ export type PendingPlatformState = 'integrating' | 'connected';
 
 export const PENDING_STATE_LABELS: Record<PendingPlatformState, string> = {
   integrating: 'Integrating',
-  connected: 'Connected · no campaigns yet',
+  connected: 'Connected · no active campaigns',
 };
 
 /** Connected means a stored grant on a connection that is not refused or failing. */

@@ -3765,7 +3765,7 @@ tier, scopes `r_ads` and `r_ads_reporting` only.
   they do, LinkedIn deals are attributed only through a UTM or lead source
   rule, and there is none configured for LinkedIn.
 
-- **"Connected · no campaigns yet"** (28 September 2026, on the client's
+- **"Connected · no active campaigns"** (28 September 2026, on the client's
   instruction). A platform on the `integrating_platforms` list whose
   connection holds a working grant (healthy or degraded) and has reported no
   spend is drawn with that line — under its name on the rail, and on its

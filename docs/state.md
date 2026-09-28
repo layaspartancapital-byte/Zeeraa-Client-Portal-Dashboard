@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 28 September 2026 (LinkedIn Ads connected, no active campaigns; "Connected · no campaigns yet" state).**
+**Last updated: 28 September 2026 (LinkedIn Ads connected, no active campaigns; "Connected · no active campaigns" state).**
 
 ---
 
@@ -2597,7 +2597,7 @@ the workspace on 21 September):
 2. **LinkedIn Ads is connected and idle.** Connected 28 September 2026; the
    grant (`r_ads,r_ads_reporting`) runs to 28 September 2027. No campaign is
    active and nothing has spent since November 2025, so the rail and page say
-   "Connected · no campaigns yet"; the hourly sync switches them to the
+   "Connected · no active campaigns"; the hourly sync switches them to the
    ordinary page the day spend lands. Before a campaign launches, capture
    `li_fat_id` on the forms, or nothing is attributable to LinkedIn.
 2. **Watch the Opportunity click-ID coverage.** The six fields are mapped
