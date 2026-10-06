@@ -46,6 +46,15 @@ if (mode === undefined && Object.keys(agents).length === 0) {
 }
 
 class Rollback extends Error {}
+
+/** jsonb stores keys in its own order, so compare with every object's keys sorted. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
 const { db, close } = getOwnerDb();
 
 try {
@@ -86,7 +95,7 @@ try {
     }
 
     const [after] = await tx.select({ value: schema.tenantConfig.value }).from(schema.tenantConfig).where(where);
-    if (!after || JSON.stringify(after.value) !== JSON.stringify(value)) {
+    if (!after || canonical(after.value) !== canonical(value)) {
       throw new Error(
         'Refusing to commit: the config row does not read back as written. Under FORCE row ' +
           'level security that is a denied write — check this role is in zeeraa_maintenance.',

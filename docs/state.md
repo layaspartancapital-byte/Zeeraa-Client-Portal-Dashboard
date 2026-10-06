@@ -191,6 +191,15 @@ Basic) with `ALOWARE_WEBHOOK_SECRET`, event "Call disposed" only.
   comparison and the verdict. The Zap can go after two complete open days with
   no direct refusal, no call only the Zap delivered, and no field difference.
 
+**Live from 6 October, about 15:45 UTC.** Aloware's own posts are accepted with the same
+Bearer token (`GuzzleHttp/7`, `event: Call-Disposed`); in the first 45 minutes
+both senders delivered the same calls, none missing on either side, time,
+direction, outcome, disposition and number identical. Talk time and
+duration differ by a few seconds on some calls (the senders read the call a
+moment apart); by decision these are listed and do not hold the verdict when
+within 10s. `aloware.agents` maps 123260 to Oscar Huamani (named in the Zap's
+own 22 September sample); 122351 is not yet named.
+
 **Migration 0043** adds `webhook_deliveries.senders` and `.samples`,
 `calls.agent_external_id` and `call_deliveries` (standard policy set; no
 DELETE for jobs). Four mutations added, all killed.

@@ -15,7 +15,10 @@
  *   1. no direct post was refused,
  *   2. every call the Zap delivered, Aloware delivered too, and
  *   3. every call both delivered reads identically — time, direction,
- *      outcome, disposition, talk time, duration and number.
+ *      outcome, disposition and number — and its talk time and duration
+ *      agree within ten seconds. The two senders read a call a moment apart,
+ *      so a second or two of duration is noise; the outcome talk time decides
+ *      is compared exactly. Smaller differences are listed, not counted.
  *
  * Then `configure-aloware <slug> --direct-mode live`, and the Zap off.
  */
@@ -31,6 +34,10 @@ const days = Number(process.argv[3] ?? 14);
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 
 const FIELDS = ['occurred_at', 'direction', 'outcome', 'disposition', 'talk_time_seconds', 'duration_seconds', 'contact_key'] as const;
+/** Compared exactly: what any figure is computed from. */
+const EXACT = ['occurred_at', 'direction', 'outcome', 'disposition', 'contact_key'] as const;
+/** Seconds of talk time or duration the two copies may differ by. */
+const TIMING_TOLERANCE = 10;
 
 type Counts = { received: number; accepted: number; rejected: number; refused: number };
 
@@ -100,6 +107,8 @@ try {
              z.external_id is not null as by_zap, a.external_id is not null as by_aloware,
              ${sql.unsafe(FIELDS.map((f) => `(z.${f} is not distinct from a.${f}) as same_${f}`).join(', '))},
              extract(epoch from (a.occurred_at - z.occurred_at))::int as skew_seconds,
+             greatest(abs(coalesce(a.talk_time_seconds, 0) - coalesce(z.talk_time_seconds, 0)),
+                      abs(coalesce(a.duration_seconds, 0) - coalesce(z.duration_seconds, 0)))::int as timing_gap,
              a.agent_external_id as agent_id, a.agent_name as agent_name
       from z full join a on a.external_id = z.external_id
       where coalesce(z.occurred_at, a.occurred_at) >= (select t from since)`;
@@ -117,7 +126,9 @@ try {
     const perDay = complete.map((d) => {
       const rows = pairs.filter((p) => p.d === d);
       const both = rows.filter((p) => p.by_zap && p.by_aloware);
-      const mismatched = both.filter((p) => FIELDS.some((f) => !p[`same_${f}`]));
+      const mismatched = both.filter(
+        (p) => EXACT.some((f) => !p[`same_${f}`]) || Number(p.timing_gap) > TIMING_TOLERANCE,
+      );
       return {
         day: d,
         zap: rows.filter((p) => p.by_zap).length,
@@ -135,6 +146,10 @@ try {
     const both = pairs.filter((p) => p.by_zap && p.by_aloware);
     const byField = Object.fromEntries(FIELDS.map((f) => [f, both.filter((p) => !p[`same_${f}`]).length]));
     console.log('\nFields that differ, of calls both delivered (all days):', byField);
+    const small = both.filter(
+      (p) => EXACT.every((f) => p[`same_${f}`]) && Number(p.timing_gap) > 0 && Number(p.timing_gap) <= TIMING_TOLERANCE,
+    ).length;
+    if (small) console.log(`  ${small} differ only in talk time or duration, by ${TIMING_TOLERANCE}s or less — listed, not counted against the Zap.`);
     const skews = both.map((p) => Number(p.skew_seconds)).filter((s) => s !== 0);
     if (skews.length) {
       const hours = [...new Set(skews.map((s) => Math.round(s / 3600)))];
@@ -143,7 +158,9 @@ try {
 
     const unnamed = new Map<string, number>();
     for (const p of direct) {
-      if (p.agent_id && !p.agent_name) unnamed.set(String(p.agent_id), (unnamed.get(String(p.agent_id)) ?? 0) + 1);
+      // Named now counts: a copy recorded before its id was mapped carries no name.
+      const named = (config?.value?.agents as Record<string, string> | undefined)?.[String(p.agent_id)];
+      if (p.agent_id && !p.agent_name && !named) unnamed.set(String(p.agent_id), (unnamed.get(String(p.agent_id)) ?? 0) + 1);
     }
     if (unnamed.size) {
       console.log('\nAgent ids with no name configured (configure-aloware --agent id=name):');
@@ -159,7 +176,7 @@ try {
     for (const r of judged) {
       if (refusedOn(r.day) > 0) failures.push(`${r.day}: ${refusedOn(r.day)} direct post(s) refused`);
       if (r['zap only'] > 0) failures.push(`${r.day}: ${r['zap only']} call(s) the Zap delivered and Aloware did not`);
-      if (r.mismatched > 0) failures.push(`${r.day}: ${r.mismatched} call(s) whose copies differ`);
+      if (r.mismatched > 0) failures.push(`${r.day}: ${r.mismatched} call(s) whose copies differ beyond timing noise`);
     }
 
     console.log('');
@@ -167,7 +184,7 @@ try {
       console.log('Verdict: KEEP THE ZAP.');
       for (const f of failures) console.log(`  - ${f}`);
     } else if (mode !== 'live') {
-      console.log(`Verdict: READY. Over ${judged.length} complete days Aloware delivered every call the Zap did, identically, and nothing was refused.`);
+      console.log(`Verdict: READY. Over ${judged.length} complete days Aloware delivered every call the Zap did, matching on everything a figure reads, and nothing was refused.`);
       console.log(`  1. pnpm --filter @zeeraa/db configure-aloware ${slug} --direct-mode live   (with --dry-run first)`);
       console.log('  2. Turn the Zap off.');
     } else {
