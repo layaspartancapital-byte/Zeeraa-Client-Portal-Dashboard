@@ -568,3 +568,48 @@ export async function upsertSubmissions(
     return written.length;
   });
 }
+
+/**
+ * A merged lead's channel, carried to the lead it was merged into.
+ *
+ * When Spartan merges a merchant's duplicate submissions, Salesforce keeps one
+ * record and gives it the earliest submission's `CreatedDate` — so the survivor
+ * lands in the month the merchant first arrived — but its own attribution
+ * fields, which are often empty. The merchant came through Meta in July; the
+ * survivor says July and no channel. Counted that way, a merge moves a lead
+ * from a paid channel to unattributed, after the month was frozen.
+ *
+ * So a survivor with no channel of its own takes the channel of the earliest
+ * merged lead that has one. Its own evidence always wins. Run after every
+ * lead upsert, in the same transaction, because the upsert writes the CRM's
+ * empty fields back each time the survivor is modified; and repeated so a
+ * chain of merges (A into B into C) reaches the last survivor.
+ *
+ * Channel only. A click ID decides deal attribution and is left to the merge
+ * step, which already moves one across.
+ */
+export async function inheritMergedChannels(tx: Database, tenantId: string): Promise<number> {
+  let total = 0;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const changed = await tx.execute<{ id: string }>(sql`
+      update ${schema.leads} as s
+         set channel = m.channel
+        from (
+          select distinct on (l.merged_into) l.merged_into, coalesce(l.channel, l.click_id_type) as channel
+          from ${schema.leads} l
+          where l.tenant_id = ${tenantId}
+            and l.merged_into is not null
+            and coalesce(l.channel, l.click_id_type) is not null
+          order by l.merged_into, l.created_on, l.created_at
+        ) as m
+       where s.tenant_id = ${tenantId}
+         and s.external_id = m.merged_into
+         and s.channel is null
+         and s.click_id_type is null
+       returning s.id`);
+    const n = [...changed].length;
+    total += n;
+    if (n === 0) break;
+  }
+  return total;
+}

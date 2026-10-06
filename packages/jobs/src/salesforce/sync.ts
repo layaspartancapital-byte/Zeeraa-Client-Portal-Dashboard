@@ -30,6 +30,7 @@ import {
 } from '../sync-runs';
 import {
   applyReconciliation,
+  inheritMergedChannels,
   upsertLeads,
   upsertOpportunities,
   upsertOpportunityClickIds,
@@ -89,6 +90,8 @@ export type SyncResult = {
   clickIds: number;
   deleted: number;
   merged: number;
+  /** Survivors given a merged lead's channel (`inheritMergedChannels`). */
+  channelsInherited: number;
   /** Leads whose monthly and annual revenue figures disagree beyond tolerance. */
   revenueDisagreements: number;
   /** Leads where the MQL bar could not be evaluated at all. */
@@ -189,6 +192,7 @@ export async function runSalesforceSync(
       clickIds: 0,
       deleted: 0,
       merged: 0,
+      channelsInherited: 0,
       revenueDisagreements: 0,
       qualificationUndetermined: 0,
       exclusions: {
@@ -498,6 +502,9 @@ export async function runSalesforceSync(
         result.deleted += counts.deleted;
         result.merged += counts.merged;
       }
+      // After the upsert and the merges, which both leave a survivor with only
+      // its own, often empty, attribution fields.
+      result.channelsInherited = await inheritMergedChannels(tx, context.tenantId);
 
       /**
        * Why this run was not `succeeded`, recorded rather than discarded.

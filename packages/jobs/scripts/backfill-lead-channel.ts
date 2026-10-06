@@ -26,6 +26,7 @@ import { leadChannel } from '@zeeraa/core';
 import { leadSourceExclusion, NO_LEAD_EXCLUSION, type SalesforceRecord } from '@zeeraa/connectors';
 import { resolveSalesforceContext } from '../src/salesforce/context';
 import { buildAttribution } from '../src/google-ads/join';
+import { inheritMergedChannels } from '../src/salesforce/writer';
 
 const slug = process.argv[2];
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -143,6 +144,11 @@ const report = await withJobTenant(tenantId, async (tx) => {
       from jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) as v(id uuid, channel text)
       where leads.tenant_id = ${tenantId} and leads.id = v.id`);
   }
+
+  // The recompute above reads each lead's own fields only; a merge survivor
+  // takes its merged leads' channel back, as the sync does after every run.
+  const inherited = await inheritMergedChannels(tx, tenantId);
+  console.log(`survivors given a merged lead's channel: ${inherited}`);
 
   let closedRows = 0;
   for (let i = 0; i < closed.length; i += 1000) {

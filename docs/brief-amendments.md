@@ -3812,3 +3812,15 @@ on the same URL and the same secret.
 - **`webhook_deliveries.accepted` counts new calls.** It counted every upsert;
   with two senders that is each call twice, and the reconciliation compares it
   with stored calls. Per-sender counts are in `senders`.
+
+## §6 — a merged lead's channel moves to the lead it was merged into (6 October 2026)
+
+"A lead's source is decided once, at ingest, in a fixed order" still holds for
+every lead's own evidence. A merge adds one step after it: a survivor whose own
+evidence names no channel takes the channel of the earliest lead merged into
+it. The merchant is one lead, counted once, in the month of their first
+submission (Salesforce moves the survivor's `CreatedDate` there) — and through
+the channel that brought them, which the survivor's own fields frequently do
+not record. Without this, a merge after a month was frozen moved a lead from a
+paid channel to unattributed and failed the deploy's baseline check
+(July and August, found 6 October 2026).

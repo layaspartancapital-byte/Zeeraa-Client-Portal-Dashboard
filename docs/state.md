@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 6 October 2026 (Aloware's own webhook accepted beside the Zap, in shadow; speed-to-lead report and four data defects, below).**
+**Last updated: 6 October 2026 (Aloware's own webhook beside the Zap, in shadow; merge survivors inherit their channel, which cleared the frozen-baseline drift; speed-to-lead defects, below).**
 
 ---
 
@@ -146,6 +146,25 @@ consistency check's first run found and fixed two disagreements: the monthly
 buckets counted an MQL twice when it also had a stage event, and the Breakdown
 dropped deals with no originating lead.
 
+## Merge survivors inherit their merged leads' channel (6 October 2026)
+
+The deploy's number check failed on `main` before any change: July Meta 230
+against a frozen 231, August Google Ads 348 against 349, unattributed one
+higher in each. Cause: leads merged in Salesforce after the 25 September
+freeze. The merged-away lead is excluded (`merged`); the survivor takes the
+earliest submission's `CreatedDate`, so it lands in July or August, but keeps
+only its own attribution fields — often empty — and every sync wrote those
+back. The click-ID carry-over in `applyReconciliation` was undone the same way
+on the survivor's next sync.
+
+`inheritMergedChannels` (jobs, `salesforce/writer.ts`) now runs after every
+Salesforce sync, in its transaction, and in `backfill-lead-channel`: a survivor
+with no channel of its own takes the earliest merged lead's channel; its own
+evidence wins; chains are followed. Channel only — deal attribution is
+untouched. Applied once to production with `scripts/inherit-merged-channels.ts`
+(7 survivors given a channel). Every frozen figure then matched with no exception listed; the
+lead-count reconciliation compares totals, so it is unaffected.
+
 ## Aloware's own webhook, beside the Zap (6 October 2026)
 
 Zapier is running out of tasks. The endpoint now also takes Aloware's native
@@ -197,9 +216,13 @@ the Calls screen.
   key, and 385 keys belong to more than one lead (mostly repeat Meta form fills).
   Matched on the key directly, 40 of 242 timed leads in the report window
   were called but read as uncalled on the card.
-- **`leads.created_on` drifts from `created_at`.** 14 of 8,319 Spartan leads disagree,
-  by about 10 days. The Salesforce writer's conflict clause updates `created_on`
-  but never `created_at`.
+- **`leads.created_on` drifts from `created_at` — explained, not a defect.**
+  14 leads disagree. When Spartan merges a merchant's duplicate submissions,
+  Salesforce rewrites the survivor's `CreatedDate` to the earliest
+  submission's date (checked by SOQL on 6 October: `…13u6LSMAY`, created
+  29 Sep, now reports 11 Aug). `created_on` follows the CRM on every sync, so it
+  is right; `created_at` is the first sync's value, which is the survivor
+  record's own arrival and is what a response time should start from.
 
 ## Done
 
