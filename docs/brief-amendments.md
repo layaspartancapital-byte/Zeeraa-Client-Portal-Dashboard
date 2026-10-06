@@ -3776,3 +3776,39 @@ tier, scopes `r_ads` and `r_ads_reporting` only.
   509908440 has 75 campaigns, none active, and its last spend was November
   2025 (27 months with spend from February 2023), so the last ninety days hold
   nothing to draw.
+
+## §7 — Aloware posts calls directly, beside the Zap until it can replace it (6 October 2026)
+
+The webhook described under "§7 and §9 — call tracking" took one sender: a
+Zapier "Call Disposed" Zap, authenticated as `Bearer`. Zapier is running out of
+tasks, and Aloware can post the same event itself. The endpoint now takes both,
+on the same URL and the same secret.
+
+- **Authentication.** Aloware's webhook form offers None, Basic or Bearer and
+  writes the header itself. The secret is accepted as `Bearer` (any case,
+  stray whitespace) or as the Basic password (or a lone Basic user name).
+  Every form requires the whole secret, compared in constant time; None is
+  still refused.
+- **Two readers, one row.** Aloware wraps the record as `{ event, body }` with
+  snake_case names; the Zap posts it flat in title case. `directWebhook` in
+  the mapping is the native profile, every path taken from Aloware's
+  documented payload, run through the Zap's gates. Both upsert on the
+  Communication ID, so a call delivered by both is one call.
+- **Shadow before live.** A direct post is first only *recorded*, in
+  `call_deliveries` (one copy per sender per call), and written to `calls` once
+  the tenant's `aloware.directMode` is `live`. A second source is trusted when
+  its copies match the first's, not on documentation: `scripts/aloware-senders.ts`
+  compares them and says when the Zap can go.
+- **The agent.** The native payload carries `user_id` and no name, and the
+  Zap's completed posts turned out to carry no `User.Name` either (the fixture
+  that said they did was built from a ringing post). The id is stored on the
+  call; the name comes from `aloware.agents`, configuration because who works a
+  client's desk is a fact about the client. An upsert never erases an agent
+  another sender supplied.
+- **What a refusal records.** Header names, the credential's shape (scheme,
+  length, whether it matched) and the body's field paths, with values kept
+  only for codes and the shape of the timestamp — never a number, a name or
+  the credential. In `webhook_deliveries.samples` and in the log.
+- **`webhook_deliveries.accepted` counts new calls.** It counted every upsert;
+  with two senders that is each call twice, and the reconciliation compares it
+  with stored calls. Per-sender counts are in `senders`.

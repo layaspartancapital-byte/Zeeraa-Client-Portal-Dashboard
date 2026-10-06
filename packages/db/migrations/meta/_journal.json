@@ -302,6 +302,13 @@
       "when": 1790190000000,
       "tag": "0042_semrush_seo",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0043_aloware_direct_webhook",
+      "breakpoints": true
     }
   ]
 }

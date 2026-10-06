@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 28 September 2026 (LinkedIn Ads connected, no active campaigns; "Connected · no active campaigns" state).**
+**Last updated: 6 October 2026 (Aloware's own webhook accepted beside the Zap, in shadow; speed-to-lead report and four data defects, below).**
 
 ---
 
@@ -145,6 +145,61 @@ as the reason (`freeze-baseline --correct`); there are no exceptions. The
 consistency check's first run found and fixed two disagreements: the monthly
 buckets counted an MQL twice when it also had a stage event, and the Breakdown
 dropped deals with no originating lead.
+
+## Aloware's own webhook, beside the Zap (6 October 2026)
+
+Zapier is running out of tasks. The endpoint now also takes Aloware's native
+webhook — `{ event, body }`, snake_case — on the same URL and secret. See
+`docs/brief-amendments.md`, "§7 — Aloware posts calls directly".
+
+**Where it stood on 6 October.** Production had recorded no refused post since
+24 September (11 that day, against 275 accepted from the Zap): Aloware's direct
+webhook was not reaching this endpoint at all. Most likely it still targets the
+old host, which answers 308 and is not followed. Its URL must be
+`https://zeeraa.cloud/api/webhooks/aloware/spartan`, authentication Bearer (or
+Basic) with `ALOWARE_WEBHOOK_SECRET`, event "Call disposed" only.
+
+**How it runs.**
+- Sender is decided by shape (`detectAlowareSender`): native envelope →
+  `aloware`, flat `ID` → `zapier`.
+- `aloware.directMode` is `shadow` by default: a direct post is recorded in
+  `call_deliveries` and writes no call. `configure-aloware <slug>
+  --direct-mode live` switches it (`--dry-run` first).
+- Every refusal, and each sender's latest accepted post, leaves a redacted
+  description in `webhook_deliveries.samples` and the log.
+- `pnpm --filter @zeeraa/db aloware-senders` (read-only, production via
+  `.env.neon`) prints accepted vs refused by sender, the samples, the copy
+  comparison and the verdict. The Zap can go after two complete open days with
+  no direct refusal, no call only the Zap delivered, and no field difference.
+
+**Migration 0043** adds `webhook_deliveries.senders` and `.samples`,
+`calls.agent_external_id` and `call_deliveries` (standard policy set; no
+DELETE for jobs). Four mutations added, all killed.
+
+## Open defects from the speed-to-lead report (6 October 2026)
+
+A read-only production report (inbound leads created Mon–Fri 9–6 ET,
+15 Sep – 5 Oct) found four defects. None was fixed; each changes a figure on
+the Calls screen.
+
+- **Webhook calls carry no agent name.** 0 of roughly 3,000 calls delivered by
+  the Aloware webhook (all calls from 22 Sep 16:36 ET) have `agent_name`, while
+  every CSV-imported call does. The tenant has no profile override, so the
+  Zap's completed posts do not carry `User.Name`; the fixture that said they
+  did was built from a ringing post. Being addressed by the direct webhook
+  (below): agent ids are stored and named from `aloware.agents`, and the
+  accepted-post samples now list each sender's real field paths.
+- **The call stream has a hole: 21 Sep 18:45 ET to 22 Sep 16:36 ET.** The CSV
+  import ends at the first time and the first webhook call is at the second.
+  A one-off CSV export of that window would close it.
+- **The dashboard misses calls to repeat submitters.** `resolveLeadsForDelivery` and
+  the writer link a call to a lead only when exactly one lead holds the phone
+  key, and 385 keys belong to more than one lead (mostly repeat Meta form fills).
+  Matched on the key directly, 40 of 242 timed leads in the report window
+  were called but read as uncalled on the card.
+- **`leads.created_on` drifts from `created_at`.** 14 of 8,319 Spartan leads disagree,
+  by about 10 days. The Salesforce writer's conflict clause updates `created_on`
+  but never `created_at`.
 
 ## Done
 

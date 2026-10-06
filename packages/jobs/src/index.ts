@@ -36,6 +36,7 @@ export {
 } from './google-organic/sync';
 export * from './aloware/writer';
 export * from './aloware/webhook';
+export * from './aloware/webhook-request';
 export * from './webhook-delivery';
 export * from './channel-figures';
 export * from './semrush/context';

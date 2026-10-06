@@ -3,10 +3,11 @@ import {
   DEFAULT_ALOWARE_MAPPING,
   normalizeWebhookCall,
   type AlowareMapping,
+  type AlowareSender,
   type CallRow,
 } from '@zeeraa/connectors';
 import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { resolveLeadsForDelivery, upsertCalls } from './writer';
+import { recordCallDeliveries, resolveLeadsForDelivery, upsertCallsCounted } from './writer';
 
 /**
  * Ingests call events posted by Aloware.
@@ -22,7 +23,14 @@ import { resolveLeadsForDelivery, upsertCalls } from './writer';
  * the same values and there is nothing to look up first.
  */
 export type CallEventResult = {
+  /** Records the reader took as finished calls. */
   accepted: number;
+  /** Of those, how many were written to `calls` — none for a sender in shadow. */
+  written: number;
+  /** Of those, how many were calls not already stored. */
+  inserted: number;
+  /** Whether this sender is only being compared, not written. */
+  shadow: boolean;
   /** Records that were not usable calls, with why and how many. */
   rejected: { reason: string; count: number }[];
   /**
@@ -37,6 +45,12 @@ export type CallEventResult = {
 export async function ingestCallEvents(
   slug: string,
   records: readonly Record<string, unknown>[],
+  /**
+   * Who posted. Aloware's own webhook is read with its native field names and
+   * written only once the tenant's `directMode` is `live`; anything else is
+   * read as the Zap, which is what this endpoint has always done.
+   */
+  sender: AlowareSender = 'zapier',
 ): Promise<CallEventResult | null> {
   /*
    * The tenant lookup runs on the maintenance role, reading three columns.
@@ -71,6 +85,10 @@ export async function ingestCallEvents(
 
   if (!tenant) return null;
 
+  const direct = sender === 'aloware';
+  const profile = direct ? tenant.mapping.directWebhook : tenant.mapping.webhook;
+  const shadow = direct && (tenant.mapping.directMode ?? 'shadow') !== 'live';
+
   const rows: CallRow[] = [];
   const rejected: { reason: string; count: number }[] = [];
   const count = (reason: string) => {
@@ -90,7 +108,7 @@ export async function ingestCallEvents(
      * `OutboundSMS-DispositionCompleted` on calls as well as texts, so the
      * event name describes neither the channel nor the state.
      */
-    const result = normalizeWebhookCall(record, tenant.mapping, tenant.timezone);
+    const result = normalizeWebhookCall(record, tenant.mapping, tenant.timezone, profile);
     if (!result.row) {
       // The reason and the value that caused it, because the rejected value is
       // the actionable half: "not a finished outcome (in-progress)" says
@@ -101,10 +119,25 @@ export async function ingestCallEvents(
     rows.push(result.row);
   }
 
-  const accepted =
+  /*
+   * The call and this sender's copy of it, in one transaction: the copy is
+   * what the comparison between senders reads, and a copy recorded for a call
+   * that was then rolled back would report a delivery that did not land.
+   *
+   * In shadow, only the copy. A second sender writes calls once its copies
+   * have matched the Zap's — not on the strength of documentation.
+   */
+  const { written, inserted } =
     rows.length === 0
-      ? 0
-      : await withJobTenant(tenant.id, (tx) => upsertCalls(tx, tenant.id, rows, 'webhook', null));
+      ? { written: 0, inserted: 0 }
+      : await withJobTenant(tenant.id, async (tx) => {
+          const counts = shadow
+            ? { written: 0, inserted: 0 }
+            : await upsertCallsCounted(tx, tenant.id, rows, 'webhook', null);
+          await recordCallDeliveries(tx, tenant.id, sender, rows, !shadow);
+          return counts;
+        });
+  const accepted = rows.length;
 
   /*
    * Match on arrival, because currency is the point of the webhook.
@@ -126,7 +159,7 @@ export async function ingestCallEvents(
     .filter((key): key is string => key !== null);
 
   let matched: CallEventResult['matched'] = null;
-  if (accepted > 0 && contactKeys.length > 0) {
+  if (written > 0 && contactKeys.length > 0) {
     try {
       matched = await withJobTenant(tenant.id, (tx) =>
         resolveLeadsForDelivery(tx, tenant.id, contactKeys),
@@ -136,5 +169,5 @@ export async function ingestCallEvents(
     }
   }
 
-  return { accepted, rejected, matched };
+  return { accepted, written, inserted, shadow, rejected, matched };
 }

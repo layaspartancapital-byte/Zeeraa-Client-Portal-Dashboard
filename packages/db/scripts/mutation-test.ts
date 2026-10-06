@@ -58,6 +58,34 @@ const MUTATIONS: Mutation[] = [
     sql: 'grant insert, update on public.webhook_deliveries to zeeraa_app',
   },
   {
+    // Each sender's copy of a call (0043) carries a merchant's keyed number,
+    // as `calls` does. A member must not read another client's copies, the
+    // application must not write them, and a sync must not reach a second
+    // client — each caught in call-deliveries-isolation.
+    name: 'call-deliveries-policy-open',
+    description: 'Let any application session read every call_deliveries row',
+    sql: `drop policy tenant_isolation on public.call_deliveries;
+          create policy tenant_isolation on public.call_deliveries
+            as permissive for select to zeeraa_app using (true)`,
+  },
+  {
+    name: 'grant-app-write-on-call-deliveries',
+    description: 'Give zeeraa_app INSERT on call_deliveries',
+    sql: 'grant insert on public.call_deliveries to zeeraa_app',
+  },
+  {
+    name: 'call-deliveries-job-unscoped',
+    description: 'Let the ingestion role write call_deliveries for any tenant',
+    sql: `drop policy job_tenant_isolation on public.call_deliveries;
+          create policy job_tenant_isolation on public.call_deliveries
+            as permissive for all to zeeraa_jobs using (true) with check (true)`,
+  },
+  {
+    name: 'grant-jobs-delete-on-call-deliveries',
+    description: 'Give zeeraa_jobs DELETE on call_deliveries',
+    sql: 'grant delete on public.call_deliveries to zeeraa_jobs',
+  },
+  {
     name: 'unforce-calls',
     description: 'Drop FORCE on calls, leaving the owner outside its policies',
     sql: 'alter table public.calls no force row level security',

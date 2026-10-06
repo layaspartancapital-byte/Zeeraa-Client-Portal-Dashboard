@@ -26,6 +26,8 @@
     "delete-account": "tsx scripts/delete-account.ts",
     "webhook-deliveries": "tsx scripts/webhook-deliveries.ts",
     "configure-semrush": "tsx scripts/configure-semrush.ts",
+    "configure-aloware": "tsx scripts/configure-aloware.ts",
+    "aloware-senders": "tsx scripts/aloware-senders.ts",
     "configure-linkedin": "tsx scripts/configure-linkedin.ts"
   },
   "dependencies": {

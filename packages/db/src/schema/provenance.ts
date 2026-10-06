@@ -115,7 +115,12 @@ export const webhookDeliveries = pgTable(
      * reason the table exists.
      */
     received: integer('received').notNull().default(0),
-    /** Rows upserted, and records the reader refused. One POST may be a batch. */
+    /**
+     * Calls added, and records the reader refused. One POST may be a batch.
+     * From 0043 `accepted` counts new calls only, not every upsert: two
+     * senders deliver each call while the Zap is retired. Per sender, see
+     * `senders`.
+     */
     accepted: integer('accepted').notNull().default(0),
     rejected: integer('rejected').notNull().default(0),
     /**
@@ -125,6 +130,20 @@ export const webhookDeliveries = pgTable(
      * `unauthenticated: 40` is the most actionable line this table can carry.
      */
     reasons: jsonb('reasons').notNull().default(sql`'{}'::jsonb`),
+    /**
+     * The same counts per sender (0043): `{ zapier: { received, accepted,
+     * rejected, refused }, aloware: {…} }`. Two senders post to one endpoint
+     * while the Zap is retired, and the totals alone cannot say which of them
+     * is being refused.
+     */
+    senders: jsonb('senders').notNull().default(sql`'{}'::jsonb`),
+    /**
+     * The latest redacted request description per sender and outcome (0043),
+     * from `describeRequest`: header names, the credential's shape, the body's
+     * field paths. No header value but the user agent and content type, and
+     * no field value but codes. Bounded: a handful of keys, each overwritten.
+     */
+    samples: jsonb('samples').notNull().default(sql`'{}'::jsonb`),
     firstReceivedAt: timestamp('first_received_at', { withTimezone: true }).notNull().defaultNow(),
     lastReceivedAt: timestamp('last_received_at', { withTimezone: true }).notNull().defaultNow(),
   },

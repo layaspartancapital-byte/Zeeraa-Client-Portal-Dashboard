@@ -23,16 +23,34 @@ export async function upsertCalls(
   source: 'csv_import' | 'webhook',
   syncRunId: string | null,
 ): Promise<number> {
-  if (rows.length === 0) return 0;
+  return (await upsertCallsCounted(tx, tenantId, rows, source, syncRunId)).written;
+}
+
+/**
+ * The upsert, saying how many rows were new.
+ *
+ * Two senders deliver the same call while the Zap is retired, so "rows
+ * written" counts most calls twice; "rows inserted" counts each once, and is
+ * what the delivery record compares with stored calls.
+ */
+export async function upsertCallsCounted(
+  tx: Database,
+  tenantId: string,
+  rows: readonly CallRow[],
+  source: 'csv_import' | 'webhook',
+  syncRunId: string | null,
+): Promise<{ written: number; inserted: number }> {
+  if (rows.length === 0) return { written: 0, inserted: 0 };
 
   // Last one wins within a batch, matching what the upsert would do had the
   // rows arrived in separate statements. An export can contain a call twice.
   const deduped = [...new Map(rows.map((row) => [row.externalId, row])).values()];
-  const columns = 17;
+  const columns = 18;
   const timeZone = await tenantTimeZone(tx, tenantId);
   const size = Math.max(1, Math.floor(PARAMETER_BUDGET / columns));
 
   let written = 0;
+  let inserted = 0;
   for (let i = 0; i < deduped.length; i += size) {
     const batch = deduped.slice(i, i + size);
     const result = await tx
@@ -53,6 +71,7 @@ export async function upsertCalls(
           contactKey: row.contactKey,
           contactExternalId: row.contactExternalId,
           agentName: row.agentName,
+          agentExternalId: row.agentExternalId,
           source,
           syncRunId,
           updatedAt: new Date(),
@@ -72,7 +91,10 @@ export async function upsertCalls(
           contactNumber: sql`excluded.contact_number`,
           contactKey: sql`excluded.contact_key`,
           contactExternalId: sql`excluded.contact_external_id`,
-          agentName: sql`excluded.agent_name`,
+          // A copy without a name or id never erases one already stored: the
+          // Zap and Aloware's own post carry different halves of the agent.
+          agentName: sql`coalesce(excluded.agent_name, ${schema.calls.agentName})`,
+          agentExternalId: sql`coalesce(excluded.agent_external_id, ${schema.calls.agentExternalId})`,
           /*
            * `source` and `lead_external_id` are deliberately absent.
            *
@@ -86,10 +108,12 @@ export async function upsertCalls(
           updatedAt: sql`excluded.updated_at`,
         },
       })
-      .returning({ id: schema.calls.id });
+      // `xmax = 0` on a row the statement inserted, non-zero on one it updated.
+      .returning({ inserted: sql<boolean>`(xmax = 0)` });
     written += result.length;
+    inserted += result.filter((r) => r.inserted).length;
   }
-  return written;
+  return { written, inserted };
 }
 
 export type LeadMatchResult = {
@@ -287,4 +311,68 @@ export async function resolveLeadsForDelivery(
     unmatched: keys.filter((key) => !unique.has(key) && !ambiguous.has(key)).length,
     ambiguous: keys.filter((key) => ambiguous.has(key)).length,
   };
+}
+
+/**
+ * Each sender's copy of the calls it delivered, into `call_deliveries`.
+ *
+ * Not the dedupe — `calls` is, by Communication ID — but the record that lets
+ * the two senders' copies of one call be compared while both are running.
+ * A re-delivery from the same sender updates its copy and counts it.
+ */
+export async function recordCallDeliveries(
+  tx: Database,
+  tenantId: string,
+  sender: 'aloware' | 'zapier' | 'unknown',
+  rows: readonly CallRow[],
+  written: boolean,
+  now: Date = new Date(),
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const deduped = [...new Map(rows.map((row) => [row.externalId, row])).values()];
+  const result = await tx
+    .insert(schema.callDeliveries)
+    .values(
+      deduped.map((row) => ({
+        tenantId,
+        sender,
+        externalId: row.externalId,
+        occurredAt: row.occurredAt,
+        direction: row.direction,
+        outcome: row.outcome,
+        disposition: row.disposition,
+        talkTimeSeconds: row.talkTimeSeconds === null ? null : String(row.talkTimeSeconds),
+        durationSeconds: row.durationSeconds === null ? null : String(row.durationSeconds),
+        contactKey: row.contactKey,
+        agentName: row.agentName,
+        agentExternalId: row.agentExternalId,
+        written,
+        firstReceivedAt: now,
+        lastReceivedAt: now,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [
+        schema.callDeliveries.tenantId,
+        schema.callDeliveries.sender,
+        schema.callDeliveries.externalId,
+      ],
+      set: {
+        occurredAt: sql`excluded.occurred_at`,
+        direction: sql`excluded.direction`,
+        outcome: sql`excluded.outcome`,
+        disposition: sql`excluded.disposition`,
+        talkTimeSeconds: sql`excluded.talk_time_seconds`,
+        durationSeconds: sql`excluded.duration_seconds`,
+        contactKey: sql`excluded.contact_key`,
+        agentName: sql`excluded.agent_name`,
+        agentExternalId: sql`excluded.agent_external_id`,
+        // Once written, always written: a later shadow copy does not unwrite it.
+        written: sql`${schema.callDeliveries.written} or excluded.written`,
+        deliveries: sql`${schema.callDeliveries.deliveries} + 1`,
+        lastReceivedAt: sql`excluded.last_received_at`,
+      },
+    })
+    .returning({ id: schema.callDeliveries.id });
+  return result.length;
 }

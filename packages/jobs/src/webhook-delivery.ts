@@ -20,12 +20,65 @@ import { recordSyncedDays } from './sync-runs';
  * reason to hand Aloware a 500 and have it retry a post we already ingested.
  */
 
+/** Who posted, and what the post looked like — both optional. */
+type Attribution = {
+  /** `aloware`, `zapier`, `unknown`: counted separately in `senders`. */
+  sender?: string;
+  /** A redacted description of the post, kept as the sender's latest sample. */
+  sample?: unknown;
+};
+
 /** What happened to one POST. */
 export type DeliveryOutcome =
   /** Refused before any record was read: no secret, wrong secret, bad body. */
-  | { kind: 'refused'; reason: string }
-  /** The reader ran. Counts are records, not requests. */
-  | { kind: 'read'; accepted: number; rejected: { reason: string; count: number }[] };
+  | ({ kind: 'refused'; reason: string } & Attribution)
+  /**
+   * The reader ran. Counts are records, not requests.
+   *
+   * `accepted` is what the reader took, and is what the sender's own counts
+   * show. `written` is how many reached `calls` (fewer for a sender still in
+   * shadow) and is what marks the day covered. `inserted` is how many of
+   * those were new calls, and is what the bucket's `accepted` column adds:
+   * while two senders deliver every call, counting each upsert would double
+   * the figure the reconciliation compares with stored calls. Both default to
+   * `accepted`.
+   */
+  | ({
+      kind: 'read';
+      accepted: number;
+      written?: number;
+      inserted?: number;
+      rejected: { reason: string; count: number }[];
+    } & Attribution);
+
+export type SenderCounts = { received: number; accepted: number; rejected: number; refused: number };
+
+/** Add one delivery to the sender's counts. Bounded: one key per sender, three senders. */
+export function mergeSenders(
+  stored: Record<string, unknown>,
+  sender: string,
+  delta: { accepted: number; rejected: number; refused: number },
+): Record<string, SenderCounts> {
+  const merged: Record<string, SenderCounts> = {};
+  for (const [key, value] of Object.entries(stored)) {
+    const v = (value ?? {}) as Partial<Record<keyof SenderCounts, unknown>>;
+    merged[key] = {
+      received: Number(v.received) || 0,
+      accepted: Number(v.accepted) || 0,
+      rejected: Number(v.rejected) || 0,
+      refused: Number(v.refused) || 0,
+    };
+  }
+  const key = ['aloware', 'zapier'].includes(sender) ? sender : 'unknown';
+  const row = merged[key] ?? { received: 0, accepted: 0, rejected: 0, refused: 0 };
+  merged[key] = {
+    received: row.received + 1,
+    accepted: row.accepted + delta.accepted,
+    rejected: row.rejected + delta.rejected,
+    refused: row.refused + delta.refused,
+  };
+  return merged;
+}
 
 /**
  * How many distinct reasons one day's bucket will hold.
@@ -116,14 +169,20 @@ export async function recordWebhookDelivery(
     const day = tenantDay(now, tenant.timezone);
     const counts = tally(outcome);
     const accepted = outcome.kind === 'read' ? outcome.accepted : 0;
+    const written = outcome.kind === 'read' ? outcome.written ?? outcome.accepted : 0;
+    const inserted = outcome.kind === 'read' ? outcome.inserted ?? written : 0;
     const rejected =
       outcome.kind === 'read' ? outcome.rejected.reduce((n, r) => n + r.count, 0) : 0;
+    const sender = outcome.sender ?? 'unknown';
+    const sampleKey = `${['aloware', 'zapier'].includes(sender) ? sender : 'unknown'}:${
+      outcome.kind === 'refused' ? 'refused' : 'read'
+    }`;
 
     await withJobTenant(tenant.id, async (tx) => {
       // A day the endpoint accepted calls on is a day calls were read: the
       // coverage ledger's evidence that the pushed source was live, so a day
       // it was not reads as `Not measured` rather than as a quiet phone.
-      if (accepted > 0) {
+      if (written > 0) {
         await recordSyncedDays(tx, tenant.id, 'call_tracking', { start: day, end: day }, {
           today: day,
           syncRunId: null,
@@ -135,7 +194,12 @@ export async function recordWebhookDelivery(
        * loser takes the update branch and re-reads under its own lock.
        */
       const [existing] = await tx
-        .select({ id: schema.webhookDeliveries.id, reasons: schema.webhookDeliveries.reasons })
+        .select({
+          id: schema.webhookDeliveries.id,
+          reasons: schema.webhookDeliveries.reasons,
+          senders: schema.webhookDeliveries.senders,
+          samples: schema.webhookDeliveries.samples,
+        })
         .from(schema.webhookDeliveries)
         .where(
           sql`${schema.webhookDeliveries.tenantId} = ${tenant.id}
@@ -148,15 +212,25 @@ export async function recordWebhookDelivery(
         (existing?.reasons as Record<string, unknown>) ?? {},
         counts,
       );
+      const senders = mergeSenders(
+        (existing?.senders as Record<string, unknown>) ?? {},
+        sender,
+        { accepted, rejected, refused: outcome.kind === 'refused' ? 1 : 0 },
+      );
+      // The latest per sender and outcome, overwritten: at most six keys.
+      const samples = { ...((existing?.samples as Record<string, unknown>) ?? {}) };
+      if (outcome.sample !== undefined) samples[sampleKey] = outcome.sample;
 
       if (existing) {
         await tx
           .update(schema.webhookDeliveries)
           .set({
             received: sql`${schema.webhookDeliveries.received} + 1`,
-            accepted: sql`${schema.webhookDeliveries.accepted} + ${accepted}`,
+            accepted: sql`${schema.webhookDeliveries.accepted} + ${inserted}`,
             rejected: sql`${schema.webhookDeliveries.rejected} + ${rejected}`,
             reasons,
+            senders,
+            samples,
             lastReceivedAt: now,
           })
           .where(eq(schema.webhookDeliveries.id, existing.id));
@@ -168,9 +242,11 @@ export async function recordWebhookDelivery(
         source,
         day,
         received: 1,
-        accepted,
+        accepted: inserted,
         rejected,
         reasons,
+        senders,
+        samples,
         firstReceivedAt: now,
         lastReceivedAt: now,
       });

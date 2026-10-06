@@ -33,6 +33,7 @@ const call = (externalId: string, contactKey: string | null): CallRow => ({
   contactKey,
   contactExternalId: null,
   agentName: null,
+  agentExternalId: null,
   answeredBriefly: false,
 });
 

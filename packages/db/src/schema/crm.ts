@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   index,
+  integer,
   numeric,
   pgTable,
   text,
@@ -455,6 +456,8 @@ export const calls = pgTable(
     contactKey: text('contact_key'),
     contactExternalId: text('contact_external_id'),
     agentName: text('agent_name'),
+    /** Aloware's user id for the agent (0043); the native webhook sends this and no name. */
+    agentExternalId: text('agent_external_id'),
     /**
      * The lead this call was matched to, by phone number.
      *
@@ -475,5 +478,48 @@ export const calls = pgTable(
     index('calls_tenant_contact_idx').on(t.tenantId, t.contactKey),
     index('calls_tenant_lead_idx').on(t.tenantId, t.leadExternalId, t.direction),
     index('calls_tenant_outcome_idx').on(t.tenantId, t.outcome, t.occurredAt),
+  ],
+);
+
+/**
+ * Each sender's copy of each call (migration 0043).
+ *
+ * While Aloware's own webhook runs beside the Zap, both deliver the same call
+ * under the same Communication ID. `calls` keeps one row, which is the point
+ * of the upsert — and is also why it cannot say whether the two copies
+ * agreed. This keeps both, so the comparison that decides when the Zap can be
+ * turned off is a query (`scripts/aloware-senders.ts`) rather than a hope.
+ *
+ * One row per tenant, sender and call; a re-delivery updates it. PII as
+ * `calls` is: the contact key is a merchant's number.
+ */
+export const callDeliveries = pgTable(
+  'call_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** `aloware` (direct), `zapier`, or `unknown`. */
+    sender: text('sender').notNull(),
+    externalId: text('external_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    direction: text('direction').notNull(),
+    outcome: text('outcome').notNull(),
+    disposition: text('disposition'),
+    talkTimeSeconds: numeric('talk_time_seconds', { precision: 10, scale: 0 }),
+    durationSeconds: numeric('duration_seconds', { precision: 10, scale: 0 }),
+    contactKey: text('contact_key'),
+    agentName: text('agent_name'),
+    agentExternalId: text('agent_external_id'),
+    /** Whether this copy was written to `calls`, or only recorded (shadow). */
+    written: boolean('written').notNull().default(false),
+    deliveries: integer('deliveries').notNull().default(1),
+    firstReceivedAt: timestamp('first_received_at', { withTimezone: true }).notNull().defaultNow(),
+    lastReceivedAt: timestamp('last_received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('call_deliveries_tenant_sender_call_key').on(t.tenantId, t.sender, t.externalId),
+    index('call_deliveries_tenant_received_idx').on(t.tenantId, t.firstReceivedAt),
   ],
 );

@@ -34,6 +34,14 @@ export type CallRow = {
   contactExternalId: string | null;
   agentName: string | null;
   /**
+   * Aloware's id for the agent, where the record carries one.
+   *
+   * Kept beside the name because the native webhook sends the id and not the
+   * name: the name then comes from the tenant's `agents` map, and a map
+   * completed later can still be applied to the calls already stored.
+   */
+  agentExternalId: string | null;
+  /**
    * A completed call shorter than the connected threshold.
    *
    * Counted as `attempted`, and flagged so the count is not lost: 13,376 calls
@@ -85,6 +93,8 @@ export type AlowareMapping = {
     contactNumber: string;
     contactId: string;
     userName: string;
+    /** Where the agent's id is, if the source carries one. */
+    userId?: string;
   };
   /** `Type` values that are calls. Everything else is skipped and counted. */
   callTypes: string[];
@@ -137,6 +147,29 @@ export type AlowareMapping = {
    * not been set up.
    */
   webhook?: AlowareWebhookProfile;
+  /**
+   * Aloware's own webhook, posted without Zapier in between.
+   *
+   * The same fields under their native names — `created_at` where the Zap
+   * says `Created At` — wrapped as `{ event, body }`. Read by the same gates
+   * as the Zap's, so the two senders cannot disagree about what a call is.
+   */
+  directWebhook?: AlowareWebhookProfile;
+  /**
+   * Whether a direct post writes calls (`live`) or is only recorded beside
+   * the Zap's copy for comparison (`shadow`).
+   *
+   * `shadow` by default: a second sender is trusted only once its copy of
+   * every call matches the copy the Zap already delivers, which is what
+   * `call_deliveries` holds and `scripts/aloware-senders.ts` compares.
+   */
+  directMode?: 'shadow' | 'live';
+  /**
+   * Aloware user id to the agent's name, for a source that sends only the id.
+   * Configuration, because which people work a client's desk is a fact about
+   * the client.
+   */
+  agents?: Record<string, string>;
 };
 
 export type AlowareWebhookProfile = {
@@ -231,6 +264,7 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
       contactNumber: 'Lead Number',
       contactId: 'Contact Id',
       userName: 'User.Name',
+      userId: 'User Id',
     },
     // `1` is the observed value on a call, and `call` is what the same field
     // holds in the CSV export. Both accepted so one reader serves both shapes.
@@ -255,6 +289,52 @@ export const DEFAULT_ALOWARE_MAPPING: AlowareMapping = {
     statusColumn: 'Current Status',
     createdAtZone: 'UTC',
   },
+  /**
+   * Aloware's native webhook, from its own documentation ("Using Aloware
+   * webhook integration for real-time automation", the call payload samples).
+   *
+   * Every path is a documented field: the record is under `body`, the event
+   * name beside it. The sample carries `user_id` and no agent name, so the
+   * name is resolved through `agents`. `created_at` is read as UTC, as the
+   * Zap's `Created At` proved to be — the shadow comparison against the Zap's
+   * copy of each call is what confirms it before a direct post writes a call.
+   */
+  directWebhook: {
+    columns: {
+      externalId: 'body.id',
+      startedAt: 'body.created_at',
+      type: 'body.type',
+      direction: 'body.direction',
+      disposition: 'body.disposition_status',
+      talkTime: 'body.talk_time',
+      duration: 'body.duration',
+      // The merchant's number, as on the Zap. `incoming_number` is Aloware's
+      // own line and `destination_number` is `client:agent42`.
+      contactNumber: 'body.lead_number',
+      contactId: 'body.contact_id',
+      // None documented. If a live post turns out to carry one, its path goes
+      // in the tenant's `aloware` row; until then the name is `agents[user_id]`.
+      userName: '',
+      userId: 'body.user_id',
+    },
+    callTypes: [1, 'call'],
+    inFlightStatuses: [
+      'ringing',
+      'queued',
+      'in-queue',
+      'initiated',
+      'in-progress',
+      'dialing',
+      'connecting',
+      'routing',
+      'on-hold',
+      'new',
+    ],
+    directions: { '1': 'inbound', '2': 'outbound' },
+    statusColumn: 'body.current_status',
+    createdAtZone: 'UTC',
+  },
+  directMode: 'shadow',
   // Every non-completed disposition this export actually contains, plus the
   // obvious neighbours. An unlisted value is reported rather than absorbed.
   attemptedDispositions: [
@@ -414,6 +494,7 @@ export function normalizeCall(
   const disposition = record[c.disposition] == null ? null : String(record[c.disposition]).trim();
   const agentName = record[c.userName] == null ? null : String(record[c.userName]).trim();
   const contactExternalId = record[c.contactId] == null ? null : String(record[c.contactId]).trim();
+  const agentId = c.userId ? String(record[c.userId] ?? '').trim() : '';
 
   return {
     row: {
@@ -428,6 +509,7 @@ export function normalizeCall(
       contactKey: phone.key,
       contactExternalId: contactExternalId === '' ? null : contactExternalId,
       agentName: agentName === '' ? null : agentName,
+      agentExternalId: agentId === '' ? null : agentId,
       answeredBriefly,
     },
   };
@@ -463,8 +545,9 @@ export function normalizeWebhookCall(
   record: Record<string, unknown>,
   mapping: AlowareMapping,
   timeZone: string,
+  /** Which sender's field names to read. The Zap's unless told otherwise. */
+  profile: AlowareWebhookProfile | undefined = mapping.webhook,
 ): { row: CallRow } | { row: null; reason: string; type?: string } {
-  const profile = mapping.webhook;
   if (!profile) {
     return { row: null, reason: 'no webhook mapping configured for this tenant' };
   }
@@ -521,7 +604,38 @@ export function normalizeWebhookCall(
   // `unknown` and every webhook call would have lost the direction that speed
   // to lead is measured on.
   const code = String(readField(record, profile.columns.direction) ?? '').trim();
-  return { row: { ...result.row, direction: profile.directions[code] ?? result.row.direction } };
+  const row = result.row;
+  // A name the post carries wins; otherwise the tenant's map, by id.
+  const agentName =
+    row.agentName ?? (row.agentExternalId ? mapping.agents?.[row.agentExternalId] ?? null : null);
+  return { row: { ...row, agentName, direction: profile.directions[code] ?? row.direction } };
+}
+
+/** Who posted: Aloware itself, the Zap, or a shape neither of them sends. */
+export type AlowareSender = 'aloware' | 'zapier' | 'unknown';
+
+/**
+ * Which sender a post came from, by its shape and, failing that, its agent.
+ *
+ * The shape decides because it is what the reader depends on: Aloware wraps
+ * the record as `{ event, body: {…} }`, and the Zap posts it flat with `ID`.
+ * The user agent only breaks a tie for a post whose body could not be read.
+ */
+export function detectAlowareSender(
+  payload: unknown,
+  userAgent: string | null = null,
+): AlowareSender {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const p = payload as Record<string, unknown>;
+    if (p.body && typeof p.body === 'object' && !Array.isArray(p.body) && 'event' in p) {
+      return 'aloware';
+    }
+    if ('ID' in p || 'Created At' in p) return 'zapier';
+    if (Array.isArray(p.data)) return 'zapier';
+  }
+  if (Array.isArray(payload)) return 'zapier';
+  if (userAgent && /zapier/i.test(userAgent)) return 'zapier';
+  return 'unknown';
 }
 
 /** Many records, with everything the import record needs to be honest. */
