@@ -4,7 +4,16 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (an Offer amount column on Executive's "All funded" table — each deal at its highest offer; deployed).**
+**Last updated: 13 October 2026 (ⓘ bubbles render in a portal, so a table's scroll container no longer clips them; deployed).**
+
+**13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
+fixed against the icon, kept inside the viewport and flipped below when there
+is no room above; it follows scrolls inside any container. The "Offer amount"
+header's bubble had been clipped by the table's `overflow-x-auto`. Checked in
+a browser at 1440 and 390 on every page with an ⓘ inside a scroll container
+(Executive, Monthly performance, Google Ads, Meta, People): 104 bubbles, all
+in the portal, inside the viewport and uncovered (the dev server's Next.js
+badge aside). `apps/web/test/infotip-portal.test.ts` holds it.
 
 **13 October 2026: an Offer amount column on Executive's "All funded"
 table**, after Offers, with a total. The deal's highest offer, counted once, is
