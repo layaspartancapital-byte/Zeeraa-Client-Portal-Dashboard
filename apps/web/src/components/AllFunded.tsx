@@ -6,6 +6,8 @@ import { NotMeasuredBadge } from '@/components/ui/Badge';
 export type FundedSourceRow = {
   key: string;
   label: string;
+  /** Deals reaching offer in the period, attributed the same way. */
+  offers: number;
   deals: number;
   volume: number;
   /** One sentence on what this source is, for its ⓘ. */
@@ -27,6 +29,7 @@ export function AllFunded({
   valueLabel,
   totalDeals,
   totalVolume,
+  totalOffers,
   rows,
   currency,
   notMeasured,
@@ -37,6 +40,8 @@ export function AllFunded({
   valueLabel: string;
   totalDeals: number;
   totalVolume: number;
+  /** The offer column's total; absent where the funnel has no stage before value. */
+  totalOffers?: number;
   rows: FundedSourceRow[];
   currency: string;
   /** Why the period cannot be counted. The named state, never a zero. */
@@ -84,6 +89,11 @@ export function AllFunded({
                   <th scope="col" className="px-5 py-2.5 font-semibold">
                     Source
                   </th>
+                  {totalOffers !== undefined && (
+                    <th scope="col" className="numeric px-3 py-2.5 font-semibold">
+                      Offers
+                    </th>
+                  )}
                   <th scope="col" className="numeric px-3 py-2.5 font-semibold">
                     Deals
                   </th>
@@ -105,6 +115,12 @@ export function AllFunded({
                         )}
                       </span>
                     </th>
+                    {totalOffers !== undefined && (
+                      <td className="numeric px-3 py-2.5 tabular text-text">
+                        {formatCount(row.offers)}
+                        <span className="sr-only"> {row.offers === 1 ? 'offer' : 'offers'}</span>
+                      </td>
+                    )}
                     <td className="numeric px-3 py-2.5 tabular text-text">
                       {formatCount(row.deals)}
                       <span className="sr-only"> {noun(row.deals)}</span>
@@ -115,6 +131,18 @@ export function AllFunded({
                   </tr>
                 ))}
               </tbody>
+              {totalOffers !== undefined && (
+                <tfoot>
+                  <tr className="border-t-2 border-text">
+                    <th scope="row" className="px-5 py-2.5 text-left font-semibold text-text">
+                      Total
+                    </th>
+                    <td className="numeric px-3 py-2.5 tabular text-text">{formatCount(totalOffers)}</td>
+                    <td className="numeric px-3 py-2.5 tabular text-text">{formatCount(totalDeals)}</td>
+                    <td className="numeric px-5 py-2.5 tabular text-text">{volume(totalVolume)}</td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

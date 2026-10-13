@@ -4,7 +4,17 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 6 October 2026 (Aloware's own webhook beside the Zap, in shadow; merge survivors inherit their channel, which cleared the frozen-baseline drift; speed-to-lead defects, below).**
+**Last updated: 13 October 2026 (an Offers column on Executive's "All funded" table — committed, not deployed: the baseline number check fails on main, one July lead moved from Leadpop to Direct & other; see below).**
+
+**Not deployed, 13 October 2026: the baseline number check fails on unchanged
+`main`.** Spartan, July 2026: Leadpop lead and MQL frozen 20, computed 19;
+unattributed (Direct & other) lead frozen 103, computed 104, MQL 30 → 31 —
+one lead's source re-resolved since the 6 October deploy. Not yet traced to the
+lead or the cause. Either it is a correction (freeze the next version with a
+reason) or a regression in `leadChannel` (fix it); a `baseline-exceptions.ts`
+entry only once the cause is known. The Offers column (stage before value,
+`stageBeforeValue` in core — UW approved, into which Offer is merged) is
+committed and waits on this.
 
 ---
 

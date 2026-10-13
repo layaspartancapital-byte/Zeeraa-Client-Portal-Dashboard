@@ -175,6 +175,22 @@ export function adjacentConversionRates(
 }
 
 /**
+ * The stage a deal reaches just before it counts as value — Offer where a
+ * funnel folds offer into approval. Opportunity stages only: a lead-grain
+ * stage is a different population and cannot sit beside a deal count.
+ * Null where the funnel has no value stage or nothing before it.
+ */
+export function stageBeforeValue(stages: readonly StageDefinition[]): StageDefinition | null {
+  const value = stages.find((s) => s.countsValue);
+  if (!value) return null;
+  return (
+    [...stages]
+      .filter((s) => s.position < value.position && (s.source ?? 'stage_events') === 'stage_events')
+      .sort((a, b) => b.position - a.position)[0] ?? null
+  );
+}
+
+/**
  * Where each record that reached a stage in the window has got to since.
  *
  * `size` is how many records reached `from` in the window; `reached[to]` is

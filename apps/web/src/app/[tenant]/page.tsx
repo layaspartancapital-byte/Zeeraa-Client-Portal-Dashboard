@@ -17,6 +17,7 @@ import {
   noSpendReason,
   sourceDescription,
   sourceRank,
+  stageBeforeValue,
   type AttributionModel,
 } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine, Grid } from '@/components/ui/Card';
@@ -172,6 +173,10 @@ export default async function ExecutiveBriefing({
   const valueLabel = valueStage?.label ?? 'Funded';
 
   const dealsIn = (stages: Record<string, number>) => (valueKey ? (stages[valueKey] ?? 0) : 0);
+  // The step before value — offer, which this funnel folds into approval
+  // (`stage_merges`) — counted the same way, over the same range and model.
+  const offerKey = stageBeforeValue(current.stages)?.key ?? null;
+  const offersIn = (stages: Record<string, number>) => (offerKey ? (stages[offerKey] ?? 0) : 0);
   const attributedDeals = (source: typeof current) =>
     source.channels.reduce((sum, c) => sum + dealsIn(c.stages), 0);
 
@@ -312,16 +317,18 @@ export default async function ExecutiveBriefing({
       .map((c) => ({
         key: c.platform,
         label: c.label,
+        offers: offersIn(c.stages),
         deals: dealsIn(c.stages),
         volume: c.valueVolume,
         info: sourceDescription(c.platform) ?? undefined,
       })),
     ...(current.organicMeasured && !current.channels.some((c) => c.platform === ORGANIC_SEARCH)
-      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), deals: 0, volume: 0, info: sourceDescription(ORGANIC_SEARCH) ?? undefined }]
+      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), offers: 0, deals: 0, volume: 0, info: sourceDescription(ORGANIC_SEARCH) ?? undefined }]
       : []),
     {
       key: 'unattributed',
       label: current.unattributed.label,
+      offers: offersIn(current.unattributed.stages),
       deals: unattributedDeals,
       volume: current.unattributed.valueVolume,
       info: DIRECT_AND_OTHER_DESCRIPTION,
@@ -603,6 +610,7 @@ export default async function ExecutiveBriefing({
           valueLabel={valueLabel}
           totalDeals={totalDeals}
           totalVolume={current.total.valueVolume}
+          totalOffers={offerKey ? offersIn(current.total.stages) : undefined}
           rows={fundedRows}
           currency={currency}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}

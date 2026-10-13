@@ -6,6 +6,7 @@ import {
   channelReach,
   reachedByStage,
   stageConversionRate,
+  stageBeforeValue,
   stageVelocity,
   unattributedReach,
   type StageDefinition,
@@ -236,5 +237,31 @@ describe('cohort conversion', () => {
 
   it('returns null, not zero, for an empty cohort', () => {
     expect(cohortConversionRate(cohorts, 'sql', 'offer')).toMatchObject({ denominator: 0, rate: null });
+  });
+});
+
+describe('stageBeforeValue', () => {
+  const stage = (key: string, position: number, extra: Partial<StageDefinition> = {}): StageDefinition => ({
+    key,
+    label: key,
+    position,
+    isOptimizationTarget: false,
+    countsValue: false,
+    ...extra,
+  });
+
+  it('is the opportunity stage just before the value stage, whatever the order given', () => {
+    const stages = [
+      stage('funded', 7, { countsValue: true }),
+      stage('lead', 1, { source: 'leads' }),
+      stage('sql', 4),
+      stage('uw_approved', 5),
+    ];
+    expect(stageBeforeValue(stages)?.key).toBe('uw_approved');
+  });
+
+  it('skips a lead-grain stage and is null with no value stage or nothing before it', () => {
+    expect(stageBeforeValue([stage('lead', 1, { source: 'leads' }), stage('funded', 2, { countsValue: true })])).toBeNull();
+    expect(stageBeforeValue([stage('sql', 1), stage('offer', 2)])).toBeNull();
   });
 });

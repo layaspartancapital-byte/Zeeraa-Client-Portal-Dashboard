@@ -11,7 +11,7 @@
  * summed against the funnel's totals.
  */
 import { describe, expect, it } from 'vitest';
-import { AD_DETAIL, addDays, cohortConversionRate, monthRange, platformLabel, previousMonth, type DateRange } from '@zeeraa/core';
+import { AD_DETAIL, addDays, cohortConversionRate, monthRange, platformLabel, previousMonth, stageBeforeValue, type DateRange } from '@zeeraa/core';
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
@@ -130,6 +130,12 @@ describe('the same figure on every screen', () => {
           const volume = mp.channels.reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
           if (deals !== (mp.total.stages[v] ?? 0)) problems.push(`${label} All funded: rows ${deals}, total ${mp.total.stages[v]}`);
           if (Math.abs(volume - mp.total.valueVolume) > 0.005) problems.push(`${label} All funded volume: rows ${volume}, total ${mp.total.valueVolume}`);
+          // Its Offers column: the stage before value, by the same rows, summing to its total.
+          const o = stageBeforeValue(mp.stages)?.key;
+          if (o) {
+            const offers = mp.channels.reduce((n, c) => n + (c.stages[o] ?? 0), 0) + (mp.unattributed.stages[o] ?? 0);
+            if (offers !== (mp.total.stages[o] ?? 0)) problems.push(`${label} All funded offers: rows ${offers}, total ${mp.total.stages[o]}`);
+          }
         }
         // Declines: the bars are the headline's deals, each in one month of the window.
         const bars = mp.declines.byMonth.reduce((n, m) => n + m.deals, 0);
