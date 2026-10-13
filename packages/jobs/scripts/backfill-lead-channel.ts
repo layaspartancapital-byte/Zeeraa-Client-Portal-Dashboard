@@ -19,10 +19,15 @@
  *
  * Read-only against Salesforce. `--dry-run` writes, prints what moved and
  * rolls back: under FORCE a denied write matches nothing and exits 0.
+ *
+ * `--range <from>:<to>` (repeatable) prints each source's leads, MQLs, deals
+ * reaching the stage before value, value deals and volume over that range,
+ * before and after, as the screens count them — so a rule change can be read
+ * from a dry run before anything is written.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { getMaintenanceDb, schema, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { leadChannel } from '@zeeraa/core';
+import { getMaintenanceDb, leadChannel as storedChannel, leadsCreatedIn, schema, stageEventsIn, withJobTenant, withMaintenance } from '@zeeraa/db';
+import { leadChannel, platformLabel, stageBeforeValue, type StageDefinition } from '@zeeraa/core';
 import { leadSourceExclusion, NO_LEAD_EXCLUSION, type SalesforceRecord } from '@zeeraa/connectors';
 import { resolveSalesforceContext } from '../src/salesforce/context';
 import { buildAttribution } from '../src/google-ads/join';
@@ -30,6 +35,16 @@ import { inheritMergedChannels } from '../src/salesforce/writer';
 
 const slug = process.argv[2];
 const DRY_RUN = process.argv.includes('--dry-run');
+const RANGES = process.argv
+  .map((a, i, all) => (all[i - 1] === '--range' ? a : null))
+  .filter((a): a is string => a !== null)
+  .map((a) => {
+    const [start, end] = a.split(':');
+    if (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      throw new Error(`--range takes <YYYY-MM-DD>:<YYYY-MM-DD>, not "${a}".`);
+    }
+    return { start, end };
+  });
 if (!slug || slug.startsWith('--')) throw new Error('Usage: backfill-lead-channel.ts <slug> [--dry-run]');
 
 class Rollback extends Error {}
@@ -90,7 +105,66 @@ console.log(
     `${evidence.filter((r) => r.braid).length} with a gbraid/wbraid) and ${oppRecords.length} opportunities.`,
 );
 
+type Tx = Parameters<Parameters<typeof withJobTenant>[1]>[0];
+
+/** Per source over each `--range`, counted as the screens count them. */
+async function sourceFigures(tx: Tx): Promise<Map<string, Record<string, number>>> {
+  const out = new Map<string, Record<string, number>>();
+  const [stages] = [await tx.select().from(schema.funnelStages).where(eq(schema.funnelStages.tenantId, tenantId))];
+  const defs = stages.map((s) => ({ ...s, source: s.source as StageDefinition['source'] }));
+  const value = defs.find((s) => s.countsValue)?.key ?? null;
+  const before = stageBeforeValue(defs)?.key ?? null;
+  for (const range of RANGES) {
+    const leads = await tx.execute<{ channel: string | null; leads: number; mql: number }>(sql`
+      select ${storedChannel()} as channel, count(*)::int as leads,
+             count(*) filter (where ${schema.leads.mqlVerdict} = 'qualified')::int as mql
+      from ${schema.leads}
+      where ${schema.leads.tenantId} = ${tenantId} and ${leadsCreatedIn(range)}
+      group by 1`);
+    const deals = await tx.execute<{ channel: string | null; stage: string; deals: number; volume: string }>(sql`
+      select a.platform as channel, e.stage, count(*)::int as deals, coalesce(sum(e.amount), 0)::text as volume
+      from (
+        select distinct on (${schema.stageEvents.opportunityExternalId}, ${schema.stageEvents.stage})
+               ${schema.stageEvents.opportunityExternalId} as opportunity_external_id, ${schema.stageEvents.stage} as stage,
+               coalesce(o.funded_amount, o.amount, 0) as amount
+        from ${schema.stageEvents}
+        left join ${schema.opportunities} o
+          on o.tenant_id = ${schema.stageEvents.tenantId} and o.external_id = ${schema.stageEvents.opportunityExternalId}
+        where ${schema.stageEvents.tenantId} = ${tenantId} and ${stageEventsIn(range)}
+          and ${schema.stageEvents.stage} in (${before ?? ''}, ${value ?? ''})
+      ) e
+      left join ${schema.attribution} a
+        on a.tenant_id = ${tenantId} and a.opportunity_external_id = e.opportunity_external_id and a.model = 'last_touch'
+      group by 1, 2`);
+    const row = (channel: string | null) => {
+      const key = `${range.start}:${range.end}|${channel === null ? 'Direct & other' : platformLabel(channel)}`;
+      const r = out.get(key) ?? { leads: 0, mql: 0, before: 0, value: 0, volume: 0 };
+      out.set(key, r);
+      return r;
+    };
+    for (const l of leads) Object.assign(row(l.channel), { leads: Number(l.leads), mql: Number(l.mql) });
+    for (const d of deals) {
+      const r = row(d.channel);
+      if (d.stage === before) r.before = Number(d.deals);
+      if (d.stage === value) Object.assign(r, { value: Number(d.deals), volume: Number(d.volume) });
+    }
+  }
+  return out;
+}
+
+function printFigures(was: Map<string, Record<string, number>>, now: Map<string, Record<string, number>>) {
+  const fmt = (r?: Record<string, number>) =>
+    r ? `${r.leads} leads, ${r.mql} MQL, ${r.before} before value, ${r.value} value, $${(r.volume ?? 0).toFixed(2)}` : 'none';
+  for (const key of [...new Set([...was.keys(), ...now.keys()])].sort()) {
+    const [range, source] = key.split('|');
+    const a = fmt(was.get(key));
+    const b = fmt(now.get(key));
+    console.log(`${range}  ${source!.padEnd(28)} ${a === b ? `unchanged: ${a}` : `${a}  →  ${b}`}`);
+  }
+}
+
 const report = await withJobTenant(tenantId, async (tx) => {
+  const figuresBefore = RANGES.length > 0 ? await sourceFigures(tx) : null;
   let evidenceRows = 0;
   for (let i = 0; i < evidence.length; i += 1000) {
     const chunk = evidence.slice(i, i + 1000);
@@ -182,6 +256,7 @@ const report = await withJobTenant(tenantId, async (tx) => {
   console.log('Deals credited from their lead (no click):', leadDerived.map((r) => `${r.platform}=${r.n}`).join(', '));
   console.log(`Attribution rows: ${join.attributionRows}`);
   console.log('Opportunities by is_closed:', openFlag.map((r) => `${String(r.is_closed)}=${r.n}`).join(', '));
+  if (figuresBefore) printFigures(figuresBefore, await sourceFigures(tx));
   if (DRY_RUN) throw new Rollback();
   return changes.length;
 }).catch((e) => {

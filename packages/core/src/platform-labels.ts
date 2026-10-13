@@ -18,6 +18,8 @@ export const PLATFORM_LABELS: Record<string, string> = {
   // A source, not a connector (`leadChannel`): the tenant's website or a search
   // result, with no ad behind it.
   organic_search: 'SEO/Organic',
+  // A source too: the ad landing page's tag, platform unknown.
+  paid_unknown: 'Paid ads (platform unknown)',
 };
 
 export function platformLabel(platform: string): string {

@@ -405,20 +405,23 @@ export const spartan: TenantSeed = {
       description:
         'Which source a lead with no click ID is credited to, applied in this order ' +
         '(leadChannel in core): gbraid/wbraid, or gclid/gbraid/wbraid/gad_source in the ' +
-        'referring URL, is Google Ads; fbclid there is Meta; Lead Source "Meta Ads" ' +
-        '(Meta lead forms) is Meta; a Google or Meta utm_source is that channel; a ' +
-        'Facebook or Instagram referrer is Meta; a lead vendor is its own named ' +
-        'source; utm_source 100A00 alone credits nobody (the landing page both ad ' +
-        'platforms send to sets it) and rules out SEO/Organic; the Spartan website ' +
-        'or a search referrer with no paid signal is SEO/Organic; everything else is ' +
-        'Direct & other. Corrected 24 September 2026.',
+        'referring URL, is Google Ads; fbclid there is Meta; a Google or Meta ' +
+        'utm_source with a paid medium or campaign_id on the referring URL is that ' +
+        'channel; Lead Source "Meta Ads" (Meta lead forms) is Meta; a Google or Meta ' +
+        'utm_source is that channel; a Facebook or Instagram referrer is Meta; a lead ' +
+        'vendor is its own named source; utm_source 100A00 is Paid ads (platform ' +
+        'unknown) — the landing page both ad platforms send to sets it — and rules ' +
+        'out SEO/Organic; the Spartan website or a search referrer with no paid ' +
+        'signal is SEO/Organic; everything else is Direct & other. Corrected 24 ' +
+        'September and 13 October 2026.',
       value: {
         utmSources: {
           google_ads: ['google', 'adwords'],
           // Meta's own placement names for {{site_source_name}}: fb, ig, an, msg, th.
           meta: ['fb', 'facebook', 'meta', 'ig', 'instagram', 'an', 'msg', 'th'],
         },
-        // None: 100A00 marks the shared ad landing page, not a platform.
+        // None: 100A00 marks the shared ad landing page, not a platform — it is
+        // Paid ads (platform unknown) through `unknownPaidSources` below.
         markerSources: {},
         // li_fat_id: LinkedIn's click id, appended to the landing URL (28 September 2026).
         referrerParams: {

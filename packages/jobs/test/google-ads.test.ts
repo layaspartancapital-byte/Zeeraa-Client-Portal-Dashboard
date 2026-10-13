@@ -483,6 +483,36 @@ describe('the spend-to-funded join', () => {
     expect(await byDeal()).toEqual({ 'OPP-O': 'google_ads' });
   });
 
+  it('credits a deal the unknown-platform tag only when no lead names a source (13 October 2026)', async () => {
+    const deal = (opportunityId: string, leads: [string, string, string][]) =>
+      inTenant(async (tx) => {
+        await tx.insert(schema.opportunities).values({
+          tenantId,
+          externalId: opportunityId,
+          createdAt: new Date('2026-09-20T00:00:00Z'),
+          currentStage: 'uw_approved',
+        });
+        for (const [externalId, createdOn, channel] of leads) {
+          await tx.insert(schema.leads).values({
+            tenantId,
+            externalId,
+            createdAt: new Date(`${createdOn}T15:00:00Z`),
+            createdOn,
+            channel,
+            convertedOpportunityId: opportunityId,
+          });
+        }
+      });
+    // The tagged lead is the later one, and still does not take last touch.
+    await deal('OPP-MIX', [['LEAD-M1', '2026-09-01', 'meta'], ['LEAD-M2', '2026-09-10', 'paid_unknown']]);
+    await deal('OPP-TAG', [['LEAD-T1', '2026-09-02', 'paid_unknown']]);
+    await inTenant((tx) => buildAttribution(tx, tenantId));
+    const rows = await inTenant((tx) => tx.select().from(schema.attribution));
+    const of = (id: string, model: string) => rows.find((r) => r.opportunityExternalId === id && r.model === model)?.platform;
+    expect([of('OPP-MIX', 'first_touch'), of('OPP-MIX', 'last_touch')]).toEqual(['meta', 'meta']);
+    expect([of('OPP-TAG', 'first_touch'), of('OPP-TAG', 'last_touch')]).toEqual(['paid_unknown', 'paid_unknown']);
+  });
+
   it('is idempotent: rebuilding attribution does not duplicate rows', async () => {
     const campaigns = await seedCampaign();
     await inTenant((tx) =>
