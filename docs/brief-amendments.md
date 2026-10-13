@@ -3844,8 +3844,9 @@ read of every lead since June.
    read as an ad visit of unknown platform since 24 September. **A lead
    submitted on that form with no click ID, no paid UTM and no vendor is
    SEO/Organic**, a website lead, the same as a website referrer
-   (`organicCapturePages` in `lead_source_rules`). Elsewhere `100A00` keeps its
-   24 September meaning.
+   (`organicCapturePages` in `lead_source_rules`). And `100A00` means nothing
+   anywhere: it left `unknownPaidSources`, so it no longer rules out
+   SEO/Organic for a search or website referrer either.
 4. **Website visits stay in SEO/Organic.**
 
 A "Paid ads (platform unknown)" source for `100A00` was built the same day and

@@ -409,9 +409,8 @@ export const spartan: TenantSeed = {
         '(Meta lead forms) is Meta; a lead vendor is its own named source, ahead of ' +
         'every UTM; a Google or Meta utm_source with a paid medium or campaign_id on ' +
         'the referring URL is that channel; a Google or Meta utm_source is that ' +
-        'channel; a Facebook or Instagram referrer is Meta; utm_source 100A00 credits ' +
-        'nobody and rules out SEO/Organic, except on the website Apply Now form, whose ' +
-        'default it is; a lead submitted on that form, or referred from the Spartan ' +
+        'channel; a Facebook or Instagram referrer is Meta; utm_source 100A00 is the ' +
+        'website Apply Now form\'s default and counts for nothing; a lead submitted on that form, or referred from the Spartan ' +
         'website or a search, with no paid signal is SEO/Organic; everything else is ' +
         'Direct & other. Corrected 24 September and 13 October 2026.',
       value: {
@@ -431,7 +430,9 @@ export const spartan: TenantSeed = {
         referrerHosts: {
           meta: ['facebook.com', 'm.facebook.com', 'l.facebook.com', 'lm.facebook.com', 'instagram.com', 'l.instagram.com'],
         },
-        unknownPaidSources: ['100a00'],
+        // Empty since 13 October 2026: 100A00 is the website Apply Now form's
+        // default and means nothing anywhere.
+        unknownPaidSources: [],
         paidMediums: ['cpc', 'ppc', 'paid', 'paid_social', 'paidsocial', 'search', 'display', 'web_ad', 'pmax'],
         unpaidMediums: ['organic'],
         leadSourceChannels: { 'Meta Ads': 'meta', 'Google AdWords': 'google_ads' },

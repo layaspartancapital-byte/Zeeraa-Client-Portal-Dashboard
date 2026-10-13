@@ -10,7 +10,7 @@
  *      on the Salesforce connection, so the sync reads the evidence.
  *   2. The `lead_source_rules` config row (`leadChannel` in core). Refused if
  *      the stored row differs from the seed by more than `organicCapturePages`
- *      (13 October 2026), for the same reason as the next.
+ *      and `unknownPaidSources` (13 October 2026), for the same reason as the next.
  *   3. The `lead_exclusion` row with the ZoomInfo outbound rule added. Refused
  *      if the stored row differs from the seed by anything else: once somebody
  *      edits it in production, the seed is the stale copy.
@@ -31,7 +31,8 @@ const slug = process.env.TENANT_SLUG ?? spartan.tenant.slug;
 const RULES = 'lead_source_rules';
 const EXCLUSION = 'lead_exclusion';
 const NEW_RULE = 'outbound_zoominfo';
-const NEW_RULES_KEY = 'organicCapturePages';
+/** The keys of `lead_source_rules` this load may change (13 October 2026). */
+const NEW_RULES_KEYS = ['organicCapturePages', 'unknownPaidSources'];
 
 const salesforceSeed = spartan.connections.find((c) => c.platform === 'salesforce');
 const seedLead = (salesforceSeed?.config as { fieldMapping?: { lead?: Record<string, unknown> } } | undefined)?.fieldMapping?.lead;
@@ -95,11 +96,11 @@ try {
         // Only the new key may differ: anything else is an edit made in production.
         const strip = (v: unknown) => {
           const copy = structuredClone((v ?? {}) as Record<string, unknown>);
-          delete copy[NEW_RULES_KEY];
+          for (const key of NEW_RULES_KEYS) delete copy[key];
           return copy;
         };
         if (!before || canonical(strip(before.value)) !== canonical(strip(entry.value))) {
-          throw new Error(`Refusing to replace ${RULES}: the stored row differs from the seed by more than ${NEW_RULES_KEY}.`);
+          throw new Error(`Refusing to replace ${RULES}: the stored row differs from the seed by more than ${NEW_RULES_KEYS.join(' and ')}.`);
         }
       }
       if (entry.key === EXCLUSION) {

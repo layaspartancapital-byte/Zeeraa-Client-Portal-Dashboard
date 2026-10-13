@@ -369,8 +369,8 @@ assumes they are comparable.
   in `organicCapturePages`, or referred from the Spartan website or a search,
   with no paid signal); otherwise Direct & other.
   **`utm_source=100A00` is the website Apply Now form's default**, not ad
-  evidence (confirmed 13 October 2026): on that form it does not stop
-  SEO/Organic; elsewhere it still credits nobody and rules SEO/Organic out.
+  evidence (confirmed 13 October 2026), and counts for nothing anywhere:
+  `unknownPaidSources` is empty.
   The form is read from the capture page (`leads.capture_url`, mapped from
   `acq_capture__c`). Read the source through
   `leadChannel()` in `@zeeraa/db`, never `click_id_type`. A deal with no click
