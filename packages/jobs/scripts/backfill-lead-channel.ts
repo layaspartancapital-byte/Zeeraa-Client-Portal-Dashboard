@@ -20,6 +20,14 @@
  * Read-only against Salesforce. `--dry-run` writes, prints what moved and
  * rolls back: under FORCE a denied write matches nothing and exits 0.
  *
+ * `--capture-field <Lead field>` and `--organic-capture-page <host/path>`
+ * preview a mapping field and a rule not yet stored, in memory, and are refused
+ * outside `--dry-run`: the sync reads the stored configuration, so a real run
+ * must too (`apply-lead-sources.ts` stores both). The capture page is written
+ * to `leads.capture_url` (migration 0044); a real run refuses without it.
+ * `--trace <opportunity id>` (repeatable) prints that deal's leads and
+ * last-touch source before and after.
+ *
  * `--range <from>:<to>` (repeatable) prints each source's leads, MQLs, deals
  * reaching the stage before value, value deals and volume over that range,
  * before and after, as the screens count them — so a rule change can be read
@@ -27,7 +35,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { getMaintenanceDb, leadChannel as storedChannel, leadsCreatedIn, schema, stageEventsIn, withJobTenant, withMaintenance } from '@zeeraa/db';
-import { leadChannel, platformLabel, stageBeforeValue, type StageDefinition } from '@zeeraa/core';
+import { leadChannel, parseLeadSourceRules, platformLabel, stageBeforeValue, type StageDefinition } from '@zeeraa/core';
 import { leadSourceExclusion, NO_LEAD_EXCLUSION, type SalesforceRecord } from '@zeeraa/connectors';
 import { resolveSalesforceContext } from '../src/salesforce/context';
 import { buildAttribution } from '../src/google-ads/join';
@@ -45,6 +53,16 @@ const RANGES = process.argv
     }
     return { start, end };
   });
+const flag = (name: string) => {
+  const i = process.argv.indexOf(name);
+  return i === -1 ? null : (process.argv[i + 1] ?? null);
+};
+const CAPTURE_FIELD = flag('--capture-field');
+const CAPTURE_PAGE = flag('--organic-capture-page');
+const TRACE = process.argv.map((a, i, all) => (all[i - 1] === '--trace' ? a : null)).filter((a): a is string => a !== null);
+if (!DRY_RUN && (CAPTURE_FIELD || CAPTURE_PAGE)) {
+  throw new Error('--capture-field and --organic-capture-page preview configuration; store it with apply-lead-sources.ts for a real run.');
+}
 if (!slug || slug.startsWith('--')) throw new Error('Usage: backfill-lead-channel.ts <slug> [--dry-run]');
 
 class Rollback extends Error {}
@@ -68,6 +86,12 @@ if (!referrerField || !leadSourceField) {
   throw new Error('The connection maps no lead referrer or lead source; run apply-lead-sources.ts first.');
 }
 if (!ctx.leadSources) throw new Error('No readable lead_source_rules row; run apply-lead-sources.ts first.');
+const captureField = CAPTURE_FIELD ?? ctx.mapping.lead.capturePage ?? null;
+const sourceRules = CAPTURE_PAGE
+  ? parseLeadSourceRules({ ...ctx.leadSources, organicCapturePages: [...ctx.leadSources.organicCapturePages, CAPTURE_PAGE] })
+  : ctx.leadSources;
+if (!sourceRules) throw new Error('--organic-capture-page did not parse.');
+if (CAPTURE_FIELD || CAPTURE_PAGE) console.log(`Previewing, not stored: capture field ${captureField}; organic capture pages ${sourceRules.organicCapturePages.join(', ')}`);
 const exclusion = ctx.leadExclusion ?? NO_LEAD_EXCLUSION;
 
 const earliest = await withJobTenant(tenantId, async (tx) => {
@@ -82,7 +106,7 @@ if (!earliest.lead || !earliest.opp) throw new Error('No leads or opportunities 
 const soqlDate = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 const leadRecords = await ctx.client.query<SalesforceRecord>(
-  `SELECT Id, ${[referrerField, leadSourceField, ...braidFields].join(', ')} FROM Lead WHERE CreatedDate >= ${soqlDate(earliest.lead)}`,
+  `SELECT Id, ${[referrerField, leadSourceField, ...braidFields, ...(captureField ? [captureField] : [])].join(', ')} FROM Lead WHERE CreatedDate >= ${soqlDate(earliest.lead)}`,
   true,
 );
 const text = (r: SalesforceRecord, f: string) => {
@@ -94,7 +118,9 @@ const evidence = leadRecords.map((r) => ({
   url: text(r, referrerField),
   source: text(r, leadSourceField),
   braid: braidFields.map((f) => text(r, f)).find((v) => v !== null) ?? null,
+  capture: captureField ? text(r, captureField) : null,
 }));
+const captureOf = new Map(evidence.map((e) => [e.id, e.capture]));
 const oppRecords = await ctx.client.query<SalesforceRecord>(
   `SELECT Id, IsClosed FROM Opportunity WHERE CreatedDate >= ${soqlDate(earliest.opp)}`,
   true,
@@ -163,8 +189,38 @@ function printFigures(was: Map<string, Record<string, number>>, now: Map<string,
   }
 }
 
+/** Each traced deal's leads and last-touch source, as one line. */
+async function trace(tx: Tx): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const id of TRACE) {
+    const leads = await tx
+      .select({ externalId: schema.leads.externalId, channel: storedChannel() })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.convertedOpportunityId, id)));
+    const [touch] = await tx
+      .select({ platform: schema.attribution.platform })
+      .from(schema.attribution)
+      .where(
+        and(
+          eq(schema.attribution.tenantId, tenantId),
+          eq(schema.attribution.opportunityExternalId, id),
+          eq(schema.attribution.model, 'last_touch'),
+        ),
+      );
+    const name = (c: string | null | undefined) => (c ? platformLabel(c) : 'Direct & other');
+    out.set(id, `deal ${name(touch?.platform)}; leads ${leads.map((l) => `${l.externalId} ${name(l.channel)}`).join(', ') || 'none'}`);
+  }
+  return out;
+}
+
 const report = await withJobTenant(tenantId, async (tx) => {
   const figuresBefore = RANGES.length > 0 ? await sourceFigures(tx) : null;
+  const traceBefore = await trace(tx);
+  const [captureColumn] = await tx.execute<{ n: number }>(
+    sql`select count(*)::int n from information_schema.columns where table_name = 'leads' and column_name = 'capture_url'`,
+  );
+  const hasCaptureColumn = Number(captureColumn?.n ?? 0) === 1;
+  if (captureField && !hasCaptureColumn && !DRY_RUN) throw new Error('Migration 0044 (leads.capture_url) has not been applied.');
   let evidenceRows = 0;
   for (let i = 0; i < evidence.length; i += 1000) {
     const chunk = evidence.slice(i, i + 1000);
@@ -175,6 +231,19 @@ const report = await withJobTenant(tenantId, async (tx) => {
         and (leads.referrer_url, leads.lead_source, leads.braid) is distinct from (v.url, v.source, v.braid)
       returning leads.id`);
     evidenceRows += updated.length;
+  }
+
+  let captureRows = 0;
+  if (captureField && hasCaptureColumn) {
+    const captures = evidence.map(({ id, capture }) => ({ id, capture }));
+    for (let i = 0; i < captures.length; i += 1000) {
+      const updated = await tx.execute<{ id: string }>(sql`
+        update leads set capture_url = v.capture
+        from jsonb_to_recordset(${JSON.stringify(captures.slice(i, i + 1000))}::jsonb) as v(id text, capture text)
+        where leads.tenant_id = ${tenantId} and leads.external_id = v.id and leads.capture_url is distinct from v.capture
+        returning leads.id`);
+      captureRows += updated.length;
+    }
   }
 
   // A Lead Source now excluded (ZoomInfo): the leads already stored are marked,
@@ -197,6 +266,7 @@ const report = await withJobTenant(tenantId, async (tx) => {
   const stored = await tx
     .select({
       id: schema.leads.id,
+      externalId: schema.leads.externalId,
       clickIdType: schema.leads.clickIdType,
       braid: schema.leads.braid,
       referrerUrl: schema.leads.referrerUrl,
@@ -209,7 +279,11 @@ const report = await withJobTenant(tenantId, async (tx) => {
     .from(schema.leads)
     .where(eq(schema.leads.tenantId, tenantId));
   const changes = stored
-    .map((l) => ({ id: l.id, channel: leadChannel(l, ctx.leadSources ?? null), was: l.channel }))
+    .map((l) => ({
+      id: l.id,
+      channel: leadChannel({ ...l, capturePage: captureOf.get(l.externalId) ?? null }, sourceRules),
+      was: l.channel,
+    }))
     .filter((l) => l.channel !== l.was);
   for (let i = 0; i < changes.length; i += 1000) {
     const chunk = changes.slice(i, i + 1000).map(({ id, channel }) => ({ id, channel }));
@@ -250,13 +324,16 @@ const report = await withJobTenant(tenantId, async (tx) => {
   );
   console.log(
     `Evidence written: ${evidenceRows}; newly excluded by Lead Source: ${excludedRows}; ` +
-      `channels changed: ${changes.length}; is_closed written: ${closedRows}`,
+      `channels changed: ${changes.length}; is_closed written: ${closedRows}; ` +
+      `capture pages written: ${hasCaptureColumn ? captureRows : 'none (migration 0044 not applied; previewed in memory)'}`,
   );
   console.log('Leads by channel:', channels.map((r) => `${r.channel ?? 'direct & other'}=${r.n}`).join(', '));
   console.log('Deals credited from their lead (no click):', leadDerived.map((r) => `${r.platform}=${r.n}`).join(', '));
   console.log(`Attribution rows: ${join.attributionRows}`);
   console.log('Opportunities by is_closed:', openFlag.map((r) => `${String(r.is_closed)}=${r.n}`).join(', '));
   if (figuresBefore) printFigures(figuresBefore, await sourceFigures(tx));
+  const traceAfter = await trace(tx);
+  for (const id of TRACE) console.log(`trace ${id}: ${traceBefore.get(id)}  →  ${traceAfter.get(id)}`);
   if (DRY_RUN) throw new Rollback();
   return changes.length;
 }).catch((e) => {

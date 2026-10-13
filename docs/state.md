@@ -4,36 +4,22 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (referrer UTMs are platform evidence; "Paid ads (platform unknown)" split from Direct & other — committed `6be4884`, not yet applied to production or deployed; see below).**
+**Last updated: 13 October 2026 (source rules: referrer UTMs, vendors first, the website Apply Now form as SEO/Organic — built and dry-run against production, awaiting approval; nothing deployed).**
 
-**On hold, 13 October 2026 — deploy nothing until the client confirms what
-sets `100A00`.** A read of every inbound lead since June suggests it is the
-apply page's utm_source when a visit carries none, not an ad marker: 98% of
-apply-page leads from a search referrer with no click ID carry it, against 6%
-of gclid and 7% of fbclid leads (whose own utm_source is google / fb), and
-373 of the 513 tagged leads show no ad evidence at all. If so, "Paid ads
-(platform unknown)" mislabels them and the 24 September rule that `100A00`
-rules out SEO/Organic is wrong too. The referrer-URL UTM rule and the vendor
-precedence in `6be4884` are independent of this and stay ready.
-Then found: Lead `acq_capture__c` (not in the mapping) holds the page the form
-was submitted on. The website's Apply Now form
-(`www.spartancapitalgroup.com/apply-now`, `cvr_id__c = apn_scg`) stamps
-`100A00` on 349 of 350 submissions since June, 84 of them with a click ID;
-the `apply.` pages carry it on 95 of 1,406. So `100A00` looks like that form's
-constant. Sonic Gods (offer 12 Oct) is one: no referrer, no UTMs but the tag,
-captured on the website form — Direct & other today, `paid_unknown` under
-`6be4884`.
-
-**Pending, 13 October 2026: the source-rule change is committed and not
-applied.** `6be4884` (decisions in `docs/brief-amendments.md`, "referrer UTMs
-are platform evidence"). The production dry run of
-`backfill-lead-channel.ts spartan --range 2026-06-01:2026-09-30 --range
-2026-10-01:2026-10-13` moves 524 leads and shows the before/after per source.
-Still to do, in order: the backfill without `--dry-run`; `freeze-baseline
---correct-channel-figures` (dry run first) for each frozen month with the two
-decisions as the reason, then `--channel-figures` to freeze `paid_unknown`;
-the number checks against production; push. Do not push before the backfill:
-the screens would read the old channels under the new code's labels.
+**Awaiting approval, 13 October 2026: the source-rule change.** Decisions in
+`docs/brief-amendments.md`, "referrer UTMs, vendors first, and the website
+Apply Now form". The "Paid ads (platform unknown)" split was withdrawn:
+`100A00` is the website Apply Now form's default. Production dry run
+(`backfill-lead-channel.ts spartan --dry-run --capture-field acq_capture__c
+--organic-capture-page spartancapitalgroup.com/apply-now --range … --trace …`)
+moves 303 leads; Jun–Sep offers Direct & other 53 → 10, SEO/Organic 4 → 46;
+1–13 Oct 14 → 2 and 0 → 12; Sonic Gods to SEO/Organic. On approval, in
+order: migration 0044 on Neon (additive, before the deploy — the sync writes
+the column); `apply-lead-sources.ts` dry run then real (needs the owner URL;
+refuses if the stored rules row differs from the seed by more than
+`organicCapturePages`); the backfill without `--dry-run` or the preview flags;
+restate the frozen Jun–Aug channel figures with these decisions as the reason;
+the number checks; push.
 
 **13 October 2026: an Offers column on Executive's "All funded" table**,
 between Source and Deals, with a total row. Offer is the stage before value

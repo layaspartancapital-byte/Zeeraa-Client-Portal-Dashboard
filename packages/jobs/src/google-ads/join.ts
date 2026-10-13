@@ -2,7 +2,6 @@ import { and, eq, gte, inArray, isNotNull, isNull, lte, notInArray, sql } from '
 import { schema, stageEventsIn, type Database } from '@zeeraa/db';
 import {
   attributionCoverage,
-  PAID_UNKNOWN,
   channelCostPerDeal,
   resolveBothModels,
   type AttributionCoverage,
@@ -185,18 +184,12 @@ export async function buildAttribution(
       ),
     )
     .orderBy(schema.leads.createdAt);
-  // The ad landing page's tag of unknown platform (`PAID_UNKNOWN`) is weaker
-  // than any lead naming a source: before 13 October 2026 it was no channel at
-  // all, and a deal whose leads include a platform keeps that platform.
   const byDeal = new Map<string, { first: string; last: string }>();
-  for (const pass of [false, true]) {
-    for (const lead of provenLeads) {
-      const id = lead.opportunityExternalId!;
-      if (touchesByOpportunity.has(id) || (lead.channel === PAID_UNKNOWN) !== pass) continue;
-      if (pass && byDeal.has(id) && byDeal.get(id)!.first !== PAID_UNKNOWN) continue;
-      const seen = byDeal.get(id);
-      byDeal.set(id, { first: seen?.first ?? lead.channel!, last: lead.channel! });
-    }
+  for (const lead of provenLeads) {
+    const id = lead.opportunityExternalId!;
+    if (touchesByOpportunity.has(id)) continue;
+    const seen = byDeal.get(id);
+    byDeal.set(id, { first: seen?.first ?? lead.channel!, last: lead.channel! });
   }
   for (const [opportunityExternalId, { first, last }] of byDeal) {
     rows.push({ tenantId, opportunityExternalId, model: 'first_touch', platform: first, campaignId: null, clickId: null });

@@ -66,15 +66,6 @@ beforeAll(async () => {
       lead('C', '2026-08-02', null),
       lead('B', '2026-08-02', null, 'C'),
       lead('A', '2026-08-02', 'meta', 'B'),
-      // The ad landing page's tag is weaker than any merged lead's platform,
-      // and a merged lead's tag is used only when nothing better is there.
-      lead('SURVIVOR-TAG', '2026-08-04', 'paid_unknown'),
-      lead('LOSER-TAG-META', '2026-08-04', 'meta', 'SURVIVOR-TAG'),
-      lead('SURVIVOR-PREFERS', '2026-08-05', null),
-      lead('LOSER-TAG-EARLY', '2026-08-01', 'paid_unknown', 'SURVIVOR-PREFERS'),
-      lead('LOSER-GOOGLE-LATE', '2026-08-06', 'google_ads', 'SURVIVOR-PREFERS'),
-      lead('SURVIVOR-ONLY-TAG', '2026-08-07', null),
-      lead('LOSER-ONLY-TAG', '2026-08-07', 'paid_unknown', 'SURVIVOR-ONLY-TAG'),
       // Nothing to inherit.
       lead('SURVIVOR-NONE', '2026-08-03', null),
       lead('LOSER-NONE', '2026-08-03', null, 'SURVIVOR-NONE'),
@@ -104,12 +95,6 @@ describe('inheritMergedChannels', () => {
 
   it('follows a chain of merges to the last survivor', async () => {
     expect(await channelOf('C')).toBe('meta');
-  });
-
-  it('treats the unknown-platform tag as weaker than any merged lead’s platform (13 October 2026)', async () => {
-    expect(await channelOf('SURVIVOR-TAG')).toBe('meta');
-    expect(await channelOf('SURVIVOR-PREFERS')).toBe('google_ads');
-    expect(await channelOf('SURVIVOR-ONLY-TAG')).toBe('paid_unknown');
   });
 
   it('leaves a survivor with nothing to inherit unattributed', async () => {

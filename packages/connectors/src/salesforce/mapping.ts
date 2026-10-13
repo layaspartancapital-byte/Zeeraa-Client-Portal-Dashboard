@@ -26,6 +26,12 @@ export type SalesforceFieldMapping = {
      * from an unpaid one.
      */
     referrer?: string;
+    /**
+     * The page the lead's form was submitted on (`acq_capture__c` in
+     * Spartan's org). Which website form a lead came through, where the
+     * referrer is empty — `organicCapturePages` reads it.
+     */
+    capturePage?: string;
     /** The CRM's lead source picklist: vendors, Meta lead forms, outbound. */
     leadSource?: string;
     /**

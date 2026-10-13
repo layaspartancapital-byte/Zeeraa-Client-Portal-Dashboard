@@ -111,7 +111,13 @@ describe('lead normalisation', () => {
   it('stores the source evidence and resolves the channel at ingest', () => {
     const mapping = {
       ...SPARTAN,
-      lead: { ...SPARTAN.lead, referrer: 'referral_url__c', leadSource: 'LeadSource', braids: ['Gbraid__c', 'Wbraid__c'] },
+      lead: {
+        ...SPARTAN.lead,
+        referrer: 'referral_url__c',
+        leadSource: 'LeadSource',
+        braids: ['Gbraid__c', 'Wbraid__c'],
+        capturePage: 'acq_capture__c',
+      },
     };
     const rules = {
       utmSources: { google_ads: ['google'], meta: ['fb'] },
@@ -124,6 +130,7 @@ describe('lead normalisation', () => {
       leadSourceChannels: { 'meta ads': 'meta' },
       vendors: { popcrumbs: 'Popcrumbs' },
       organicHosts: ['google.*'],
+      organicCapturePages: ['spartancapitalgroup.com/apply-now'],
     };
     const unpaid = { ...record, GCLID__c: null, UTM_Source__c: null, referral_url__c: 'https://www.google.com/' };
     const organic = normalizeLead(unpaid, mapping, undefined, undefined, rules);
@@ -135,6 +142,12 @@ describe('lead normalisation', () => {
     expect(normalizeLead({ ...unpaid, LeadSource: 'popcrumbs' }, mapping, undefined, undefined, rules)).toMatchObject({
       leadSource: 'popcrumbs',
       channel: 'vendor:Popcrumbs',
+    });
+    // Submitted on the website's form with its default tag and nothing else: a website lead.
+    const form = { ...record, GCLID__c: null, UTM_Source__c: '100A00', acq_capture__c: 'https://www.spartancapitalgroup.com/apply-now' };
+    expect(normalizeLead(form, mapping, undefined, undefined, rules)).toMatchObject({
+      captureUrl: 'https://www.spartancapitalgroup.com/apply-now',
+      channel: 'organic_search',
     });
     // With no rules configured, only a click ID credits a source.
     expect(normalizeLead(unpaid, mapping).channel).toBeNull();

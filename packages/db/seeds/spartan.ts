@@ -405,23 +405,22 @@ export const spartan: TenantSeed = {
       description:
         'Which source a lead with no click ID is credited to, applied in this order ' +
         '(leadChannel in core): gbraid/wbraid, or gclid/gbraid/wbraid/gad_source in the ' +
-        'referring URL, is Google Ads; fbclid there is Meta; a Google or Meta ' +
-        'utm_source with a paid medium or campaign_id on the referring URL is that ' +
-        'channel; Lead Source "Meta Ads" (Meta lead forms) is Meta; a Google or Meta ' +
-        'utm_source is that channel; a Facebook or Instagram referrer is Meta; a lead ' +
-        'vendor is its own named source; utm_source 100A00 is Paid ads (platform ' +
-        'unknown) — the landing page both ad platforms send to sets it — and rules ' +
-        'out SEO/Organic; the Spartan website or a search referrer with no paid ' +
-        'signal is SEO/Organic; everything else is Direct & other. Corrected 24 ' +
-        'September and 13 October 2026.',
+        'referring URL, is Google Ads; fbclid there is Meta; Lead Source "Meta Ads" ' +
+        '(Meta lead forms) is Meta; a lead vendor is its own named source, ahead of ' +
+        'every UTM; a Google or Meta utm_source with a paid medium or campaign_id on ' +
+        'the referring URL is that channel; a Google or Meta utm_source is that ' +
+        'channel; a Facebook or Instagram referrer is Meta; utm_source 100A00 credits ' +
+        'nobody and rules out SEO/Organic, except on the website Apply Now form, whose ' +
+        'default it is; a lead submitted on that form, or referred from the Spartan ' +
+        'website or a search, with no paid signal is SEO/Organic; everything else is ' +
+        'Direct & other. Corrected 24 September and 13 October 2026.',
       value: {
         utmSources: {
           google_ads: ['google', 'adwords'],
           // Meta's own placement names for {{site_source_name}}: fb, ig, an, msg, th.
           meta: ['fb', 'facebook', 'meta', 'ig', 'instagram', 'an', 'msg', 'th'],
         },
-        // None: 100A00 marks the shared ad landing page, not a platform — it is
-        // Paid ads (platform unknown) through `unknownPaidSources` below.
+        // None: 100A00 is the website Apply Now form's default, not a platform.
         markerSources: {},
         // li_fat_id: LinkedIn's click id, appended to the landing URL (28 September 2026).
         referrerParams: {
@@ -446,6 +445,10 @@ export const spartan: TenantSeed = {
           'search.brave.com',
           'ecosia.org',
         ],
+        // The website's Apply Now form, whose default utm_source is 100A00: a
+        // lead submitted there with nothing paid about it is a website lead
+        // (13 October 2026).
+        organicCapturePages: ['spartancapitalgroup.com/apply-now'],
       },
     },
     {
@@ -777,6 +780,9 @@ export const spartan: TenantSeed = {
             leadSource: 'LeadSource',
             // Google's iOS click IDs, where no gclid is sent.
             braids: ['Gbraid__c', 'Wbraid__c'],
+            // The page the form was submitted on: which website form a lead
+            // came through (13 October 2026).
+            capturePage: 'acq_capture__c',
             /*
              * The join to the dialer, in priority order.
              *

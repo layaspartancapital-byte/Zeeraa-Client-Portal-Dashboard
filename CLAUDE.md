@@ -361,21 +361,21 @@ assumes they are comparable.
 - **A lead's source is decided once, at ingest, in a fixed order.** `leads.channel`
   is resolved by `leadChannel` in core from the `lead_source_rules` row: click
   ID; gbraid/wbraid; paid click parameters on the referring URL (gclid,
-  gbraid, wbraid, gad_source; fbclid); paid UTMs on the referring URL (a
-  channel's `utm_source` with a paid medium or a `campaign_id`); a Lead Source
-  naming a channel (Meta lead forms); a UTM source naming a channel; a
-  Facebook/Instagram referrer; a named lead vendor (`vendor:<Name>`); Paid ads
-  (platform unknown); SEO/Organic (the Spartan website or a search referrer,
+  gbraid, wbraid, gad_source; fbclid); a Lead Source naming a channel (Meta
+  lead forms); a named lead vendor (`vendor:<Name>`) — **vendors win over every
+  UTM**; paid UTMs on the referring URL (a channel's `utm_source` with a paid
+  medium or a `campaign_id`); a UTM source naming a channel; a
+  Facebook/Instagram referrer; SEO/Organic (a lead submitted on a website form
+  in `organicCapturePages`, or referred from the Spartan website or a search,
   with no paid signal); otherwise Direct & other.
-  **`utm_source=100A00` names no platform**: the landing page both ad
-  platforms send traffic to sets it, so it is its own source, `PAID_UNKNOWN`
-  — paid, platform unknown — and rules out SEO/Organic. It is weaker than any
-  source a merged or sibling lead names (`inheritMergedChannels`,
-  `buildAttribution`). Read it through
+  **`utm_source=100A00` is the website Apply Now form's default**, not ad
+  evidence (confirmed 13 October 2026): on that form it does not stop
+  SEO/Organic; elsewhere it still credits nobody and rules SEO/Organic out.
+  The form is read from the capture page (`leads.capture_url`, mapped from
+  `acq_capture__c`). Read the source through
   `leadChannel()` in `@zeeraa/db`, never `click_id_type`. A deal with no click
-  touch takes its lead's source. SEO/Organic, Paid ads (platform unknown) and
-  vendors have no ingested spend of their own, so their cost cells are an em
-  dash with `noSpendReason`, never $0.
+  touch takes its lead's source. SEO/Organic and vendors have no ingested
+  spend, so their cost cells are an em dash with `noSpendReason`, never $0.
 - **No total mixes them.** A totals row sums what is summable — spend across
   channels, deals across every source — and renders nothing where the sum would
   be a category error. Blended cost per deal is one of those until every channel

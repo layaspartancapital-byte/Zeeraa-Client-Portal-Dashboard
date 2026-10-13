@@ -3,7 +3,6 @@ import type { Database } from "@zeeraa/db";
 import { schema } from "@zeeraa/db";
 import {
   normalizeMonthlyRevenue,
-  PAID_UNKNOWN,
   tenantDay,
   type QualificationBar,
 } from "@zeeraa/core";
@@ -134,6 +133,7 @@ export async function upsertLeads(
           utmTerm: row.utmTerm,
           landingPage: row.landingPage,
           referrerUrl: row.referrerUrl,
+          captureUrl: row.captureUrl,
           leadSource: row.leadSource,
           braid: row.braid,
           channel: row.channel,
@@ -175,6 +175,7 @@ export async function upsertLeads(
           utmTerm: sql`excluded.utm_term`,
           landingPage: sql`excluded.landing_page`,
           referrerUrl: sql`excluded.referrer_url`,
+          captureUrl: sql`excluded.capture_url`,
           leadSource: sql`excluded.lead_source`,
           braid: sql`excluded.braid`,
           channel: sql`excluded.channel`,
@@ -581,10 +582,7 @@ export async function upsertSubmissions(
  * from a paid channel to unattributed, after the month was frozen.
  *
  * So a survivor with no channel of its own takes the channel of the earliest
- * merged lead that has one. Its own evidence always wins — except an ad
- * landing page's tag of unknown platform (`PAID_UNKNOWN`), which is weaker
- * than any merged lead's platform: before 13 October 2026 it was no channel at
- * all, and a survivor carrying only it took its merged lead's. Run after every
+ * merged lead that has one. Its own evidence always wins. Run after every
  * lead upsert, in the same transaction, because the upsert writes the CRM's
  * empty fields back each time the survivor is modified; and repeated so a
  * chain of merges (A into B into C) reaches the last survivor.
@@ -604,12 +602,12 @@ export async function inheritMergedChannels(tx: Database, tenantId: string): Pro
           where l.tenant_id = ${tenantId}
             and l.merged_into is not null
             and coalesce(l.channel, l.click_id_type) is not null
-          order by l.merged_into, coalesce(l.channel, l.click_id_type) = ${PAID_UNKNOWN}, l.created_on, l.created_at
+          order by l.merged_into, l.created_on, l.created_at
         ) as m
        where s.tenant_id = ${tenantId}
          and s.external_id = m.merged_into
+         and s.channel is null
          and s.click_id_type is null
-         and (s.channel is null or (s.channel = ${PAID_UNKNOWN} and m.channel <> ${PAID_UNKNOWN}))
        returning s.id`);
     const n = [...changed].length;
     total += n;

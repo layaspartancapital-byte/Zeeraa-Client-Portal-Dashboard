@@ -11,38 +11,33 @@
  *      `wbraid`, `gad_source` for Google Ads, `fbclid` for Meta. A multi-step
  *      form refers each step from the last, so the landing URL often arrives
  *      as the referrer with its parameters intact.
- *   3b. **Paid UTMs on the referring URL** — a `utm_source` naming a channel
- *      with a paid `utm_medium` or a `campaign_id`. The landing URL's own tags,
- *      so they outrank the lead's `utm_source=100A00` (13 October 2026).
  *   4. **A Lead Source that names a channel** (`Meta Ads`) — that channel.
  *      Meta's own lead forms carry no fbclid.
- *   5. **A UTM source naming a channel** (google; fb, ig, meta…), unless its
+ *   5. **A lead vendor** — its own named source, `vendor:<Name>`. Ahead of
+ *      every UTM and referrer host since 13 October 2026: a vendor's lead is
+ *      the vendor's, whatever tags its traffic carried.
+ *   6. **Paid UTMs on the referring URL** — a `utm_source` naming a channel
+ *      with a paid `utm_medium` or a `campaign_id`. The landing URL's own tags,
+ *      so they outrank the lead's `utm_source` field (13 October 2026).
+ *   7. **A UTM source naming a channel** (google; fb, ig, meta…), unless its
  *      medium is declared unpaid — that channel. A paid medium with an unknown
  *      source is paid but provably neither, and stays in Direct & other.
- *   6. **A referring host that names a channel** — Facebook or Instagram: Meta.
- *   7. **A lead vendor** — its own named source, `vendor:<Name>`.
- *   8. **An unknown-paid source** (`utm_source=100A00`) — Paid ads (platform
- *      unknown). The landing page both ad platforms send traffic to sets it,
- *      so it proves a visit through an ad page and neither platform (corrected
- *      24 September 2026; only 27% of those leads carried Google evidence, 13%
- *      Meta). Its own source rather than Direct & other since 13 October 2026,
- *      with or without a paid medium beside it.
- *   9. **SEO/Organic** — referred from the tenant's own website or a search
+ *   8. **A referring host that names a channel** — Facebook or Instagram: Meta.
+ *   9. **An unknown-paid source** (`utm_source=100A00`) — nobody, and not
+ *      organic (24 September 2026). Since 13 October known to be the default
+ *      the website's Apply Now form writes, so it does not stop rule 10.
+ *  10. **A website lead** — submitted on one of the tenant's own website forms
+ *      (`organicCapturePages`, matched on the capture page), with no tag still
+ *      present: SEO/Organic, the same as a website referrer (13 October 2026).
+ *  11. **SEO/Organic** — referred from the tenant's own website or a search
  *      results page, with no paid signal of any kind. A search referrer alone
  *      is not enough: a Google Ads click arrives from google.com too.
- *  10. Otherwise null: **Direct & other**. No referrer and no other evidence
+ *  12. Otherwise null: **Direct & other**. No referrer and no other evidence
  *      is not a guess at any channel.
  */
 
 /** The source key SEO/Organic is credited under, beside the platform keys. */
 export const ORGANIC_SEARCH = 'organic_search';
-
-/**
- * The source a lead is credited to when its only evidence is an unknown-paid
- * `utm_source` (100A00): an ad visit, platform unknown. It has no spend of its
- * own — whatever it cost is already in the platforms' spend.
- */
-export const PAID_UNKNOWN = 'paid_unknown';
 
 /** Lead vendors are credited under `vendor:<display name>`. */
 export const VENDOR_PREFIX = 'vendor:';
@@ -86,6 +81,13 @@ export type LeadSourceRules = {
    * `mail.google.com` and `ads.google.com` are not search.
    */
   organicHosts: readonly string[];
+  /**
+   * Pages, `www.` and any trailing slash stripped, whose form makes a lead
+   * submitted on it a website lead — SEO/Organic when nothing paid is present:
+   * `spartancapitalgroup.com/apply-now`. Matched on the capture page's host
+   * and path, query ignored.
+   */
+  organicCapturePages: readonly string[];
 };
 
 export type LeadSourceEvidence = {
@@ -97,6 +99,8 @@ export type LeadSourceEvidence = {
   utmMedium: string | null;
   utmCampaign: string | null;
   leadSource?: string | null;
+  /** The page the lead's form was submitted on, where the CRM records it. */
+  capturePage?: string | null;
 };
 
 const lower = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
@@ -143,8 +147,9 @@ export function parseLeadSourceRules(value: unknown): LeadSourceRules | null {
   const referrerParams = listMap(v.referrerParams ?? {});
   const referrerHosts = listMap(v.referrerHosts ?? {});
   const unknownPaidSources = stringList(v.unknownPaidSources ?? []);
+  const organicCapturePages = stringList(v.organicCapturePages ?? []);
   if (
-    !unknownPaidSources ||
+    !unknownPaidSources || !organicCapturePages ||
     !utmSources || !markerSources || !paidMediums || !unpaidMediums || !leadSourceChannels ||
     !vendors || !organicHosts || !referrerParams || !referrerHosts
   ) {
@@ -152,7 +157,7 @@ export function parseLeadSourceRules(value: unknown): LeadSourceRules | null {
   }
   return {
     utmSources, markerSources, paidMediums, unpaidMediums, leadSourceChannels, vendors, organicHosts, referrerParams, referrerHosts,
-    unknownPaidSources,
+    unknownPaidSources, organicCapturePages: organicCapturePages.map(pageKey),
   };
 }
 
@@ -167,6 +172,12 @@ function matchesHost(host: string, pattern: string): boolean {
   const stem = pattern.slice(0, -2);
   // `google.*`: `google.` then a TLD of one or two labels — `com`, `co.uk`.
   return host.startsWith(`${stem}.`) && /^[a-z]{2,}(\.[a-z]{2,})?$/.test(host.slice(stem.length + 1));
+}
+
+/** A page as `organicCapturePages` names it: host and path, `www.` and a trailing slash stripped. */
+function pageKey(url: string): string {
+  const bare = url.trim().toLowerCase().replace(/^https?:\/\//, '').split(/[?#]/)[0]!;
+  return bare.replace(/^www\./, '').replace(/\/+$/, '');
 }
 
 const channelOf = (lists: Record<string, readonly string[]>, value: string) =>
@@ -186,6 +197,12 @@ export function leadChannel(lead: LeadSourceEvidence, rules: LeadSourceRules | n
   const byParam = Object.entries(rules.referrerParams).find(([, names]) => names.some((n) => params.has(n)))?.[0];
   if (byParam) return byParam;
 
+  const named = rules.leadSourceChannels[lower(lead.leadSource)];
+  if (named) return named;
+
+  const vendor = rules.vendors[lower(lead.leadSource)];
+  if (vendor) return `${VENDOR_PREFIX}${vendor}`;
+
   const refUtm = lead.referrerUrl ? queryValues(lead.referrerUrl) : new Map<string, string>();
   const refChannel = channelOf(rules.utmSources, refUtm.get('utm_source') ?? '');
   const refMedium = refUtm.get('utm_medium') ?? '';
@@ -197,9 +214,6 @@ export function leadChannel(lead: LeadSourceEvidence, rules: LeadSourceRules | n
     return refChannel;
   }
 
-  const named = rules.leadSourceChannels[lower(lead.leadSource)];
-  if (named) return named;
-
   const source = lower(lead.utmSource);
   const marked = source ? channelOf(rules.markerSources, source) : null;
   if (marked) return marked;
@@ -208,27 +222,25 @@ export function leadChannel(lead: LeadSourceEvidence, rules: LeadSourceRules | n
   const unpaidMedium = medium !== '' && rules.unpaidMediums.includes(medium);
   const sourceChannel = source ? channelOf(rules.utmSources, source) : null;
   if (sourceChannel && !unpaidMedium) return sourceChannel;
-  // Paid, but provably neither channel: the ad landing page's tag is an ad
-  // visit of unknown platform, anything else stays Direct & other.
-  if (medium !== '' && rules.paidMediums.includes(medium)) {
-    return source && rules.unknownPaidSources.includes(source) ? PAID_UNKNOWN : null;
-  }
+  // Paid, but provably neither channel.
+  if (medium !== '' && rules.paidMediums.includes(medium)) return null;
 
   const host = lead.referrerUrl ? hostOf(lead.referrerUrl) : null;
   const byHost = host ? channelOf(rules.referrerHosts, host) : null;
   if (byHost) return byHost;
 
-  const vendor = rules.vendors[lower(lead.leadSource)];
-  if (vendor) return `${VENDOR_PREFIX}${vendor}`;
+  const websiteForm = !blank(lead.capturePage) && rules.organicCapturePages.includes(pageKey(lead.capturePage!));
 
-  // Came through an ad landing page, platform unknown — and so not organic.
-  if (source && rules.unknownPaidSources.includes(source)) return PAID_UNKNOWN;
+  // An unknown-paid source credits nobody and rules out organic — except on a
+  // website form, which writes it as its default.
+  if (source && rules.unknownPaidSources.includes(source) && !websiteForm) return null;
 
   // Any tag still present is a sign of something placed — a campaign, or a
   // medium not declared unpaid. Neither is proof of organic.
   if (!blank(lead.utmCampaign)) return null;
   if (medium !== '' && !unpaidMedium) return null;
 
+  if (websiteForm) return ORGANIC_SEARCH;
   return host && rules.organicHosts.some((p) => matchesHost(host, p)) ? ORGANIC_SEARCH : null;
 }
 
@@ -273,34 +285,26 @@ export function isVendorChannel(channel: string): boolean {
  * with the reason — never $0.
  */
 export function isPaidChannel(channel: string): boolean {
-  return channel !== ORGANIC_SEARCH && channel !== PAID_UNKNOWN && !isVendorChannel(channel);
+  return channel !== ORGANIC_SEARCH && !isVendorChannel(channel);
 }
 
 /** Hover text for SEO/Organic, as every screen says it. */
 export const ORGANIC_DESCRIPTION =
   'Leads that came through the Spartan website or from Google search, not from ads.';
 
-/** Hover text for Paid ads (platform unknown). */
-export const PAID_UNKNOWN_DESCRIPTION =
-  'Came through the ad landing page, which serves both Google and Meta.';
-
 /** Hover text for Direct & other. */
 export const DIRECT_AND_OTHER_DESCRIPTION =
-  'No ad click, no ad landing page tag, no lead vendor and no website or search referrer: direct visits, referrals, phone and repeat business.';
+  'No ad click, no lead vendor, and not from the website or a search: direct visits, referrals, phone and repeat business.';
 
 /** What a source is, for its ⓘ; null for an ad platform, which names itself. */
 export function sourceDescription(channel: string): string | null {
   if (channel === ORGANIC_SEARCH) return ORGANIC_DESCRIPTION;
-  if (channel === PAID_UNKNOWN) return PAID_UNKNOWN_DESCRIPTION;
   if (isVendorChannel(channel)) return 'Leads bought from this lead vendor.';
   return null;
 }
 
 /** Why a source has no spend or cost per deal. Two sentences at most. */
 export function noSpendReason(channel: string): string {
-  if (channel === PAID_UNKNOWN) {
-    return 'Its spend is already counted in Google Ads and Meta, and which platform these came from is unknown. So there is no cost per deal to show.';
-  }
   return isVendorChannel(channel)
     ? 'This lead vendor is paid outside the ad platforms, and that spend is not ingested. So there is no cost per deal to show.'
     : 'SEO/Organic is not paid for, so it has no spend and no cost per deal.';
@@ -308,16 +312,14 @@ export function noSpendReason(channel: string): string {
 
 /** The short note in place of a spend figure. */
 export function noSpendNote(channel: string): string {
-  if (channel === PAID_UNKNOWN) return 'spend in the platforms';
   return isVendorChannel(channel) ? 'spend not ingested' : 'not paid for';
 }
 
 /**
- * The order sources are listed in on every screen: ad channels, then paid ads
- * of unknown platform, then SEO/Organic, then the lead vendors. Ad channels first also keeps them on the
+ * The order sources are listed in on every screen: ad channels, then
+ * SEO/Organic, then the lead vendors. Ad channels first also keeps them on the
  * first chart colours whatever vendors a period happens to have.
  */
 export function sourceRank(channel: string): number {
-  if (isPaidChannel(channel)) return 0;
-  return channel === PAID_UNKNOWN ? 1 : channel === ORGANIC_SEARCH ? 2 : 3;
+  return isPaidChannel(channel) ? 0 : channel === ORGANIC_SEARCH ? 1 : 2;
 }

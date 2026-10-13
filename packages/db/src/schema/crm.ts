@@ -53,6 +53,8 @@ export const leads = pgTable(
     utmContent: text('utm_content'),
     utmTerm: text('utm_term'),
     landingPage: text('landing_page'),
+    /** The page the lead's form was submitted on (migration 0044). */
+    captureUrl: text('capture_url'),
     /** The page the lead arrived from, as the CRM recorded it. */
     referrerUrl: text('referrer_url'),
     /** The CRM's lead source picklist value, verbatim (0036). */

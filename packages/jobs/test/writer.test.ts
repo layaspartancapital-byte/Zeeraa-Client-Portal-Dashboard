@@ -51,6 +51,7 @@ function lead(overrides: Partial<LeadRow> = {}): LeadRow {
     utmTerm: null,
     landingPage: null,
     referrerUrl: null,
+    captureUrl: null,
     leadSource: 'Web',
     braid: null,
     channel: 'google_ads',

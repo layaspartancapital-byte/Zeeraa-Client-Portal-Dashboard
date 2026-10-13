@@ -309,6 +309,13 @@
       "when": 1790200000000,
       "tag": "0043_aloware_direct_webhook",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790210000000,
+      "tag": "0044_lead_capture_page",
+      "breakpoints": true
     }
   ]
 }

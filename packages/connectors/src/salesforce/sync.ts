@@ -26,6 +26,8 @@ export type LeadRow = {
   utmTerm: string | null;
   landingPage: string | null;
   referrerUrl: string | null;
+  /** The page the form was submitted on, where the mapping names a field. */
+  captureUrl: string | null;
   /** The CRM's lead source picklist value, verbatim. */
   leadSource: string | null;
   /** A gbraid or wbraid, where the lead carries one. */
@@ -186,6 +188,7 @@ export function normalizeLead(
   const utmMedium = str(record, mapping.lead.utmMedium);
   const utmCampaign = str(record, mapping.lead.utmCampaign);
   const leadSource = str(record, mapping.lead.leadSource);
+  const captureUrl = str(record, mapping.lead.capturePage);
   const braid = (mapping.lead.braids ?? []).map((f) => str(record, f)).find((v) => v !== null) ?? null;
   return {
     externalId: String(record.Id),
@@ -199,9 +202,13 @@ export function normalizeLead(
     utmTerm: str(record, mapping.lead.utmTerm),
     landingPage: str(record, mapping.lead.landingPage),
     referrerUrl,
+    captureUrl,
     leadSource,
     braid,
-    channel: leadChannel({ clickIdType, braid, referrerUrl, utmSource, utmMedium, utmCampaign, leadSource }, sourceRules),
+    channel: leadChannel(
+      { clickIdType, braid, referrerUrl, utmSource, utmMedium, utmCampaign, leadSource, capturePage: captureUrl },
+      sourceRules,
+    ),
     selfReportedRevenue: num(record, mapping.lead.selfReportedRevenue),
     selfReportedAnnualRevenue: num(record, mapping.lead.selfReportedAnnualRevenue),
     selfReportedTimeInBusiness: num(record, mapping.lead.selfReportedTimeInBusinessMonths),

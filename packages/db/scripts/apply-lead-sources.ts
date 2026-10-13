@@ -6,14 +6,16 @@
  *
  * Three writes, all from the seed:
  *
- *   1. `fieldMapping.lead.referrer`, `leadSource` and `braids` on the
- *      Salesforce connection, so the sync reads the evidence.
- *   2. The `lead_source_rules` config row (`leadChannel` in core).
+ *   1. `fieldMapping.lead.referrer`, `leadSource`, `braids` and `capturePage`
+ *      on the Salesforce connection, so the sync reads the evidence.
+ *   2. The `lead_source_rules` config row (`leadChannel` in core). Refused if
+ *      the stored row differs from the seed by more than `organicCapturePages`
+ *      (13 October 2026), for the same reason as the next.
  *   3. The `lead_exclusion` row with the ZoomInfo outbound rule added. Refused
  *      if the stored row differs from the seed by anything else: once somebody
  *      edits it in production, the seed is the stale copy.
  *
- * Refuses until migrations 0035 and 0036 have added their columns. The data
+ * Refuses until migrations 0035, 0036 and 0044 have added their columns. The data
  * half is `packages/jobs/scripts/backfill-lead-channel.ts`, run after this.
  * `--dry-run` writes inside a transaction, reads everything back and rolls
  * back: under FORCE a denied write matches nothing and exits 0.
@@ -29,13 +31,19 @@ const slug = process.env.TENANT_SLUG ?? spartan.tenant.slug;
 const RULES = 'lead_source_rules';
 const EXCLUSION = 'lead_exclusion';
 const NEW_RULE = 'outbound_zoominfo';
+const NEW_RULES_KEY = 'organicCapturePages';
 
 const salesforceSeed = spartan.connections.find((c) => c.platform === 'salesforce');
 const seedLead = (salesforceSeed?.config as { fieldMapping?: { lead?: Record<string, unknown> } } | undefined)?.fieldMapping?.lead;
-const mappingFields = { referrer: seedLead?.referrer, leadSource: seedLead?.leadSource, braids: seedLead?.braids };
+const mappingFields = {
+  referrer: seedLead?.referrer,
+  leadSource: seedLead?.leadSource,
+  braids: seedLead?.braids,
+  capturePage: seedLead?.capturePage,
+};
 const rules = spartan.config.find((c) => c.key === RULES);
 const exclusion = spartan.config.find((c) => c.key === EXCLUSION);
-if (!mappingFields.referrer || !mappingFields.leadSource || !mappingFields.braids || !rules || !exclusion) {
+if (!mappingFields.referrer || !mappingFields.leadSource || !mappingFields.braids || !mappingFields.capturePage || !rules || !exclusion) {
   throw new Error('The seed carries no lead evidence mapping, lead_source_rules or lead_exclusion row.');
 }
 
@@ -57,9 +65,9 @@ try {
 
     const [columns] = await tx.execute<{ n: number }>(
       sql`select count(*)::int n from information_schema.columns
-          where table_name = 'leads' and column_name in ('referrer_url', 'channel', 'lead_source', 'braid')`,
+          where table_name = 'leads' and column_name in ('referrer_url', 'channel', 'lead_source', 'braid', 'capture_url')`,
     );
-    if (Number(columns?.n ?? 0) !== 4) throw new Error('Migrations 0035 and 0036 have not both been applied.');
+    if (Number(columns?.n ?? 0) !== 5) throw new Error('Migrations 0035, 0036 and 0044 have not all been applied.');
 
     const lines: string[] = [];
 
@@ -73,7 +81,8 @@ try {
     await tx.update(schema.connections).set({ config }).where(connWhere);
     const [connAfter] = await tx.select({ config: schema.connections.config }).from(schema.connections).where(connWhere);
     const stored = (connAfter?.config as typeof config).fieldMapping?.lead ?? {};
-    if (canonical({ referrer: stored.referrer, leadSource: stored.leadSource, braids: stored.braids }) !== canonical(mappingFields)) {
+    const readBack = { referrer: stored.referrer, leadSource: stored.leadSource, braids: stored.braids, capturePage: stored.capturePage };
+    if (canonical(readBack) !== canonical(mappingFields)) {
       throw new Error('The lead evidence mapping did not read back — denied.');
     }
     lines.push(`lead mapping: ${canonical(mappingFields)}`);
@@ -82,6 +91,17 @@ try {
     for (const entry of [rules, exclusion]) {
       const where = and(eq(schema.tenantConfig.tenantId, tenant.id), eq(schema.tenantConfig.key, entry.key));
       const [before] = await tx.select({ value: schema.tenantConfig.value }).from(schema.tenantConfig).where(where);
+      if (entry.key === RULES) {
+        // Only the new key may differ: anything else is an edit made in production.
+        const strip = (v: unknown) => {
+          const copy = structuredClone((v ?? {}) as Record<string, unknown>);
+          delete copy[NEW_RULES_KEY];
+          return copy;
+        };
+        if (!before || canonical(strip(before.value)) !== canonical(strip(entry.value))) {
+          throw new Error(`Refusing to replace ${RULES}: the stored row differs from the seed by more than ${NEW_RULES_KEY}.`);
+        }
+      }
       if (entry.key === EXCLUSION) {
         // Only the new rule may differ: anything else is an edit made in production.
         const seedWithout = structuredClone(entry.value) as { rules: { key: string }[] };

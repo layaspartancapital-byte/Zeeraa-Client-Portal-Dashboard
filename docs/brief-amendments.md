@@ -3825,41 +3825,28 @@ not record. Without this, a merge after a month was frozen moved a lead from a
 paid channel to unattributed and failed the deploy's baseline check
 (July and August, found 6 October 2026).
 
-## §6 — referrer UTMs are platform evidence; "Paid ads (platform unknown)" (13 October 2026)
+## §6 — referrer UTMs, vendors first, and the website Apply Now form (13 October 2026)
 
-Two client decisions, after a deal-by-deal reconciliation of 1–13 October and
-an audit of every lead with an organic signal since June.
+Client decisions, after a deal-by-deal reconciliation of 1–13 October and a
+read of every lead since June.
 
-1. **Paid UTMs on the referring URL count as platform evidence and outrank
-   `100A00`.** The landing URL often arrives as the referrer with its tags
-   intact; a `utm_source` naming a channel with a paid `utm_medium` or a
-   `campaign_id` is the click's own record of where it came from. It is read
-   right after the click parameters on the same URL (rule 3b in
-   `leadChannel`), so it outranks the lead's own `utm_source=100A00` — and a
-   Lead Source, a vendor and the lead's own UTM fields, as rule 3 already did.
-   Six leads moved, one deal (Everhart Plumbing, an offer on 31 July, now
-   Google Ads); one of the six was a Popcrumbs lead whose landing URL carried
-   Meta's paid tags.
-2. **Website visits stay in SEO/Organic.** No change.
+1. **Paid UTMs on the referring URL count as platform evidence.** The landing
+   URL often arrives as the referrer with its tags intact; a `utm_source`
+   naming a channel with a paid `utm_medium` or a `campaign_id` is the click's
+   own record. It outranks the lead's own `utm_source` field.
+2. **Vendors always win over UTMs** — the referrer URL's and the lead's own —
+   and over a Facebook/Instagram referrer. Click IDs still win over vendors.
+3. **`100A00` is the website Apply Now form's default.** Read through the
+   capture page Salesforce records (`acq_capture__c`, now mapped, stored as
+   `leads.capture_url`, migration 0044): the form at
+   `www.spartancapitalgroup.com/apply-now` (`cvr_id__c = apn_scg`) wrote it on
+   349 of 350 submissions since June, 84 of them with a click ID. It had been
+   read as an ad visit of unknown platform since 24 September. **A lead
+   submitted on that form with no click ID, no paid UTM and no vendor is
+   SEO/Organic**, a website lead, the same as a website referrer
+   (`organicCapturePages` in `lead_source_rules`). Elsewhere `100A00` keeps its
+   24 September meaning.
+4. **Website visits stay in SEO/Organic.**
 
-And **Direct & other is split.** A lead whose deciding evidence is the ad
-landing page's tag (`unknownPaidSources`, `100A00`), with or without a paid
-medium beside it, is `paid_unknown`, "Paid ads (platform unknown)", hover
-"Came through the ad landing page, which serves both Google and Meta." It was
-Direct & other since 24 September, which read 12 of 14 October offers in that
-row as direct visits when they were ad clicks of unknown platform. It has no
-spend of its own — what it cost is already in Google Ads' and Meta's spend —
-so, like SEO/Organic and the vendors, it has no cost per deal
-(`isPaidChannel` is false; `noSpendReason` says why). Direct & other is now
-what is left: no ad click, no landing page tag, no vendor, no website or search
-referrer.
-
-The tag is weaker than any source another lead names: a merge survivor
-carrying only it still inherits its merged lead's platform, and a deal whose
-leads include one naming a platform keeps that platform, as both did when the
-tag credited nobody. Without that the split would have moved those deals out
-of Google Ads and Meta.
-
-The frozen June–August channel figures were restated as their next version
-with these two decisions as the reason; `paid_unknown` was frozen as a new
-channel for each month.
+A "Paid ads (platform unknown)" source for `100A00` was built the same day and
+withdrawn before it shipped, once the tag's origin was confirmed.
