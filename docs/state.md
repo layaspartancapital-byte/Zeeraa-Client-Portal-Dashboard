@@ -4,7 +4,18 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (an Offers column on Executive's "All funded" table; July's frozen Leadpop / Direct & other lead and MQL figures corrected for a Salesforce source edit).**
+**Last updated: 13 October 2026 (referrer UTMs are platform evidence; "Paid ads (platform unknown)" split from Direct & other — committed `6be4884`, not yet applied to production or deployed; see below).**
+
+**Pending, 13 October 2026: the source-rule change is committed and not
+applied.** `6be4884` (decisions in `docs/brief-amendments.md`, "referrer UTMs
+are platform evidence"). The production dry run of
+`backfill-lead-channel.ts spartan --range 2026-06-01:2026-09-30 --range
+2026-10-01:2026-10-13` moves 524 leads and shows the before/after per source.
+Still to do, in order: the backfill without `--dry-run`; `freeze-baseline
+--correct-channel-figures` (dry run first) for each frozen month with the two
+decisions as the reason, then `--channel-figures` to freeze `paid_unknown`;
+the number checks against production; push. Do not push before the backfill:
+the screens would read the old channels under the new code's labels.
 
 **13 October 2026: an Offers column on Executive's "All funded" table**,
 between Source and Deals, with a total row. Offer is the stage before value
