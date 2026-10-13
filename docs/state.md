@@ -15,6 +15,14 @@ of gclid and 7% of fbclid leads (whose own utm_source is google / fb), and
 (platform unknown)" mislabels them and the 24 September rule that `100A00`
 rules out SEO/Organic is wrong too. The referrer-URL UTM rule and the vendor
 precedence in `6be4884` are independent of this and stay ready.
+Then found: Lead `acq_capture__c` (not in the mapping) holds the page the form
+was submitted on. The website's Apply Now form
+(`www.spartancapitalgroup.com/apply-now`, `cvr_id__c = apn_scg`) stamps
+`100A00` on 349 of 350 submissions since June, 84 of them with a click ID;
+the `apply.` pages carry it on 95 of 1,406. So `100A00` looks like that form's
+constant. Sonic Gods (offer 12 Oct) is one: no referrer, no UTMs but the tag,
+captured on the website form — Direct & other today, `paid_unknown` under
+`6be4884`.
 
 **Pending, 13 October 2026: the source-rule change is committed and not
 applied.** `6be4884` (decisions in `docs/brief-amendments.md`, "referrer UTMs
