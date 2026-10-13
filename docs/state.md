@@ -6,6 +6,16 @@ blocked, what is next. Updated at the end of every session.
 
 **Last updated: 13 October 2026 (referrer UTMs are platform evidence; "Paid ads (platform unknown)" split from Direct & other — committed `6be4884`, not yet applied to production or deployed; see below).**
 
+**On hold, 13 October 2026 — deploy nothing until the client confirms what
+sets `100A00`.** A read of every inbound lead since June suggests it is the
+apply page's utm_source when a visit carries none, not an ad marker: 98% of
+apply-page leads from a search referrer with no click ID carry it, against 6%
+of gclid and 7% of fbclid leads (whose own utm_source is google / fb), and
+373 of the 513 tagged leads show no ad evidence at all. If so, "Paid ads
+(platform unknown)" mislabels them and the 24 September rule that `100A00`
+rules out SEO/Organic is wrong too. The referrer-URL UTM rule and the vendor
+precedence in `6be4884` are independent of this and stay ready.
+
 **Pending, 13 October 2026: the source-rule change is committed and not
 applied.** `6be4884` (decisions in `docs/brief-amendments.md`, "referrer UTMs
 are platform evidence"). The production dry run of
