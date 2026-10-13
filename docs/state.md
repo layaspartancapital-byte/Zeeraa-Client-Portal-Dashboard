@@ -4,23 +4,20 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (source rules applied to production; deploy stopped at the number checks — July's Google Ads ramp approvals and CPA need a correction, below).**
+**Last updated: 13 October 2026 (source rules: referrer UTMs, vendors first, the website Apply Now form as SEO/Organic, 100A00 counts for nothing — applied in production and deployed).**
 
-**Stopped at the number checks, 13 October 2026: the source-rule change.**
+**Deployed, 13 October 2026: the source-rule change.**
 Decisions in `docs/brief-amendments.md`, "referrer UTMs, vendors first, and the
 website Apply Now form"; `unknownPaidSources` is now empty. Done in production:
 migration 0044 (`leads.capture_url`); `apply-lead-sources.ts` (capture-page
 mapping `acq_capture__c`, `organicCapturePages`, `unknownPaidSources: []`);
 the backfill (402 leads moved, 5,045 capture pages; Sonic Gods to
 SEO/Organic); 42 June–August channel figures restated with the decisions as
-the reason. **Not pushed:** the baseline check fails on July's Google Ads
-*ramp* figures — approvals 23 → 24 and CPA $1,264.23 → $1,211.55 (Everhart
-Plumbing's 31 July offer, now Google Ads by its referrer URL's paid UTMs).
-The fix is `freeze-baseline spartan 2026-07 --correct approvals,cpa` with the
-same reason (dry run shown), then the number checks, then push. Until the deploy,
-the deployed sync (old code) re-resolves every lead Salesforce modifies with
-the old rules — an Apply Now lead goes back to Direct & other — so the data
-drifts back lead by lead. Rerun the backfill (no flags) after the deploy.
+the reason. July's Google Ads *ramp* figures were corrected too — approvals
+23 → 24 and CPA $1,264.23 → $1,211.55, v5, same reason (Everhart Plumbing's
+31 July offer, now Google Ads by its referrer URL's paid UTMs). Number checks
+passed against production; pushed; the backfill was rerun after the deploy to
+undo what the old sync re-resolved in between.
 
 **13 October 2026: an Offers column on Executive's "All funded" table**,
 between Source and Deals, with a total row. Offer is the stage before value
