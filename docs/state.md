@@ -4,17 +4,19 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (an Offers column on Executive's "All funded" table — committed, not deployed: the baseline number check fails on main, one July lead moved from Leadpop to Direct & other; see below).**
+**Last updated: 13 October 2026 (an Offers column on Executive's "All funded" table; July's frozen Leadpop / Direct & other lead and MQL figures corrected for a Salesforce source edit).**
 
-**Not deployed, 13 October 2026: the baseline number check fails on unchanged
-`main`.** Spartan, July 2026: Leadpop lead and MQL frozen 20, computed 19;
-unattributed (Direct & other) lead frozen 103, computed 104, MQL 30 → 31 —
-one lead's source re-resolved since the 6 October deploy. Not yet traced to the
-lead or the cause. Either it is a correction (freeze the next version with a
-reason) or a regression in `leadChannel` (fix it); a `baseline-exceptions.ts`
-entry only once the cause is known. The Offers column (stage before value,
-`stageBeforeValue` in core — UW approved, into which Offer is merged) is
-committed and waits on this.
+**13 October 2026: an Offers column on Executive's "All funded" table**,
+between Source and Deals, with a total row. Offer is the stage before value
+(`stageBeforeValue` in core) — for Spartan UW approved, into which Offer is
+merged — from the same `monthlyPerformance` rows, range and model as Deals;
+the consistency number check holds its rows to its total. The baseline check
+had been failing on `main`: lead 00QVr00000uZ7MXMA0 (14 July, qualified) had
+its Lead Source changed in Salesforce from `leadpop` to `Web` on 9 October
+(LeadHistory), so it moved from Leadpop to Direct & other. A source
+correction, not a regression: July's four figures were frozen as the next
+version with that reason (`--correct-channel-figures`, dry run first) —
+Leadpop lead and MQL 20 → 19, unattributed lead 103 → 104, MQL 30 → 31.
 
 ---
 
