@@ -4,7 +4,18 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (source rules: referrer UTMs, vendors first, the website Apply Now form as SEO/Organic, 100A00 counts for nothing — applied in production and deployed).**
+**Last updated: 13 October 2026 (an Offer amount column on Executive's "All funded" table — each deal at its highest offer; deployed).**
+
+**13 October 2026: an Offer amount column on Executive's "All funded"
+table**, after Offers, with a total. The deal's highest offer, counted once, is
+Salesforce's roll-up `csbs__Max_Offer_Funded__c` (largest `csbs__Funded__c`
+across its `csbs__Offer__c` records; equal to it on all 30 deals offered 1–13
+October), mapped as `opportunity.maxOfferAmount` and stored as
+`opportunities.max_offer_amount` (migration 0045, applied to Neon before the
+deploy; `apply-offer-amount-mapping.ts` stored the mapping; `backfill-max-offer.ts`
+filled 169 of 853 deals, $3,387,400). A deal approved before any offer is
+recorded has no amount — a dash, and counted in the column's ⓘ. The
+consistency number check holds the rows to the total.
 
 **Deployed, 13 October 2026: the source-rule change.**
 Decisions in `docs/brief-amendments.md`, "referrer UTMs, vendors first, and the
