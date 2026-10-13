@@ -8,6 +8,8 @@ export type FundedSourceRow = {
   label: string;
   /** Deals reaching offer in the period, attributed the same way. */
   offers: number;
+  /** Those deals' highest offers, each once, and how many carry one. */
+  offerAmount: { amount: number; deals: number };
   deals: number;
   volume: number;
   /** One sentence on what this source is, for its ⓘ. */
@@ -30,6 +32,7 @@ export function AllFunded({
   totalDeals,
   totalVolume,
   totalOffers,
+  totalOfferAmount,
   rows,
   currency,
   notMeasured,
@@ -42,6 +45,8 @@ export function AllFunded({
   totalVolume: number;
   /** The offer column's total; absent where the funnel has no stage before value. */
   totalOffers?: number;
+  /** The offer amount column's total, beside `totalOffers`. */
+  totalOfferAmount?: { amount: number; deals: number };
   rows: FundedSourceRow[];
   currency: string;
   /** Why the period cannot be counted. The named state, never a zero. */
@@ -50,6 +55,22 @@ export function AllFunded({
   const noun = (n: number) => (n === 1 ? 'deal' : 'deals');
   // One rule for the whole column, so a $0 row does not read "$0.00" beside "$10,000".
   const volume = currencyFormatterFor([totalVolume, ...rows.map((r) => r.volume)], currency);
+  const offered = currencyFormatterFor(
+    [totalOfferAmount?.amount ?? 0, ...rows.map((r) => r.offerAmount.amount)],
+    currency,
+  );
+  // A deal approved before its first offer is recorded has no amount: a dash,
+  // never $0.
+  const offerCell = (o: { amount: number; deals: number }) =>
+    o.deals === 0 ? (
+      <>
+        <span aria-hidden>—</span>
+        <span className="sr-only">no offer amount recorded</span>
+      </>
+    ) : (
+      offered(o.amount)
+    );
+  const unrecorded = totalOfferAmount && totalOffers !== undefined ? totalOffers - totalOfferAmount.deals : 0;
   return (
     <Card span={12} id="all-funded">
       <CardHeader
@@ -82,7 +103,7 @@ export function AllFunded({
               </dd>
             </div>
           </dl>
-          <div className="min-w-0">
+          <div className="min-w-0 overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
@@ -92,6 +113,18 @@ export function AllFunded({
                   {totalOffers !== undefined && (
                     <th scope="col" className="numeric px-3 py-2.5 font-semibold">
                       Offers
+                    </th>
+                  )}
+                  {totalOfferAmount && (
+                    <th scope="col" className="numeric px-3 py-2.5 font-semibold">
+                      <span className="inline-flex items-center gap-1.5">
+                        Offer amount
+                        <InfoTip label="How the offer amount is counted" align="end">
+                          Each deal&rsquo;s highest offer, counted once however many lenders offered.
+                          {unrecorded > 0 &&
+                            ` ${formatCount(unrecorded)} ${unrecorded === 1 ? 'deal' : 'deals'} reached Offer before an offer amount was recorded.`}
+                        </InfoTip>
+                      </span>
                     </th>
                   )}
                   <th scope="col" className="numeric px-3 py-2.5 font-semibold">
@@ -121,6 +154,9 @@ export function AllFunded({
                         <span className="sr-only"> {row.offers === 1 ? 'offer' : 'offers'}</span>
                       </td>
                     )}
+                    {totalOfferAmount && (
+                      <td className="numeric px-3 py-2.5 tabular text-text">{offerCell(row.offerAmount)}</td>
+                    )}
                     <td className="numeric px-3 py-2.5 tabular text-text">
                       {formatCount(row.deals)}
                       <span className="sr-only"> {noun(row.deals)}</span>
@@ -138,6 +174,9 @@ export function AllFunded({
                       Total
                     </th>
                     <td className="numeric px-3 py-2.5 tabular text-text">{formatCount(totalOffers)}</td>
+                    {totalOfferAmount && (
+                      <td className="numeric px-3 py-2.5 tabular text-text">{offerCell(totalOfferAmount)}</td>
+                    )}
                     <td className="numeric px-3 py-2.5 tabular text-text">{formatCount(totalDeals)}</td>
                     <td className="numeric px-5 py-2.5 tabular text-text">{volume(totalVolume)}</td>
                   </tr>

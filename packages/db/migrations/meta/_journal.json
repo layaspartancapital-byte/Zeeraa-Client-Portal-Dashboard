@@ -316,6 +316,13 @@
       "when": 1790210000000,
       "tag": "0044_lead_capture_page",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790220000000,
+      "tag": "0045_opportunity_max_offer",
+      "breakpoints": true
     }
   ]
 }

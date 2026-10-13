@@ -79,6 +79,7 @@ function opportunity(overrides: Partial<OpportunityRow> = {}): OpportunityRow {
     currentStage: 'Underwriting',
     amount: 50_000,
     fundedAmount: null,
+    maxOfferAmount: 48_000,
     dealType: null,
     declineReason: null,
     industry: null,
@@ -342,6 +343,21 @@ describe('opportunities', () => {
     // The deal's name is kept the same way (0041).
     expect(row?.name).toBe('Acme Bakery - MCA');
     expect(row?.currentStage).toBe('Funded');
+  });
+
+  it('stores the deal\'s highest offer, and follows the CRM when it changes', async () => {
+    await withJobTenant(tenantId, (tx) => upsertOpportunities(tx, tenantId, [opportunity()], syncRunId), jobs);
+    const offer = () =>
+      withJobTenant(tenantId, (tx) => tx.select({ v: schema.opportunities.maxOfferAmount }).from(schema.opportunities), jobs).then(
+        (rows) => rows[0]?.v,
+      );
+    expect(await offer()).toBe('48000.00');
+    await withJobTenant(
+      tenantId,
+      (tx) => upsertOpportunities(tx, tenantId, [opportunity({ maxOfferAmount: 52_500 })], syncRunId),
+      jobs,
+    );
+    expect(await offer()).toBe('52500.00');
   });
 });
 

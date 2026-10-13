@@ -183,6 +183,8 @@ export const opportunities = pgTable(
     dealType: text('deal_type'),
     amount: numeric('amount', { precision: 18, scale: 2 }),
     fundedAmount: numeric('funded_amount', { precision: 18, scale: 2 }),
+    /** The deal's highest offer, counted once (migration 0045). */
+    maxOfferAmount: numeric('max_offer_amount', { precision: 18, scale: 2 }),
     declineReason: text('decline_reason'),
     industry: text('industry'),
     state: text('state'),

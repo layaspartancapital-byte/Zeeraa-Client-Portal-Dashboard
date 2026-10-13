@@ -24,6 +24,7 @@ import {
   reasonCoverageByPeriod,
   responseSeconds,
   speedToLead,
+  stageBeforeValue,
   stageCohorts,
   submissionOfferRate,
   pendingState,
@@ -59,6 +60,17 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  */
 
 export { PLATFORM_LABELS, platformLabel } from '@/lib/platform-labels';
+
+/**
+ * The offered amount on the deals reaching the stage before value (Offer),
+ * each deal counted once at its highest offer (`opportunities.max_offer_amount`).
+ * `deals` is how many of those deals carry an amount at all: a deal approved
+ * before its first offer is recorded has none, and is not a $0 offer.
+ */
+export type OfferedAmount = { amount: number; deals: number };
+
+/** Every population at once, for a total. */
+const ANY = Symbol('any');
 
 /**
  * Stages whose only source is `OpportunityFieldHistory`.
@@ -127,6 +139,7 @@ export type ChannelRow = {
   cohorts: StageCohorts;
   /** Funded amount on deals attributed to this channel. */
   valueVolume: number;
+  offered: OfferedAmount;
   costPerDeal: ChannelCostPerDeal;
 };
 
@@ -143,6 +156,7 @@ export type UnattributedRow = {
   stages: StageCounts;
   cohorts: StageCohorts;
   valueVolume: number;
+  offered: OfferedAmount;
   /** Why these cannot be costed, in the interface's voice. */
   reason: string;
 };
@@ -168,6 +182,7 @@ export type TotalRow = {
   stages: StageCounts;
   cohorts: StageCohorts;
   valueVolume: number;
+  offered: OfferedAmount;
   costPerDeal: null;
   costPerDealAbsentBecause: string;
 };
@@ -547,6 +562,37 @@ export async function monthlyPerformance(
       }
     }
 
+    // The highest offer per deal at the stage before value, for the offered
+    // amount beside the deals reaching it.
+    const offeredStage = stageBeforeValue(stages)?.key ?? null;
+    const offeredIds = offeredStage
+      ? [...new Set(stageRows.filter((r) => r.stage === offeredStage).map((r) => r.opportunityExternalId))]
+      : [];
+    const offers = new Map<string, number>();
+    if (offeredIds.length > 0) {
+      const rows = await tx
+        .select({ externalId: schema.opportunities.externalId, maxOfferAmount: schema.opportunities.maxOfferAmount })
+        .from(schema.opportunities)
+        .where(and(eq(schema.opportunities.tenantId, tenantId), inArray(schema.opportunities.externalId, offeredIds)));
+      for (const row of rows) if (row.maxOfferAmount !== null) offers.set(row.externalId, Number(row.maxOfferAmount));
+    }
+    const offeredOf = (platform: string | null | typeof ANY): OfferedAmount => {
+      const ids = new Set(
+        stageRows
+          .filter((r) => r.stage === offeredStage && (platform === ANY || (r.platform ?? null) === platform))
+          .map((r) => r.opportunityExternalId),
+      );
+      let amount = 0;
+      let deals = 0;
+      for (const id of ids) {
+        const offer = offers.get(id);
+        if (offer === undefined) continue;
+        amount += offer;
+        deals += 1;
+      }
+      return { amount, deals };
+    };
+
     // The window each windowed source can speak for, keyed as `window:*` by
     // `recordSourceWindow`.
     const windowRows = await tx
@@ -774,6 +820,7 @@ export async function monthlyPerformance(
         stages: byPlatform.get(platform) ?? {},
         cohorts: cohortsFor(platform),
         valueVolume: sumAmounts(valueDealsByPlatform.get(platform) ?? []),
+        offered: offeredOf(platform),
         // An unpaid channel keeps its deal counts and has no cost: a value of
         // $0 would read as the cheapest channel in the table.
         costPerDeal: paid ? cost : { ...cost, value: null, plausibleRange: { low: null, high: null } },
@@ -836,6 +883,7 @@ export async function monthlyPerformance(
         stages: unattributedStages,
         cohorts: cohortsFor(NONE),
         valueVolume: sumAmounts(unattributedValueDeals),
+        offered: offeredOf(null),
         reason: UNATTRIBUTED_REASON,
       },
       total: {
@@ -850,6 +898,7 @@ export async function monthlyPerformance(
         cohorts: cohortsFor(ALL),
         valueVolume:
           channels.reduce((sum, c) => sum + c.valueVolume, 0) + sumAmounts(unattributedValueDeals),
+        offered: offeredOf(ANY),
         costPerDeal: null,
         costPerDealAbsentBecause: BLENDED_NOT_COMPUTED,
       },

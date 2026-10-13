@@ -69,6 +69,8 @@ export type OpportunityRow = {
   currentStage: string;
   amount: number | null;
   fundedAmount: number | null;
+  /** The deal's highest offer, where the mapping names a field. */
+  maxOfferAmount: number | null;
   dealType: string | null;
   declineReason: string | null;
   industry: string | null;
@@ -247,6 +249,7 @@ export function normalizeOpportunity(
     currentStage: str(record, 'StageName') ?? 'unknown',
     amount: num(record, mapping.opportunity.amount),
     fundedAmount: num(record, mapping.opportunity.fundedAmount),
+    maxOfferAmount: num(record, mapping.opportunity.maxOfferAmount),
     dealType: str(record, mapping.opportunity.dealType),
     declineReason: str(record, mapping.opportunity.declineReason),
     industry: str(record, mapping.opportunity.industry),

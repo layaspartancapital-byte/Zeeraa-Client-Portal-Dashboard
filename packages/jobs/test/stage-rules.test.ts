@@ -48,6 +48,7 @@ function opportunity(externalId: string, dealType: string | null): OpportunityRo
     currentStage: 'Funded',
     amount: 10_000,
     fundedAmount: 10_000,
+    maxOfferAmount: null,
     dealType,
     declineReason: null,
     industry: null,

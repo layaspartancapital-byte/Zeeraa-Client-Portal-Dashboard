@@ -135,6 +135,14 @@ describe('the same figure on every screen', () => {
           if (o) {
             const offers = mp.channels.reduce((n, c) => n + (c.stages[o] ?? 0), 0) + (mp.unattributed.stages[o] ?? 0);
             if (offers !== (mp.total.stages[o] ?? 0)) problems.push(`${label} All funded offers: rows ${offers}, total ${mp.total.stages[o]}`);
+            // Its offer amount: each deal once at its highest offer, so the rows add up too.
+            const offered = [...mp.channels.map((c) => c.offered), mp.unattributed.offered];
+            const amount = offered.reduce((n, x) => n + x.amount, 0);
+            const withAmount = offered.reduce((n, x) => n + x.deals, 0);
+            if (Math.abs(amount - mp.total.offered.amount) > 0.005 || withAmount !== mp.total.offered.deals) {
+              problems.push(`${label} All funded offer amount: rows ${amount} over ${withAmount}, total ${mp.total.offered.amount} over ${mp.total.offered.deals}`);
+            }
+            if (mp.total.offered.deals > (mp.total.stages[o] ?? 0)) problems.push(`${label} All funded offer amount: more priced deals than offers`);
           }
         }
         // Declines: the bars are the headline's deals, each in one month of the window.

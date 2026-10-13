@@ -838,6 +838,10 @@ export const spartan: TenantSeed = {
              * sums only deals that reached Funded.
              */
             fundedAmount: 'csbs__Funded__c',
+            // The deal's highest offer: a roll-up of the largest csbs__Funded__c
+            // across its csbs__Offer__c records, equal to it on all 30 deals
+            // offered 1–13 October 2026 (13 October 2026).
+            maxOfferAmount: 'csbs__Max_Offer_Funded__c',
             /*
              * The deal type, read by `stage_exclusions`. Blank on 562 of 734
              * opportunities (23 September 2026), so a renewal nobody labelled

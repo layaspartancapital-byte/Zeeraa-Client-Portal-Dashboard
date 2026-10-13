@@ -318,17 +318,19 @@ export default async function ExecutiveBriefing({
         key: c.platform,
         label: c.label,
         offers: offersIn(c.stages),
+        offerAmount: c.offered,
         deals: dealsIn(c.stages),
         volume: c.valueVolume,
         info: sourceDescription(c.platform) ?? undefined,
       })),
     ...(current.organicMeasured && !current.channels.some((c) => c.platform === ORGANIC_SEARCH)
-      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), offers: 0, deals: 0, volume: 0, info: sourceDescription(ORGANIC_SEARCH) ?? undefined }]
+      ? [{ key: ORGANIC_SEARCH, label: platformLabel(ORGANIC_SEARCH), offers: 0, offerAmount: { amount: 0, deals: 0 }, deals: 0, volume: 0, info: sourceDescription(ORGANIC_SEARCH) ?? undefined }]
       : []),
     {
       key: 'unattributed',
       label: current.unattributed.label,
       offers: offersIn(current.unattributed.stages),
+      offerAmount: current.unattributed.offered,
       deals: unattributedDeals,
       volume: current.unattributed.valueVolume,
       info: DIRECT_AND_OTHER_DESCRIPTION,
@@ -611,6 +613,7 @@ export default async function ExecutiveBriefing({
           totalDeals={totalDeals}
           totalVolume={current.total.valueVolume}
           totalOffers={offerKey ? offersIn(current.total.stages) : undefined}
+          totalOfferAmount={offerKey ? current.total.offered : undefined}
           rows={fundedRows}
           currency={currency}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}

@@ -127,6 +127,12 @@ export type SalesforceFieldMapping = {
     amount?: string;
     fundedAmount?: string;
     /**
+     * The deal's highest offer, once however many lenders offered:
+     * `csbs__Max_Offer_Funded__c` in Spartan's org, a roll-up of the largest
+     * `csbs__Funded__c` across its Offer records.
+     */
+    maxOfferAmount?: string;
+    /**
      * The CRM's deal-type field. Stored verbatim on the opportunity; which
      * values are renewals is the `renewal_exclusion` config row's to say.
      */
