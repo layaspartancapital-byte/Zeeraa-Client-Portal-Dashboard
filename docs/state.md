@@ -34,20 +34,24 @@ keeps CPA, cost per funded deal and spend targets. Google's frozen ramp figures
 are untouched; the new measure is live, not frozen. See
 `docs/brief-amendments.md`.
 
-**30 October 2026: Excel exports built, committed, NOT deployed.** Every card
-and page exports to Excel (`lib/exports.ts`, `/api/xlsx/<tenant>`); contact
-fields in `crm_contacts` (migration 0046), admin-only by policy; every export
-in the audit log. See `docs/brief-amendments.md`, "§10 — Excel exports". All
-suites pass, the number checks pass against production, and every page's
-workbook was built against production read-only (largest 2.55 MB). **The
-deploy waits on production steps, in this order:**
-1. Migration 0046 on Neon: `DATABASE_URL_OWNER=$NEON_DIRECT_URL npx tsx
-   scripts/migrate.ts` from `packages/db`. Additive; the running code ignores it.
-   Without it the new code cannot record an export or read the audit log.
-2. `apply-contact-mapping.ts --dry-run`, then without (owner URL as above).
-3. `backfill-contacts.ts spartan --dry-run`, then without (jobs + maint URLs,
-   `ENCRYPTION_KEY` from `.env`), as `backfill-max-offer.ts` is run.
-4. Push `main`.
+**30 October 2026: Excel exports** on every card and page (`lib/exports.ts`,
+`/api/xlsx/<tenant>`); contact fields in `crm_contacts` (migration 0046,
+applied to Neon), admin-only by policy; every export in the audit log. The
+contact mapping is stored (`apply-contact-mapping.ts`) and 10,781 contact rows
+were backfilled (`backfill-contacts.ts`). See `docs/brief-amendments.md`,
+"§10 — Excel exports".
+
+**30 October 2026: Aloware's direct webhook is live.** It had run in shadow
+since 6 October while the Zap wrote calls; the Zap stopped on 22 October at
+15:28 UTC and no call was stored after it. `configure-aloware spartan
+--direct-mode live` switched it (the first post after was written), and
+`promote-shadow-calls.ts` wrote the 2,460 calls recorded only in shadow
+(2,207 after the Zap's last, 253 the Zap had missed before). The
+`aloware-senders` verdict still read "keep the Zap" — Aloware missed 2–31 of
+the Zap's calls a day and disagreed on 3–29 — but with the Zap gone the
+choice was this or nothing. Calls from 26 October 15:42 to 30 October 13:50
+UTC were lost to the Neon outage unless Aloware retried; an Aloware export for
+that window through `import-aloware-calls` would fill them.
 
 **Queued, not started:** a Comparison page; the deploy check freezing
 Salesforce-proven merge corrections itself.

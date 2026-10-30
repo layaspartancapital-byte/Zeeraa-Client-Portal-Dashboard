@@ -28,6 +28,14 @@ if (!wanted.lead || !wanted.opportunity) throw new Error('The seed maps no conta
 
 class Rollback extends Error {}
 
+/** jsonb stores keys in its own order, so compare with every object's keys sorted. */
+const canonical = (value: unknown) =>
+  JSON.stringify(value, (_k, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+
 const { db, close } = getOwnerDb();
 try {
   const report = await withMaintenance(db, async (tx) => {
@@ -47,7 +55,7 @@ try {
       const section = config.fieldMapping?.[object];
       if (!section) throw new Error(`The Salesforce connection has no ${object} mapping.`);
       const before = section.contact;
-      if (before !== undefined && JSON.stringify(before) !== JSON.stringify(wanted[object])) {
+      if (before !== undefined && canonical(before) !== canonical(wanted[object])) {
         throw new Error(`Refusing: ${object}.contact is already mapped to ${JSON.stringify(before)}.`);
       }
       section.contact = wanted[object]!;
@@ -56,8 +64,10 @@ try {
     await tx.update(schema.connections).set({ config }).where(where);
     const [after] = await tx.select({ config: schema.connections.config }).from(schema.connections).where(where);
     const stored = after?.config as Mapping;
-    if (JSON.stringify(stored.fieldMapping?.lead?.contact) !== JSON.stringify(wanted.lead)) {
-      throw new Error('lead.contact did not read back — denied.');
+    for (const object of ['lead', 'opportunity'] as const) {
+      if (canonical(stored.fieldMapping?.[object]?.contact) !== canonical(wanted[object])) {
+        throw new Error(`${object}.contact did not read back — denied.`);
+      }
     }
     if (DRY_RUN) {
       console.log(`Dry run against ${slug}, rolled back:\n  ${lines.join('\n  ')}`);
