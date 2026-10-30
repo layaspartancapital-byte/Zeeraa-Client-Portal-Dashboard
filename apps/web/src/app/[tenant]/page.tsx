@@ -34,6 +34,7 @@ import { EfficiencyTable, type EfficiencyRow } from '@/components/EfficiencyTabl
 import { NeedsAttention, type Finding } from '@/components/NeedsAttention';
 import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
 import { AllSourcesCard } from '@/components/AllSourcesCard';
+import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
 import { allSources } from '@/lib/all-sources';
 import { monthName } from '@/components/RampCard';
 import { buildRampPanels, fundedTargetRows, scorecardRows } from '@/lib/ramp-panels';
@@ -584,7 +585,7 @@ export default async function ExecutiveBriefing({
   const exportParams = new URLSearchParams({ ...rangeParams(range), model });
 
   return (
-    <>
+    <ExportScope value={{ slug, page: 'executive', from: range.start, to: range.end, model }}>
       <TopBar tenant={session.tenant} viewer={session.viewer} title="Executive briefing">
         <DateRangePicker
           range={range}
@@ -599,6 +600,7 @@ export default async function ExecutiveBriefing({
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>
+        <ExportEverything />
         <PrintButton />
         {/*
           Every connected platform, not just Google Ads.
@@ -678,6 +680,7 @@ export default async function ExecutiveBriefing({
         {/* 2. The outcome, and the spend that bought it. */}
         <TwoPeriodKpi
           span={6}
+          exportAs={['deals:value']}
           label={`${valueLabel} deals`}
           value={formatCount(totalDeals)}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
@@ -699,6 +702,7 @@ export default async function ExecutiveBriefing({
         />
         <TwoPeriodKpi
           span={6}
+          exportAs={['deals:value']}
           label={`${valueLabel} volume`}
           value={formatCurrency(current.total.valueVolume, currency)}
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
@@ -718,6 +722,7 @@ export default async function ExecutiveBriefing({
           <CardHeader
             title="Funnel"
             subtitle={`Every stage and the conversion between them · ${mtdLabel}${crmNote}`}
+            controls={<ExportButton datasets={['leads', 'deals']} />}
           />
           {crmUnmeasured ? (
             <CardBody>
@@ -770,7 +775,7 @@ export default async function ExecutiveBriefing({
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
-    </>
+    </ExportScope>
   );
 }
 
@@ -802,6 +807,7 @@ function TwoPeriodKpi({
   info,
   notMeasured,
   span = 3,
+  exportAs,
 }: {
   label: string;
   value: string;
@@ -813,14 +819,19 @@ function TwoPeriodKpi({
   context?: string;
   info?: string;
   span?: 3 | 4 | 6;
+  /** The rows behind the figure, for "Export to Excel". */
+  exportAs?: readonly string[];
 }) {
   return (
     <Card span={span} className="justify-between">
       <div className="px-5 pb-5 pt-4">
-        <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
-          {label}
-          {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
+            {label}
+            {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
+          </p>
+          {exportAs && <ExportButton datasets={exportAs} />}
+        </div>
 
         {notMeasured ? (
           <div className="mt-2">

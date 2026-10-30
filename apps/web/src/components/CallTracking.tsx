@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/Progress';
 import { MonthBars } from '@/components/charts/MonthBars';
 import { monthBars } from '@/lib/month-bars';
 import type { CallReport } from '@/lib/reporting';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * Call tracking, from Aloware.
@@ -60,9 +61,10 @@ export function CallTracking({
         title="Call tracking"
         subtitle="Aloware, joined to leads by phone number"
         controls={
-          report.from ? (
-            <span className="text-[12px] tabular text-text-3">from {report.from}</span>
-          ) : undefined
+          <>
+            {report.from && <span className="text-[12px] tabular text-text-3">from {report.from}</span>}
+            <ExportButton datasets={['calls']} />
+          </>
         }
       />
 

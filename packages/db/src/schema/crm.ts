@@ -5,6 +5,7 @@ import {
   integer,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -526,4 +527,31 @@ export const callDeliveries = pgTable(
     uniqueIndex('call_deliveries_tenant_sender_call_key').on(t.tenantId, t.sender, t.externalId),
     index('call_deliveries_tenant_received_idx').on(t.tenantId, t.firstReceivedAt),
   ],
+);
+
+/**
+ * A lead's or deal's contact fields, from Salesforce (migration 0046): name,
+ * email, phone, company and owner, and nothing else — never SSN, date of
+ * birth, bank or credit fields.
+ *
+ * Its own table so the policy, not a query, decides who reads it: a Zeeraa
+ * admin or a client admin, never a viewer. Written by the sync only.
+ */
+export const crmContacts = pgTable(
+  'crm_contacts',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    object: text('object').$type<'lead' | 'opportunity'>().notNull(),
+    externalId: text('external_id').notNull(),
+    name: text('name'),
+    email: text('email'),
+    phone: text('phone'),
+    company: text('company'),
+    ownerName: text('owner_name'),
+    syncRunId: uuid('sync_run_id').references(() => syncRuns.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.object, t.externalId] })],
 );

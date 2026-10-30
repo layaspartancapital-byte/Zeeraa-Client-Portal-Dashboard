@@ -2,6 +2,7 @@ import { currencyFormatterFor, formatCount, formatCurrency } from '@zeeraa/core'
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
+import { ExportButton } from '@/components/export/ExportScope';
 
 export type FundedSourceRow = {
   key: string;
@@ -76,6 +77,7 @@ export function AllFunded({
       <CardHeader
         title={title}
         subtitle={`Every source · ${periodLabel}`}
+        controls={<ExportButton datasets={['deals:value']} />}
         info={
           <InfoTip label={`How ${title.toLowerCase()} is counted`} align="start">
             Every deal reaching {valueLabel.toLowerCase()} in the period, renewals excluded, split

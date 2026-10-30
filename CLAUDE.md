@@ -95,6 +95,13 @@
   recorded before its session exists. Activity (`user_activity`) is written
   only by `ActivityBeacon`, keyed on the pathname, at most once a minute —
   never from a render, or the ten-minute refresh counts as a visit.
+- **Contact fields are admin-only, by policy.** Name, email, phone, company and
+  owner live in `crm_contacts` (0046), which a Zeeraa admin or a client admin
+  can read and nobody else; never add a contact column to `leads` or
+  `opportunities`, where every member could read it. No SSN, date of birth,
+  bank or credit field is ever mapped. Every Excel export is written to the
+  audit log (`recordExport`) before its file is served, and its URL carries
+  filters only.
 - **No screen may surface a user outside the current tenant.** Enforced by the
   `users` and `memberships` policies, not by a query filter.
 - **A missing data dependency is an explicit blocked state — for Zeeraa

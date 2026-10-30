@@ -2,6 +2,7 @@ import { FUNDED_TARGET_SCOPE, type RampMetricKey } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { monthName, renderer, targetRenderer, type RampPanel } from '@/components/RampCard';
 import { RAMP_TABLE_COLUMNS, type RampTableCell, type RampTableRow } from '@/lib/ramp-panels';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * The engagement ramp as one month-by-month table: each figure against its
@@ -29,6 +30,7 @@ export function RampTable({
     <Card span={12}>
       <CardHeader
         title="Engagement ramp"
+        controls={<ExportButton datasets={['ramp']} />}
         subtitle={`${channel} · ${span}M1–M${engagement} against target · ${valueLabel.toLowerCase()} targets across ${FUNDED_TARGET_SCOPE}`}
       />
       <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">

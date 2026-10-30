@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { schema, withUserOnly, type Database } from '@zeeraa/db';
-import type { AuditAction } from '@zeeraa/db/schema';
+import type { AuditAction, ExportAuditDetail } from '@zeeraa/db/schema';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 
 /**
@@ -17,7 +17,7 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
  * signed-in Zeeraa admin, so an entry cannot name somebody else as its author.
  */
 
-export type AccountAction = Exclude<AuditAction, 'sign_in'>;
+export type AccountAction = Exclude<AuditAction, 'sign_in' | 'export'>;
 
 export async function recordAccountAction(
   tx: Database,
@@ -70,6 +70,8 @@ export type AuditEntry = {
   actorEmail: string;
   subjectEmail: string;
   role: string | null;
+  /** An export's what and how many; null for an account action. */
+  detail: ExportAuditDetail | null;
 };
 
 /** The most recent entries for this tenant, newest first. */
@@ -83,6 +85,7 @@ export function auditLog(session: TenantSession, limit = 100): Promise<AuditEntr
         actorEmail: schema.auditEvents.actorEmail,
         subjectEmail: schema.auditEvents.subjectEmail,
         role: schema.auditEvents.role,
+        detail: schema.auditEvents.detail,
       })
       .from(schema.auditEvents)
       .where(eq(schema.auditEvents.tenantId, session.tenant.id))

@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { NotMeasuredBadge, ProvisionalHint } from '@/components/ui/Badge';
 import { MiniChart, type MiniPoint } from '@/components/charts/MiniChart';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * The KPI card (spec v2 §6).
@@ -31,6 +32,7 @@ export function KpiCard({
   provisional = false,
   notMeasured,
   span = 3,
+  exportAs,
 }: {
   label: string;
   /** Formatted. Null puts the card into its not-measured state. */
@@ -45,6 +47,8 @@ export function KpiCard({
   /** Required when `value` is null: the one line that replaces the figure. */
   notMeasured?: string;
   span?: 3 | 4 | 6;
+  /** The rows behind the figure, for "Export to Excel". */
+  exportAs?: readonly string[];
 }) {
   return (
     <Card span={span} className="justify-between">
@@ -54,8 +58,11 @@ export function KpiCard({
             {label}
             {info && <InfoTip label={`How ${label} is measured`}>{info}</InfoTip>}
           </p>
-          {provisional && value !== null && <ProvisionalHint />}
-          {value === null && <NotMeasuredBadge />}
+          <span className="flex items-center gap-2">
+            {provisional && value !== null && <ProvisionalHint />}
+            {value === null && <NotMeasuredBadge />}
+            {exportAs && <ExportButton datasets={exportAs} />}
+          </span>
         </div>
 
         {value === null ? (

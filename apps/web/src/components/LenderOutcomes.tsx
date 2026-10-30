@@ -2,6 +2,7 @@ import { formatCount, formatRangeLabel, formatRate, type PopulationVerdict } fro
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { SubmissionReport } from '@/lib/reporting';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * Lender outcomes, at the grain the decisions happen.
@@ -47,7 +48,12 @@ export function LenderOutcomes({
       <CardHeader
         title="Lender outcomes"
         subtitle="One row per lender. Each rate is that lender's own offers over its own decisions."
-        controls={<span className="text-[12px] tabular text-text-3">{formatRangeLabel(report.range)}</span>}
+        controls={
+          <>
+            <span className="text-[12px] tabular text-text-3">{formatRangeLabel(report.range)}</span>
+            <ExportButton datasets={['lender_decisions']} />
+          </>
+        }
       />
 
       {report.empty ? (

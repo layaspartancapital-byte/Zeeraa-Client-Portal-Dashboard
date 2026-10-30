@@ -323,6 +323,13 @@
       "when": 1790220000000,
       "tag": "0045_opportunity_max_offer",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790306400000,
+      "tag": "0046_contacts_and_export_audit",
+      "breakpoints": true
     }
   ]
 }

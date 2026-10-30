@@ -47,6 +47,7 @@ import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
 import { loadMetrics, organicView, platformView, seoView, sourcesThrough } from '@/lib/cached-reports';
+import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
 
 
 
@@ -164,6 +165,7 @@ export default async function PlatformPage({
       return seoListPage(await seoView(again, seoRange), list, offset);
     }
     return (
+      <ExportScope value={{ slug, page: 'platform', from: range.start, to: range.end, platform }}>
       <SeoPlatformView
         session={session}
         view={view}
@@ -189,6 +191,7 @@ export default async function PlatformPage({
         showOperational={canAdministerTenant(session.tenant.role)}
         loadMore={moreSeoRows}
       />
+      </ExportScope>
     );
   }
 
@@ -213,6 +216,7 @@ export default async function PlatformPage({
       range,
     );
     return (
+      <ExportScope value={{ slug, page: 'platform', from: range.start, to: range.end, platform }}>
       <OrganicPlatformView
         session={session}
         view={view}
@@ -237,6 +241,7 @@ export default async function PlatformPage({
           seriesKey === 'secondary' ? d.secondary : seriesKey === 'tertiary' ? d.tertiary : d.primary,
         )}
       />
+      </ExportScope>
     );
   }
 
@@ -342,7 +347,7 @@ export default async function PlatformPage({
   ];
 
   return (
-    <>
+    <ExportScope value={{ slug, page: 'platform', from: range.start, to: range.end, model, platform }}>
       <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
         <DateRangePicker
           range={range}
@@ -353,6 +358,7 @@ export default async function PlatformPage({
           earliest={earliest}
           today={today}
         />
+        <ExportEverything />
         <PrintButton />
       </TopBar>
 
@@ -392,7 +398,8 @@ export default async function PlatformPage({
                 does not report it.
               </InfoTip>
             }
-          />
+        controls={<ExportButton datasets={['campaigns']} />}
+      />
           <CardBody>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
               <Figure label="Spend" value={formatCurrency(t.spend, currency)} />
@@ -441,7 +448,8 @@ export default async function PlatformPage({
             title="Over time"
             subtitle={`By day, as reported · ${view.daysReported} days with data`}
             controls={
-              // Five options do not fit a 390px card, so the control scrolls
+          <>
+            {// Five options do not fit a 390px card, so the control scrolls
               // inside its own container rather than being clipped by the card
               // edge — and `min-w-0` is what stops it widening the page instead.
               <span className="scroll-x -mx-1 min-w-0 max-w-full overflow-x-auto px-1">
@@ -450,8 +458,10 @@ export default async function PlatformPage({
                   active={seriesKey}
                   options={segments(base, active, 'series', seriesOptions)}
                 />
-              </span>
-            }
+              </span>}
+            <ExportButton datasets={['platform_daily']} />
+          </>
+        }
           />
           <CardBody flush>
             {view.daily.length === 0 ? (
@@ -485,7 +495,8 @@ export default async function PlatformPage({
                 neither page groups its values with the other&rsquo;s.
               </InfoTip>
             }
-          />
+        controls={<ExportButton datasets={['campaigns']} />}
+      />
           <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
             <table className="w-full min-w-[720px] border-collapse text-[13px]">
               <thead>
@@ -549,7 +560,8 @@ export default async function PlatformPage({
           <CardHeader
             title="Campaigns"
             subtitle={`${formatCount(view.byCampaign.length)} with delivery in this window`}
-          />
+        controls={<ExportButton datasets={['campaigns']} />}
+      />
           <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
             <table className="w-full min-w-[900px] border-collapse text-[13px]">
               <thead>
@@ -614,7 +626,12 @@ export default async function PlatformPage({
           <CardHeader
             title={`Cost per ${stageWord} deal`}
             subtitle={`Salesforce · deals attributed to ${view.label}`}
-            controls={<Badge tone="neutral">CRM, not {view.label}</Badge>}
+            controls={
+          <>
+            {<Badge tone="neutral">CRM, not {view.label}</Badge>}
+            <ExportButton datasets={['deals:value']} />
+          </>
+        }
           />
           <CardBody>
             <CostPerDealFigure
@@ -660,7 +677,8 @@ export default async function PlatformPage({
           <CardHeader
             title="By campaign"
             subtitle={`Which ${view.label} campaign produced the deal`}
-          />
+        controls={<ExportButton datasets={['deals:value']} />}
+      />
           <CardBody>
             {view.outcomes.campaignAttributionBlocked ? (
               <div className="flex flex-col gap-2">
@@ -713,7 +731,7 @@ export default async function PlatformPage({
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
-    </>
+    </ExportScope>
   );
 }
 

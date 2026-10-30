@@ -2,6 +2,7 @@ import { Download } from 'lucide-react';
 import { RampTable } from '@/components/RampTable';
 import { buildRampPanels, rampTableRows } from '@/lib/ramp-panels';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
+import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
 import {
   canSyncNow,
   addDays,
@@ -348,7 +349,7 @@ export default async function Performance({
   const provisional = range.end >= addDays(today, -6);
 
   return (
-    <>
+    <ExportScope value={{ slug, page: 'performance', from: range.start, to: range.end, model }}>
       <TopBar
         tenant={session.tenant}
         viewer={session.viewer}
@@ -371,6 +372,7 @@ export default async function Performance({
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>
+        <ExportEverything />
         <PrintButton />
         {canSyncNow(session.tenant.role) && (
           <SyncNowButton slug={slug} platform="google_ads" />
@@ -387,6 +389,7 @@ export default async function Performance({
 
       <Grid>
         <KpiCard
+          exportAs={['sources']}
           label="Paid media spend"
           value={spendOut ? null : formatCurrency(data.total.spend, currency)}
           notMeasured={spendWhy}
@@ -407,6 +410,7 @@ export default async function Performance({
         />
 
         <KpiCard
+          exportAs={['deals:value']}
           label={`${valueLabel} deals`}
           value={crmOut ? null : formatCount(dealsIn(data.total.stages))}
           notMeasured={crmWhy}
@@ -438,6 +442,7 @@ export default async function Performance({
 
         {lead ? (
           <KpiCard
+            exportAs={['sources', 'deals:value']}
             label={`Cost per ${valueLabel.toLowerCase()} deal · ${lead.label}`}
             value={
               spendOut || crmOut || lead.costPerDeal.value === null
@@ -490,7 +495,10 @@ export default async function Performance({
           />
         ) : (
           <Card span={3}>
-            <CardHeader title={`Cost per ${valueLabel.toLowerCase()} deal`} />
+            <CardHeader
+              title={`Cost per ${valueLabel.toLowerCase()} deal`}
+              controls={<ExportButton datasets={['sources', 'deals:value']} />}
+            />
             <CardBody>
               <EmptyLine>No channel has reported spend in this window.</EmptyLine>
             </CardBody>
@@ -552,7 +560,12 @@ export default async function Performance({
           <CardHeader
             title="Spend over time"
             subtitle="Every connected channel, by month"
-            controls={buckets.at(-1)?.provisional ? <ProvisionalHint /> : undefined}
+            controls={
+              <>
+                {buckets.at(-1)?.provisional && <ProvisionalHint />}
+                <ExportButton datasets={['ramp', 'sources']} />
+              </>
+            }
             info={
               <InfoTip label="How the spend series is built" align="start">
                 Months before ingestion began are blank rather than zero: nobody looked, so the
@@ -574,6 +587,7 @@ export default async function Performance({
           <CardHeader
             title={`${valueLabel} deals by channel`}
             subtitle="Direct & other is its own segment"
+            controls={<ExportButton datasets={['deals:value']} />}
           />
           <CardBody className="flex-1">
             <StackedBars
@@ -602,13 +616,16 @@ export default async function Performance({
               model === 'last_touch' ? 'last touch' : 'first touch'
             } · ${session.tenant.timezone}${coverageNote}`}
             controls={
-              data.dataThrough ? (
-                <span className="text-[12px] text-text-3 tabular">
-                  Data through {data.dataThrough.toISOString().slice(0, 16).replace('T', ' ')} UTC
-                </span>
-              ) : (
-                <span className="text-[12px] text-text-3">No completed sync</span>
-              )
+              <>
+                {data.dataThrough ? (
+                  <span className="text-[12px] text-text-3 tabular">
+                    Data through {data.dataThrough.toISOString().slice(0, 16).replace('T', ' ')} UTC
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-text-3">No completed sync</span>
+                )}
+                <ExportButton datasets={['sources', 'deals']} />
+              </>
             }
           />
           {spendOut || crmOut ? (
@@ -630,6 +647,7 @@ export default async function Performance({
           <CardHeader
             title={`Cost per ${valueLabel.toLowerCase()} deal by channel`}
             subtitle="The marker is confirmed; the bar is the range the data supports"
+            controls={<ExportButton datasets={['sources', 'deals:value']} />}
           />
           <CardBody className="flex-1">
             {spendOut || crmOut ? (
@@ -666,6 +684,7 @@ export default async function Performance({
           <CardHeader
             title="Stage composition"
             subtitle="Blocked stages are absent rather than drawn at zero"
+            controls={<ExportButton datasets={['sources', 'deals']} />}
           />
           <CardBody className="flex-1">
             {crmOut ? (
@@ -696,6 +715,7 @@ export default async function Performance({
         <Card span={canAdministerTenant(session.tenant.role) ? 8 : 12} selfStart>
           <CardHeader
             title="Month over month"
+            controls={<ExportButton datasets={['ramp', 'sources']} />}
             subtitle={
               thisMonth && lastMonth
                 ? `${monthName(lastMonth.key)} → ${monthName(thisMonth.key)} · the last two complete months`
@@ -722,7 +742,7 @@ export default async function Performance({
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
-    </>
+    </ExportScope>
   );
 }
 

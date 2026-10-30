@@ -3,6 +3,7 @@ import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { MonthBars, type MonthBar } from '@/components/charts/MonthBars';
 import { NO_REASON_BUCKET, share, type DeclineReasonSummary } from '@/lib/quality-measures';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * Declines: how many deals lenders turned down, by month, and the reasons
@@ -35,7 +36,11 @@ export function DeclineCard({
 
   return (
     <Card span={span}>
-      <CardHeader title="Declines" subtitle="Deals lenders turned down, by month" />
+      <CardHeader
+        title="Declines"
+        subtitle="Deals lenders turned down, by month"
+        controls={<ExportButton datasets={['deals:declined', 'lender_decisions']} />}
+      />
 
       <CardBody className="flex-1">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">

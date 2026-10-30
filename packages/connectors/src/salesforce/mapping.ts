@@ -120,6 +120,14 @@ export type SalesforceFieldMapping = {
     phones?: string[];
     industry?: string;
     state?: string;
+    /**
+     * Contact fields for the Excel exports (30 October 2026), written to
+     * `crm_contacts`, which only an admin can read. Name, email, company and
+     * owner only — the phone is `phones` above. Never map an SSN, a date of
+     * birth, or a bank or credit field here. A relationship field is written
+     * dotted (`Owner.Name`).
+     */
+    contact?: ContactMapping;
   };
   opportunity: {
     /** Empty until the fields exist and the lead mapping is configured. */
@@ -140,6 +148,8 @@ export type SalesforceFieldMapping = {
     declineReason?: string;
     industry?: string;
     state?: string;
+    /** As on the lead. A deal's person is its converted lead's. */
+    contact?: ContactMapping;
   };
   /** Funnel stage key → Opportunity datetime field. */
   stages: Record<string, string>;
@@ -164,6 +174,14 @@ export type SalesforceFieldMapping = {
    * module that reads it.
    */
   submissions?: SubmissionMapping;
+};
+
+export type ContactMapping = {
+  name?: string;
+  email?: string;
+  company?: string;
+  /** `Owner.Name`. */
+  owner?: string;
 };
 
 /**
@@ -233,6 +251,9 @@ function collect(mapping: SalesforceFieldMapping) {
   for (const field of mapping.lead.phones ?? []) {
     lead.push([field, 'phone number']);
   }
+  for (const [key, field] of Object.entries(mapping.lead.contact ?? {})) {
+    if (field) lead.push([field, `contact: ${key}`]);
+  }
 
   const opportunity: [string, string][] = Object.entries(mapping.opportunity.clickIds).map(
     ([p, f]) => [f, `click ID for ${p}`],
@@ -240,6 +261,9 @@ function collect(mapping: SalesforceFieldMapping) {
   for (const [key, field] of Object.entries(mapping.opportunity)) {
     if (key === 'clickIds' || typeof field !== 'string') continue;
     opportunity.push([field, key]);
+  }
+  for (const [key, field] of Object.entries(mapping.opportunity.contact ?? {})) {
+    if (field) opportunity.push([field, `contact: ${key}`]);
   }
   for (const [stage, field] of Object.entries(mapping.stages)) {
     opportunity.push([field, `stage timestamp: ${stage}`]);
@@ -269,16 +293,22 @@ export async function validateMapping(
 
   const leadFields = new Set(leadDescribe.fields.map((f) => f.name.toLowerCase()));
   const oppFields = new Set(oppDescribe.fields.map((f) => f.name.toLowerCase()));
+  // A relationship field (`Owner.Name`) is readable where its id field is:
+  // the describe lists `OwnerId`, not the path through it.
+  const present = (fields: Set<string>, field: string) => {
+    const [head, ...rest] = field.split('.');
+    return rest.length === 0 ? fields.has(field.toLowerCase()) : fields.has(`${head!.toLowerCase()}id`);
+  };
   const wanted = collect(mapping);
   const issues: FieldIssue[] = [];
 
   for (const [field, purpose] of wanted.lead) {
-    if (!leadFields.has(field.toLowerCase())) {
+    if (!present(leadFields, field)) {
       issues.push({ object: 'Lead', field, purpose, reason: 'absent_or_unreadable' });
     }
   }
   for (const [field, purpose] of wanted.opportunity) {
-    if (!oppFields.has(field.toLowerCase())) {
+    if (!present(oppFields, field)) {
       issues.push({ object: 'Opportunity', field, purpose, reason: 'absent_or_unreadable' });
     }
   }

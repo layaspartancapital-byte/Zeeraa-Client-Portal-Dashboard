@@ -33,6 +33,7 @@ import {
   inheritMergedChannels,
   upsertLeads,
   upsertOpportunities,
+  upsertContacts,
   upsertOpportunityClickIds,
   upsertStageEvents,
   upsertSubmissions,
@@ -258,6 +259,12 @@ export async function runSalesforceSync(
         normalizeLead(r, context.mapping, context.clickIdPriority, context.bar, context.leadSources ?? null),
       );
       result.leads = await upsertLeads(tx, context.tenantId, leads, syncRunId, context.bar);
+      await upsertContacts(
+        tx,
+        context.tenantId,
+        leads.map((l) => ({ object: 'lead' as const, externalId: l.externalId, contact: l.contact, phone: l.phone })),
+        syncRunId,
+      );
 
       for (const lead of leads) {
         const q = qualifyLead(
@@ -296,6 +303,12 @@ export async function runSalesforceSync(
         tx,
         context.tenantId,
         opportunities,
+        syncRunId,
+      );
+      await upsertContacts(
+        tx,
+        context.tenantId,
+        opportunities.map((o) => ({ object: 'opportunity' as const, externalId: o.externalId, contact: o.contact })),
         syncRunId,
       );
 

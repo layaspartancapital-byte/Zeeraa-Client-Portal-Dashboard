@@ -493,6 +493,7 @@ const ACTION_LABELS: Record<AuditEntry['action'], string> = {
   grant_access: 'Granted access',
   remove_access: 'Removed access',
   sign_in: 'Signed in',
+  export: 'Exported to Excel',
 };
 
 const AUDIT_LIMIT = 100;
@@ -522,7 +523,8 @@ function AuditLogCard({
         info={
           <InfoTip label="What the audit log records" align="start">
             Accounts created, passwords reset, access granted or removed, and sign-ins, from 25
-            September 2026. Nobody can edit or delete an entry, Zeeraa included.
+            September 2026, and every Excel export from 30 October 2026. Nobody can edit or delete an
+            entry, Zeeraa included.
           </InfoTip>
         }
       />
@@ -548,6 +550,13 @@ function AuditLogCard({
                     </td>
                     <td className="py-2 pr-3 text-text">
                       {ACTION_LABELS[entry.action]}
+                      {entry.action === 'export' && entry.detail && (
+                        <span className="text-text-3">
+                          {` — ${entry.detail.export.replace(/_/g, ' ')}, ${entry.detail.from} to ${entry.detail.to}${
+                            entry.detail.source ? `, ${entry.detail.source}` : ''
+                          }, ${entry.detail.rows.toLocaleString('en-US')} rows${entry.detail.contacts ? ', with contacts' : ''}`}
+                        </span>
+                      )}
                       {entry.role && entry.role in ROLE_LABELS && (
                         <span className="text-text-3">
                           {entry.action === 'remove_access' ? ' — was ' : ' as '}
@@ -557,7 +566,7 @@ function AuditLogCard({
                     </td>
                     <td className="py-2 pr-3 text-text-2">{entry.subjectEmail}</td>
                     <td className="py-2 pr-3 text-text-2">
-                      {entry.action === 'sign_in' ? <Dash /> : entry.actorEmail}
+                      {entry.action === 'sign_in' || entry.action === 'export' ? <Dash /> : entry.actorEmail}
                     </td>
                   </tr>
                 ))}

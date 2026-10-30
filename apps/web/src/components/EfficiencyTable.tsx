@@ -5,6 +5,7 @@ import {
 } from '@zeeraa/core';
 import { Card, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { InfoTip } from '@/components/ui/InfoTip';
+import { ExportButton } from '@/components/export/ExportScope';
 
 export type EfficiencyCell = {
   /** The stage this cost is per — `lead`, `application`, `uw_approved`, `funded`. */
@@ -69,6 +70,7 @@ export function EfficiencyTable({
     <Card span={span} selfStart>
       <CardHeader
         title="Efficiency"
+        controls={<ExportButton datasets={['sources', 'deals']} />}
         subtitle={`What each stage costs, per channel · ${periodLabel}`}
         info={
           <InfoTip label="How cost per stage is measured" align="start">

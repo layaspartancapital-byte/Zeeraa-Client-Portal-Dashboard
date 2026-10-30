@@ -8,6 +8,7 @@ import {
   type QualificationBar,
 } from "@zeeraa/core";
 import type {
+  ContactFields,
   LeadRow,
   OpportunityRow,
   Reconciliation,
@@ -612,4 +613,58 @@ export async function inheritMergedChannels(tx: Database, tenantId: string): Pro
     if (n === 0) break;
   }
   return total;
+}
+
+/**
+ * Contact fields into `crm_contacts` (migration 0046), which only an admin can
+ * read: a lead's name, email, phone, company and owner, and a deal's owner and
+ * company. Upserted as the source has them, so a cleared field is cleared
+ * here. A record with no contact field at all writes nothing — a tenant whose
+ * mapping names none keeps an empty table.
+ */
+export async function upsertContacts(
+  tx: Database,
+  tenantId: string,
+  rows: {
+    object: "lead" | "opportunity";
+    externalId: string;
+    contact?: ContactFields;
+    phone?: string | null;
+  }[],
+  syncRunId: string | null,
+): Promise<number> {
+  const values = rows
+    .map((r) => ({
+      tenantId,
+      object: r.object,
+      externalId: r.externalId,
+      name: r.contact?.name ?? null,
+      email: r.contact?.email ?? null,
+      phone: r.phone ?? null,
+      company: r.contact?.company ?? null,
+      ownerName: r.contact?.owner ?? null,
+      syncRunId,
+      updatedAt: new Date(),
+    }))
+    .filter((v) => v.name ?? v.email ?? v.phone ?? v.company ?? v.ownerName);
+  let written = 0;
+  for (let i = 0; i < values.length; i += 500) {
+    const result = await tx
+      .insert(schema.crmContacts)
+      .values(values.slice(i, i + 500))
+      .onConflictDoUpdate({
+        target: [schema.crmContacts.tenantId, schema.crmContacts.object, schema.crmContacts.externalId],
+        set: {
+          name: sql`excluded.name`,
+          email: sql`excluded.email`,
+          phone: sql`excluded.phone`,
+          company: sql`excluded.company`,
+          ownerName: sql`excluded.owner_name`,
+          syncRunId: sql`excluded.sync_run_id`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+    written += affectedRows(result);
+  }
+  return written;
 }

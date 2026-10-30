@@ -14,6 +14,7 @@ import { MiniChart } from '@/components/charts/MiniChart';
 import type { SeoDomainChanges, SeoView } from '@/lib/seo';
 import { seoListPage, type SeoListKey, type SeoListRows } from '@/lib/seo-lists';
 import { SeoListTable, UrlCell } from '@/components/platform/SeoListTable';
+import { ExportButton, ExportEverything } from '@/components/export/ExportScope';
 
 type SeoFormula = keyof SeoView['directions'];
 import type { TenantSession } from '@/lib/tenant';
@@ -83,6 +84,7 @@ export function SeoPlatformView({
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title={label}>
         {rangeControl}
+        <ExportEverything />
         <PrintButton />
       </TopBar>
 
@@ -219,7 +221,8 @@ export function SeoPlatformView({
                 ? `By share of estimated traffic · ${formatCount(view.topKeywords.read)} keywords read ${dayLabel(view.topKeywords.readOn)}`
                 : undefined
             }
-          />
+        controls={<ExportButton datasets={['seo']} />}
+      />
           {view.topKeywords.rows.length === 0 ? (
             <CardBody>
               <EmptyLine>No keywords have been read yet.</EmptyLine>
@@ -249,7 +252,8 @@ export function SeoPlatformView({
                 Keywords where Google’s AI Overview links to this domain. Other AI assistants are not measured.
               </InfoTip>
             }
-          />
+        controls={<ExportButton datasets={['seo']} />}
+      />
           {view.aiOverview.rows.length === 0 ? (
             <CardBody>
               <EmptyLine>No AI Overview citations were read.</EmptyLine>
@@ -276,7 +280,8 @@ export function SeoPlatformView({
                 Domains ranking for the same keywords, ordered by how many they share relative to their size.
               </InfoTip>
             }
-          />
+        controls={<ExportButton datasets={['seo']} />}
+      />
           {view.competitors.rows.length === 0 ? (
             <CardBody>
               <EmptyLine>No competitors have been read yet.</EmptyLine>
@@ -317,7 +322,8 @@ export function SeoPlatformView({
             <CardHeader
               title="Site audit"
               subtitle={`Semrush crawl of ${formatCount(audit.pagesCrawled)} pages · finished ${dayLabel(audit.finishedOn)}`}
-            />
+        controls={<ExportButton datasets={['seo']} />}
+      />
             <CardBody>
               <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-5">
                 <div className="min-w-0">
@@ -427,6 +433,7 @@ function Kpi({
             </InfoTip>
           ) : undefined
         }
+        controls={<ExportButton datasets={['seo']} />}
       />
       <CardBody>
         <p className="text-[26px] font-semibold tabular leading-tight text-text">{value}</p>
@@ -473,6 +480,7 @@ function TrackingCard({
         subtitle={`${range.start} to ${range.end} · Semrush Position Tracking${
           tracking.lastDay ? `, positions on ${dayLabel(tracking.lastDay)}` : ''
         }${note}`}
+        controls={<ExportButton datasets={['seo']} />}
       />
       <CardBody>
         {end && (
@@ -542,6 +550,7 @@ function DomainChangesCard({
         subtitle={`${range.start} to ${range.end} · ${formatCount(changes.inRange)}${partial ? '+' : ''} domains${
           partial ? ` (complete from ${dayLabel(changes.completeFrom!)})` : ''
         }`}
+        controls={<ExportButton datasets={['seo']} />}
       />
       {changes.rows.length === 0 ? (
         <CardBody>

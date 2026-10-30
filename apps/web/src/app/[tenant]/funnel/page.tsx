@@ -1,5 +1,6 @@
 import { Download } from 'lucide-react';
 import { AutoRefresh } from '@/components/shell/AutoRefresh';
+import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
 import {
   canSyncNow,
   canAdministerTenant,
@@ -199,7 +200,16 @@ export default async function Funnel({
   };
 
   return (
-    <>
+    <ExportScope
+      value={{
+        slug,
+        page: 'funnel',
+        from: range.start,
+        to: range.end,
+        model,
+        source: population.key === 'all' ? null : population.key,
+      }}
+    >
       <TopBar tenant={session.tenant} viewer={session.viewer} title="Funnel">
         <DateRangePicker
           range={range}
@@ -222,6 +232,7 @@ export default async function Funnel({
           <Download aria-hidden="true" className="h-4 w-4" />
           Export CSV
         </ButtonLink>
+        <ExportEverything />
         <PrintButton />
         {canSyncNow(session.tenant.role) && (
           <SyncNowButton slug={slug} platform="salesforce" />
@@ -241,11 +252,14 @@ export default async function Funnel({
               model === 'last_touch' ? 'last touch' : 'first touch'
             }${crmNote}`}
             controls={
-              data.stages.length - measurable.length > 0 ? (
-                <Badge tone="warn">
-                  {data.stages.length - measurable.length} of {data.stages.length} not measured
-                </Badge>
-              ) : undefined
+              <>
+                {data.stages.length - measurable.length > 0 && (
+                  <Badge tone="warn">
+                    {data.stages.length - measurable.length} of {data.stages.length} not measured
+                  </Badge>
+                )}
+                <ExportButton datasets={['leads', 'deals']} />
+              </>
             }
           />
           {crmOut ? (
@@ -289,6 +303,7 @@ export default async function Funnel({
           <CardHeader
             title="Stage by channel"
             subtitle="Direct & other is its own segment, never folded into a source"
+            controls={<ExportButton datasets={['sources', 'deals']} />}
           />
           <CardBody className="flex-1">
             <StackedBars
@@ -348,7 +363,7 @@ export default async function Funnel({
       </Grid>
 
       <MethodNotesForPrint notes={notes} />
-    </>
+    </ExportScope>
   );
 }
 
@@ -392,7 +407,12 @@ async function BreakdownSection({
       <CardHeader
         title="Breakdown"
         subtitle={`${dimension.label} · every source`}
-        controls={<Segmented label="Dimension" active={dimension.key} options={segments(base, active, 'dim', dimensions)} />}
+        controls={
+          <>
+            <Segmented label="Dimension" active={dimension.key} options={segments(base, active, 'dim', dimensions)} />
+            <ExportButton datasets={['leads', 'deals']} />
+          </>
+        }
       />
       <BreakdownPanel dimension={dimension} stages={stages.map((s) => ({ key: s.key, label: s.label }))} rows={rows} />
     </Card>

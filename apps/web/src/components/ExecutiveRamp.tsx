@@ -5,6 +5,7 @@ import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { RampTimelineChart } from '@/components/charts/RampTimelineChart';
 import { chartPoint, costCoverage, monthName, renderer, targetRenderer, type RampPanel } from '@/components/RampCard';
 import type { ScorecardRow } from '@/lib/ramp-panels';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * The engagement ramp as a client reads it: four figures against this month's
@@ -41,6 +42,7 @@ export function RampScorecard({
           and "This month vs target" read as the whole business's month. */}
       <CardHeader
         title={`${channel} vs target`}
+        controls={<ExportButton datasets={['ramp']} />}
         subtitle={`${monthLabel}${
           partial ? ` · month to date, ${formatCount(elapsedDays)} of ${formatCount(monthDays)} days` : ''
         }${note}`}
@@ -181,7 +183,11 @@ export function RampCostChart({ panel }: { panel: RampPanel }) {
   const render = renderer(panel);
   return (
     <Card span={12} id="ramp-chart" dataTour="cost-chart">
-      <CardHeader title={`${panel.channel} ${panel.label.toLowerCase()}`} subtitle={timeline ? phases(timeline) : undefined} />
+      <CardHeader
+        title={`${panel.channel} ${panel.label.toLowerCase()}`}
+        subtitle={timeline ? phases(timeline) : undefined}
+        controls={<ExportButton datasets={['ramp']} />}
+      />
       <CardBody>
         {!panel.series.contracted || !timeline ? (
           <EmptyLine>{panel.missing}</EmptyLine>

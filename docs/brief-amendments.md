@@ -3933,3 +3933,44 @@ per lead, and the contract is not judged on what was bought.
   it from. Freezing it is the follow-up if the baseline for it must hold.
 - The cross-screen number check holds the measure, per month, to Monthly
   performance's non-vendor sources summed.
+
+## §10 — Excel exports, contact fields and an audit entry per export (30 October 2026)
+
+Client decision. "Export to Excel" on every card and table that shows leads,
+deals, calls, lenders, campaigns, keywords, SEO or sources, and "Export
+everything" on every page (one workbook, a tab per dataset), following the
+page's range, attribution model and source filter (the Funnel page's channel;
+a platform page's platform).
+
+- **The rows behind a card, not its totals.** `lib/exports.ts` holds the
+  datasets — deals (optionally at one stage), leads, lender decisions, calls,
+  sources, the ramp, campaigns, a platform's days, SEO and organic — and each
+  card names the ones it stands on. `/api/xlsx/<tenant>` builds the workbook
+  (`lib/xlsx.ts`, written here: a deflated zip of the sheet XML, no
+  dependency).
+- **A deal row** carries its status (Salesforce's stage name), source,
+  campaign and UTM keyword, the date it reached each stage, *Approved*
+  (reached the stage before value), *Approved amount* (the deal's highest
+  offer, `max_offer_amount`), the funded amount, *Declined by a lender* with
+  every lender's reasons joined ("No reason given" where blank), and
+  *Declined in the end* (closed without reaching value) with the final
+  reason — the opportunity's own decline reason where mapped, else the last
+  lender decline's reasons, else the closing stage. A deals export carries a
+  "Lender decisions" tab: one row per offered or declined submission, with
+  lender, date and reason.
+- **Contact fields live in `crm_contacts`** (migration 0046): name, email,
+  phone, company, owner — and nothing else; no SSN, date of birth, bank or
+  credit field is mapped or has a column. Its policy admits a Zeeraa admin or
+  a client admin only, so a viewer's export leaves the columns out and the
+  database would refuse them anyway. The sync writes it from the mapping's
+  `contact` sections (`Name`, `Email`, `Company`, `Owner.Name` on Lead;
+  `Owner.Name`, `Account.Name` on Opportunity); a deal's person is its
+  earliest counted lead's. `leads.phone` stays where it was, for the dialer
+  join.
+- **Every export is in the audit log** — who, which export, the range, the
+  source, the row count, and whether contacts were included — written before
+  the file is served (`own_export` admits a member's own entry only). The URL
+  carries the filters and the export's name, never a contact value, and
+  nothing logs a row. A file over 4.3 MB is refused with "choose a shorter
+  range" rather than failing at Vercel's 4.5 MB response cap; every page
+  over all of 2026 measured at 2.55 MB or less against production.

@@ -515,6 +515,30 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger audit_events_append_only on public.audit_events',
   },
   {
+    // Contact fields (0046) are for the two admin roles. The standard shape,
+    // copied from a neighbouring migration, would let a viewer read them.
+    name: 'contacts-readable-by-members',
+    description: 'Let every member read crm_contacts, not only a Zeeraa or client admin',
+    sql: `drop policy tenant_isolation on public.crm_contacts;
+          create policy tenant_isolation on public.crm_contacts as permissive for select to zeeraa_app
+            using (tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'export-audit-any-actor',
+    description: 'Let a member record an export naming somebody else as its actor',
+    sql: `drop policy own_export on public.audit_events;
+          create policy own_export on public.audit_events as permissive for insert to zeeraa_app
+            with check (action = 'export' and tenant_id = app.current_tenant_id() and app.has_tenant_access())`,
+  },
+  {
+    name: 'export-audit-any-tenant',
+    description: 'Let a member record an export in a tenant they do not hold',
+    sql: `drop policy own_export on public.audit_events;
+          create policy own_export on public.audit_events as permissive for insert to zeeraa_app
+            with check (action = 'export' and actor_user_id = app.current_user_id()
+                        and subject_user_id = app.current_user_id())`,
+  },
+  {
     name: 'audit-truncate-guard-dropped',
     description: 'Drop the trigger that refuses TRUNCATE on audit_events',
     sql: 'drop trigger audit_events_no_truncate on public.audit_events',
@@ -680,7 +704,10 @@ function failingTests(): string[] {
 
 const results: { mutation: Mutation; killedBy: string[]; applied: boolean }[] = [];
 
-for (const mutation of MUTATIONS) {
+// `--only a,b` runs the named mutations alone, for a quick check of new ones
+// before the full run.
+const only = process.argv.includes('--only') ? new Set(process.argv[process.argv.indexOf('--only') + 1]?.split(',')) : null;
+for (const mutation of MUTATIONS.filter((m) => !only || only.has(m.name))) {
   process.stderr.write(`\n▸ ${mutation.name}\n`);
   rebuild();
 

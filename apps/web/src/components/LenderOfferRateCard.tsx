@@ -48,6 +48,7 @@ export function LenderOfferRateCard({
 
   return (
     <KpiCard
+      exportAs={['lender_decisions']}
       span={span}
       label={label}
       value={withheld || overall.rate === null ? null : formatRate(overall.rate)}

@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 30 October 2026 (Neon back on Launch; transfer cut; All sources card with the funded targets; deployed).**
+**Last updated: 30 October 2026 (Excel exports committed, awaiting migration 0046 on Neon before deploy).**
 
 **30 October 2026: Neon outage and network transfer.** The Free plan refused
 every connection from 26 October ~15:40 UTC to 30 October ~13:50 UTC: October's
@@ -34,9 +34,23 @@ keeps CPA, cost per funded deal and spend targets. Google's frozen ramp figures
 are untouched; the new measure is live, not frozen. See
 `docs/brief-amendments.md`.
 
-**Queued, not started:** a Comparison page; Excel export (field report given,
-build awaits a go-ahead); the deploy check freezing Salesforce-proven merge
-corrections itself.
+**30 October 2026: Excel exports built, committed, NOT deployed.** Every card
+and page exports to Excel (`lib/exports.ts`, `/api/xlsx/<tenant>`); contact
+fields in `crm_contacts` (migration 0046), admin-only by policy; every export
+in the audit log. See `docs/brief-amendments.md`, "§10 — Excel exports". All
+suites pass, the number checks pass against production, and every page's
+workbook was built against production read-only (largest 2.55 MB). **The
+deploy waits on production steps, in this order:**
+1. Migration 0046 on Neon: `DATABASE_URL_OWNER=$NEON_DIRECT_URL npx tsx
+   scripts/migrate.ts` from `packages/db`. Additive; the running code ignores it.
+   Without it the new code cannot record an export or read the audit log.
+2. `apply-contact-mapping.ts --dry-run`, then without (owner URL as above).
+3. `backfill-contacts.ts spartan --dry-run`, then without (jobs + maint URLs,
+   `ENCRYPTION_KEY` from `.env`), as `backfill-max-offer.ts` is run.
+4. Push `main`.
+
+**Queued, not started:** a Comparison page; the deploy check freezing
+Salesforce-proven merge corrections itself.
 
 **13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
 fixed against the icon, kept inside the viewport and flipped below when there

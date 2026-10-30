@@ -188,8 +188,22 @@ export const AUDIT_ACTIONS = [
   'grant_access',
   'remove_access',
   'sign_in',
+  'export',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+/** What an `export` audit entry records. */
+export type ExportAuditDetail = {
+  /** The export's key, or `page:<page>` for a whole-page workbook. */
+  export: string;
+  from: string;
+  to: string;
+  /** The source filter, or null for every source. */
+  source: string | null;
+  rows: number;
+  /** Whether contact columns were included (an admin's export). */
+  contacts: boolean;
+};
 
 /**
  * Who did what to which account, and every sign-in (migration 0040).
@@ -210,6 +224,11 @@ export const auditEvents = pgTable(
     subjectUserId: uuid('subject_user_id').notNull(),
     subjectEmail: text('subject_email').notNull(),
     role: text('role'),
+    /**
+     * An export's what and how many (migration 0046): `ExportAuditDetail`.
+     * Never a contact value.
+     */
+    detail: jsonb('detail').$type<ExportAuditDetail>(),
   },
   (t) => [index('audit_events_tenant_time').on(t.tenantId, t.occurredAt)],
 );

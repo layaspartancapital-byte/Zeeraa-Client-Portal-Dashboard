@@ -12,6 +12,7 @@ import { PrintButton } from '@/components/shell/actions';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { DIMENSION_LABELS, type OrganicView } from '@/lib/organic';
 import type { TenantSession } from '@/lib/tenant';
+import { ExportButton, ExportEverything } from '@/components/export/ExportScope';
 
 /**
  * GA4 and Search Console.
@@ -99,6 +100,7 @@ export function OrganicPlatformView({
     <>
       <TopBar tenant={session.tenant} viewer={session.viewer} title={view.label}>
         {rangeControl}
+        <ExportEverything />
         <PrintButton />
       </TopBar>
 
@@ -130,7 +132,8 @@ export function OrganicPlatformView({
           <CardHeader
             title={`${view.label} reporting`}
             subtitle={`${view.range.start} to ${view.range.end} · as ${view.label} reports it${coverageNote}`}
-          />
+        controls={<ExportButton datasets={['organic']} />}
+      />
           <CardBody>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
               {isGa4 && g && (
@@ -188,14 +191,17 @@ export function OrganicPlatformView({
             title="Over time"
             subtitle={`By day, as reported · ${view.daysReported} days with data`}
             controls={
-              <span className="scroll-x -mx-1 min-w-0 max-w-full overflow-x-auto px-1">
+          <>
+            {<span className="scroll-x -mx-1 min-w-0 max-w-full overflow-x-auto px-1">
                 <Segmented
                   label="Series"
                   active={seriesKey}
                   options={segments(base, active, 'series', seriesOptions)}
                 />
-              </span>
-            }
+              </span>}
+            <ExportButton datasets={['organic']} />
+          </>
+        }
           />
           <CardBody flush>
             {view.daily.length === 0 ? (
@@ -229,7 +235,8 @@ export function OrganicPlatformView({
                 </InfoTip>
               }
               controls={
-                <span className="flex items-center gap-2">
+          <>
+            {<span className="flex items-center gap-2">
                   {breakdown.capped && (
                     <Badge tone="neutral">
                       Tail cut
@@ -249,8 +256,10 @@ export function OrganicPlatformView({
                       total
                     </span>
                   )}
-                </span>
-              }
+                </span>}
+            <ExportButton datasets={['organic']} />
+          </>
+        }
             />
             <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
               <table className="w-full min-w-[420px] border-collapse text-[13px]">
@@ -305,7 +314,12 @@ export function OrganicPlatformView({
           <CardHeader
             title="Funded deals"
             subtitle="Not attributable from this source"
-            controls={<Badge tone="warn">Not measurable</Badge>}
+            controls={
+          <>
+            {<Badge tone="warn">Not measurable</Badge>}
+            <ExportButton datasets={['organic']} />
+          </>
+        }
           />
           <CardBody>
             <p className="max-w-3xl text-[13px] leading-snug text-text-2">

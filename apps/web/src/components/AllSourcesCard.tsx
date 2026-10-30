@@ -7,6 +7,7 @@ import { platformLabel } from '@/lib/platform-labels';
 import type { AllSources } from '@/lib/all-sources';
 import type { ScorecardRow } from '@/lib/ramp-panels';
 import { SCORE_GRID, ScoreCell } from '@/components/ExecutiveRamp';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * Every source at once, beside the one channel the contract names: the
@@ -49,7 +50,11 @@ export function AllSourcesCard({
 
   return (
     <Card span={12} id="all-sources">
-      <CardHeader title="All sources · blended" subtitle={periodLabel} />
+      <CardHeader
+        title="All sources · blended"
+        subtitle={periodLabel}
+        controls={<ExportButton datasets={['sources', 'deals:value']} />}
+      />
       <dl className={SCORE_GRID}>
         <Cell label={`Total ${deal} deals`} unmeasured={crmUnmeasured}>
           <Figure>{formatCount(figures.deals)}</Figure>

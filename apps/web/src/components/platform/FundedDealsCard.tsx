@@ -3,6 +3,7 @@ import { Card, CardHeader, EmptyLine, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import type { FundedDeal } from '@/lib/funded-deals';
+import { ExportButton } from '@/components/export/ExportScope';
 
 /** A tenant-local day, as a date — never shifted through a timezone. */
 function day(value: string): string {
@@ -48,6 +49,7 @@ export function FundedDealsCard({
             one. The {detail.label.toLowerCase()} is from that landing URL too.
           </InfoTip>
         }
+        controls={<ExportButton datasets={['deals:value']} />}
       />
       {deals.length === 0 ? (
         <CardBody>

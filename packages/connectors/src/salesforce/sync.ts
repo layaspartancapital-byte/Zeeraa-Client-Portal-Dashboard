@@ -1,6 +1,6 @@
 import { leadChannel, qualifyLead, readPhone, type LeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import type { SalesforceClient } from './client';
-import { selectFields, type SalesforceFieldMapping } from './mapping';
+import { selectFields, type ContactMapping, type SalesforceFieldMapping } from './mapping';
 import { judgeQualificationBands, readRevenueBand } from './qualification-bands';
 import { inboundClause, NO_LEAD_EXCLUSION, type LeadExclusionConfig } from './exclusion';
 
@@ -58,7 +58,26 @@ export type LeadRow = {
   mqlVerdict: 'qualified' | 'unqualified' | 'undeterminable' | null;
   /** Why the verdict is `undeterminable`. Null otherwise. */
   mqlUndeterminableReason: string | null;
+  /** For `crm_contacts`, which only an admin can read. */
+  contact?: ContactFields;
 };
+
+/** Contact fields, as `crm_contacts` stores them. Nothing else personal. */
+export type ContactFields = {
+  name: string | null;
+  email: string | null;
+  company: string | null;
+  owner: string | null;
+};
+
+function readContact(record: SalesforceRecord, mapping: ContactMapping | undefined): ContactFields {
+  return {
+    name: str(record, mapping?.name),
+    email: str(record, mapping?.email),
+    company: str(record, mapping?.company),
+    owner: str(record, mapping?.owner),
+  };
+}
 
 export type OpportunityRow = {
   externalId: string;
@@ -77,6 +96,8 @@ export type OpportunityRow = {
   state: string | null;
   /** Salesforce's `IsClosed`. Null when the record did not carry it. */
   isClosed: boolean | null;
+  /** For `crm_contacts`, which only an admin can read. */
+  contact?: ContactFields;
 };
 
 export type StageEventRow = {
@@ -92,7 +113,10 @@ export type StageEventRow = {
 
 function str(record: SalesforceRecord, field?: string): string | null {
   if (!field) return null;
-  const value = record[field];
+  // A relationship field arrives nested: `Owner.Name` is `record.Owner.Name`.
+  const value = field.includes('.')
+    ? field.split('.').reduce<unknown>((at, key) => (at && typeof at === 'object' ? (at as Record<string, unknown>)[key] : null), record)
+    : record[field];
   if (value == null) return null;
   const text = String(value).trim();
   return text === '' ? null : text;
@@ -221,6 +245,7 @@ export function normalizeLead(
     isConverted: record.IsConverted === true,
     convertedOpportunityId: str(record, 'ConvertedOpportunityId'),
     mergedInto: str(record, 'MasterRecordId'),
+    contact: readContact(record, mapping.lead.contact),
     // The verdict, not a number. `selfReportedRevenue` above stays what the
     // merchant actually said in a numeric field — it does not acquire a band's
     // lower bound, which would be read as revenue by anything banding leads.
@@ -255,6 +280,7 @@ export function normalizeOpportunity(
     industry: str(record, mapping.opportunity.industry),
     state: str(record, mapping.opportunity.state),
     isClosed: typeof record.IsClosed === 'boolean' ? record.IsClosed : null,
+    contact: readContact(record, mapping.opportunity.contact),
   };
 }
 

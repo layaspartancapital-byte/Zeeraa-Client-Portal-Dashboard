@@ -796,6 +796,10 @@ export const spartan: TenantSeed = {
             phones: ['Phone', 'MobilePhone'],
             industry: 'Industry', // 34.5%
             state: 'State', // 29.3%
+            // For the Excel exports, into `crm_contacts`, which only an admin
+            // reads (30 October 2026). Standard fields; nothing beyond name,
+            // email, company and owner is ever mapped here.
+            contact: { name: 'Name', email: 'Email', company: 'Company', owner: 'Owner.Name' },
           },
           opportunity: {
             /**
@@ -842,6 +846,9 @@ export const spartan: TenantSeed = {
             // across its csbs__Offer__c records, equal to it on all 30 deals
             // offered 1–13 October 2026 (13 October 2026).
             maxOfferAmount: 'csbs__Max_Offer_Funded__c',
+            // The deal's owner and business, for the exports; its person is its
+            // converted lead's contact (30 October 2026).
+            contact: { owner: 'Owner.Name', company: 'Account.Name' },
             /*
              * The deal type, read by `stage_exclusions`. Blank on 562 of 734
              * opportunities (23 September 2026), so a renewal nobody labelled
