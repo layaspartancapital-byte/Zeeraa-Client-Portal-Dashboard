@@ -70,6 +70,12 @@ that window through `import-aloware-calls` would fill them.
 periods, one source, every KPI with change and % change. See
 `docs/brief-amendments.md`, "§12 — a Comparison page".
 
+**30 October 2026, last: Comparison defaults and exports.** Period A opens
+on month to date (MTD preset) and B on the previous full month; "Export to
+Excel" on each table (All metrics, Funnel, Cost, Funded by source), none on
+the cards; CPC, cost per lead and cost per MQL in cents, larger amounts in
+whole dollars. Deployed (`ed90972`).
+
 **30 October 2026: Comparison restyled and fast.** Compact cards, tables
 (funnel, cost, by source), one lazy chart, one "Export everything", whole
 dollars. The runtime connection prepares statements; `monthlyPerformances`
