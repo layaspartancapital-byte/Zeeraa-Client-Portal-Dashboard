@@ -4,7 +4,19 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 30 October 2026 (Excel exports committed, awaiting migration 0046 on Neon before deploy).**
+**Last updated: 30 October 2026 (Excel exports deployed; Aloware direct webhook live; the signed contract governs every target).**
+
+**30 October 2026: the signed contract governs every target** (Zeeraa
+proposal, page 22; `contract_targets`, loaded with `load-config-row.ts`).
+Program-wide: CPA (all sources) $1,000, cost per funded deal (all sources)
+$4,500, funded volume (all sources except lead vendors) $100K–$150K in
+October rising to $2M from April; no deal-count target. Google Ads card
+untargeted; All sources card "Against the contract"; the chart and Monthly
+performance's table across sources. "Blended" is gone from every screen.
+Direct & other's funded volume was frozen for June–August with the decision
+as the reason. **September is not frozen** (no ramp or channel figures) —
+its baseline point reads live until it is. See `docs/brief-amendments.md`,
+"§8 — the signed contract governs every target".
 
 **30 October 2026: Neon outage and network transfer.** The Free plan refused
 every connection from 26 October ~15:40 UTC to 30 October ~13:50 UTC: October's
@@ -39,7 +51,7 @@ are untouched; the new measure is live, not frozen. See
 applied to Neon), admin-only by policy; every export in the audit log. The
 contact mapping is stored (`apply-contact-mapping.ts`) and 10,781 contact rows
 were backfilled (`backfill-contacts.ts`). See `docs/brief-amendments.md`,
-"§10 — Excel exports".
+"§10 — Excel exports". Deployed.
 
 **30 October 2026: Aloware's direct webhook is live.** It had run in shadow
 since 6 October while the Zap wrote calls; the Zap stopped on 22 October at

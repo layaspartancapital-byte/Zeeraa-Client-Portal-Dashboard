@@ -307,14 +307,16 @@ export default async function Performance({
     },
     { heading: 'Deals no channel can claim', body: data.unattributed.reason },
     {
-      heading: 'Engagement ramp',
+      heading: 'Against the contract',
       body:
-        'Spend, approvals, CPA and cost per funded deal are the ramp channel’s own and are judged against its ' +
-        'targets. Its funded deals are shown without one: the funded deals and volume targets are every ' +
-        'source’s except lead vendors’, in the two columns marked all sources.',
+        'Every month against the signed contract, whose targets are program-wide: cost per acquisition and cost ' +
+        'per funded deal across every source (every ad platform’s spend over every source’s approvals and deals), ' +
+        'and funded volume across every source except lead vendors. The contract sets no target for spend, ' +
+        'approvals or the number of deals, so they are shown without one.',
       detail:
-        'Client decision, 30 October 2026. A month in progress is judged against pace; a month not yet read is ' +
-        'not measured, never zero.',
+        'The contract governs (client decision, 30 October 2026). A baseline month is read from the frozen figures. ' +
+        'A month in progress is judged against pace; a month the contract states as a range is on target at its ' +
+        'low end; a month not yet read is not measured, never zero.',
     },
     {
       heading: 'Cost per deal by channel',
@@ -491,7 +493,7 @@ export default async function Performance({
               return (b.spendByPlatform[lead.platform] ?? 0) / deals;
             }, 'spend')}
             provisional={provisional}
-            info="One channel's spend over the deals attributed to that channel. A blended figure across every channel has a different denominator and is not computable until every channel is ingested."
+            info="One channel's spend over the deals attributed to that channel. The all-sources figure, against the contract, is on Executive's All sources card."
           />
         ) : (
           <Card span={3}>
@@ -541,14 +543,12 @@ export default async function Performance({
           if (panels.startMonth === null) return null;
           const [y, m, d] = today.split('-').map(Number);
           const elapsed = d! / new Date(Date.UTC(y!, m!, 0)).getUTCDate();
-          const every = [panels.primary, panels.secondary, ...panels.compact];
-          const formats = Object.fromEntries(every.map((p) => [p.metric, p.format])) as Record<
-            (typeof every)[number]['metric'],
-            (typeof every)[number]['format']
-          >;
+          const formats = Object.fromEntries(
+            Object.entries(panels.contract.panels).map(([metric, p]) => [metric, p.format]),
+          ) as Record<keyof typeof panels.contract.panels, (typeof panels.contract.panels)['cpa']['format']>;
           return (
             <RampTable
-              channel={panels.channel}
+              source={panels.contract.source}
               rows={rampTableRows(panels, { currentMonth: today.slice(0, 7), elapsed })}
               formats={formats}
               valueLabel={valueLabel}

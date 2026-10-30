@@ -51,6 +51,7 @@ export async function channelFigures(tx: Database, tenantId: string, month: Mont
 
   const out: ChannelFigure[] = [];
   let unattributed: Record<string, number> | null = null;
+  let unattributedVolume: number | null = null;
   for (const platform of platforms.length > 0 ? platforms : ['none']) {
     const cm = await channelMonth(tx, { tenantId, platform, month, stages: dealStages, valueStage, leadStages });
     if (platform !== 'none') {
@@ -62,8 +63,12 @@ export async function channelFigures(tx: Database, tenantId: string, month: Mont
       out.push({ platform, metric: 'cost_per_funded', value: own(valueStage) > 0 ? cm.spend / own(valueStage) : null });
     }
     unattributed ??= Object.fromEntries(stages.map((s) => [s.key, cm.stages[s.key]?.unattributed ?? 0]));
+    unattributedVolume ??= cm.unattributedVolume;
   }
   for (const s of stages) out.push({ platform: UNATTRIBUTED, metric: stageMetric(s.key), value: unattributed?.[s.key] ?? 0 });
+  // Direct & other's volume (30 October 2026): the contract's funded volume
+  // counts it, so a frozen month must hold it to be read back.
+  out.push({ platform: UNATTRIBUTED, metric: 'funded_volume', value: valueStage ? (unattributedVolume ?? 0) : null });
 
   // Sources with no spend, found from the month's own records: a lead's
   // channel, or a deal's attribution.

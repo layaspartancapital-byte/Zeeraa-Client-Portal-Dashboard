@@ -167,7 +167,7 @@ export type UnattributedRow = {
  * Sums only what is summable. Spend adds across channels; deals add across every
  * source, attributed or not, because that is the business's real total. Cost per
  * deal does not add, and is not one total divided by the other either — that is
- * blended cost per funded deal, a different metric with its own denominator
+ * cost per funded deal across all sources, a different metric with its own denominator
  * which does not mean anything until every channel is ingested. So the field is
  * a stated absence rather than a number.
  */
@@ -282,11 +282,10 @@ export type MonthlyPerformance = {
   };
 };
 
-const BLENDED_NOT_COMPUTED =
-  'Blended cost per funded deal is a different metric — total marketing spend ' +
-  'over total marketing-sourced deals — and needs every channel ingested before ' +
-  'it means anything. With one channel live it would be that channel’s figure ' +
-  'under a broader name.';
+const ALL_SOURCES_ELSEWHERE =
+  'A total row would put every channel’s spend over every source’s deals, which ' +
+  'is not a channel figure. That figure, cost per funded deal (all sources), is ' +
+  'on Executive’s All sources card, against the contract.';
 
 const UNATTRIBUTED_REASON =
   'No ad click, no lead vendor and no website or search referrer: direct visits, ' +
@@ -963,7 +962,7 @@ export async function monthlyPerformance(
           channels.reduce((sum, c) => sum + c.valueVolume, 0) + sumAmounts(unattributedValueDeals),
         offered: offeredOf(ANY),
         costPerDeal: null,
-        costPerDealAbsentBecause: BLENDED_NOT_COMPUTED,
+        costPerDealAbsentBecause: ALL_SOURCES_ELSEWHERE,
       },
       organicMeasured: parseLeadSourceRules(organicRule?.value) !== null,
       dataThrough: latestSync?.finishedAt ?? null,

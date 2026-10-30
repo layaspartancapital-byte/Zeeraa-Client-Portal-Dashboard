@@ -31,7 +31,7 @@ export type EfficiencyRow = {
  * **A table rather than a row of KPI cards, because the metric is per channel.**
  * Cost per lead is that channel's spend over the leads attributed to that
  * channel; four metrics across two channels is eight cards, and the single
- * blended card that would fit the space is the thing the separation rule
+ * mixed-channel card that would fit the space is the thing the separation rule
  * exists to prevent — a figure that improves when a different channel has a
  * good month. One row per channel makes the scoping visible instead of
  * trusting a reader to remember it.
@@ -75,7 +75,7 @@ export function EfficiencyTable({
         info={
           <InfoTip label="How cost per stage is measured" align="start">
             Each figure is one channel&rsquo;s spend over the records attributed to
-            that channel at that stage. Nothing here is blended across channels,
+            that channel at that stage. No figure mixes one channel&rsquo;s spend with another&rsquo;s records,
             and records no channel can claim are counted separately rather than
             being divided into anybody&rsquo;s spend.
           </InfoTip>

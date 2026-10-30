@@ -3852,7 +3852,7 @@ read of every lead since June.
 A "Paid ads (platform unknown)" source for `100A00` was built the same day and
 withdrawn before it shipped, once the tag's origin was confirmed.
 
-## §12 — Executive's "All sources" card, blended (30 October 2026)
+## §12 — Executive's "All sources" card (30 October 2026)
 
 Client decision. Beside "Google Ads vs target", for the picked period, one card
 laid out as the scorecard is: total funded deals from every source, attributed
@@ -3862,11 +3862,12 @@ costs; blended cost per funded deal (that spend over every funded deal, "Based
 on N deals"); and blended CPA (that spend over every approval, "Based on N
 approvals"). No target line — the targets are Google Ads'.
 
-This departs from "No total mixes them" and from core's note that a blended
-cost per deal "needs every channel ingested before it means anything". The
-client asked for the figure knowing its denominator takes in deals no ad paid
-for, so it is labelled blended in the title and on every cost, and its ⓘ says
-it is not any one channel's cost. It is `blendedCostPer` in core, read from the
+This departs from "No total mixes them" and from core's note that a cost per
+deal across channels "needs every channel ingested before it means anything".
+The client asked for the figure knowing its denominator takes in deals no ad
+paid for, so every cost is labelled "(all sources)" — never "blended", by a
+later decision the same day — and its ⓘ says it is every source's. It is
+`allSourcesCostPer` in core, read from the
 same `monthlyPerformance` result as All funded and the Efficiency table
 (`lib/all-sources.ts`), and the cross-screen number check holds it to every
 other source's channels summed: spend, deals, approvals and both costs.
@@ -3907,7 +3908,7 @@ through a byte-counting proxy on the local database, and what changed:
   the command tag (`affectedRows`).
 - Connection rows are read without their encrypted credentials.
 
-## §8 — the funded targets are every source's but lead vendors' (30 October 2026)
+## §8 — the funded targets are every source's but lead vendors' (30 October 2026; superseded the same day by "the signed contract governs", below)
 
 Client decision. The engagement model's funded deals and funded volume targets
 (e.g. $80K in M1) apply to the marketing as a whole, not to Google Ads alone.
@@ -3974,3 +3975,44 @@ a platform page's platform).
   nothing logs a row. A file over 4.3 MB is refused with "choose a shorter
   range" rather than failing at Vercel's 4.5 MB response cap; every page
   over all of 2026 measured at 2.55 MB or less against production.
+
+## §8 — the signed contract governs every target (30 October 2026)
+
+**Supersedes "the funded targets are every source's but lead vendors'",
+above, and the M1–M8 planning sheet as a target source.** Client decision: the
+signed contract (Zeeraa proposal, page 22) governs, and its targets are
+program-wide.
+
+- **The targets**, in the `contract_targets` config row (the contract is one
+  client's, so configuration; `parseContractTargets` in core): cost per
+  acquisition (all sources) $1,000 every month; cost per funded deal (all
+  sources) $4,500 every month; funded volume (all sources except lead
+  vendors) October $100K–$150K, November $200K, December $400K, January
+  $750K, February $1M, March $1.5M, April onward $2M. No target for the
+  number of funded deals — the contract sets volume only. A range is on target
+  at its low end: October is on target from $100K.
+- **The measures** are `contractMonthActuals` in core: every ad platform's
+  spend over every source's approvals and funded deals (vendors included, as
+  the All sources card counts them); volume and deals over every source but
+  lead vendors. Approvals are counted at UW approved where the funnel has it
+  (`approvalStageKey`), the rule the frozen figures use.
+- **Executive.** "Google Ads vs target" is "Google Ads": the same figures, no
+  targets, no verdicts. The All sources card carries "Against the contract":
+  cost per funded deal, cost per acquisition and funded volume with
+  `scorecardVerdict`'s on-target / behind-pace verdicts, funded deals
+  untargeted. The chart is "Cost per funded deal (all sources)": June–September
+  as the baseline before Zeeraa, then the $4,500 line.
+- **Monthly performance.** The ramp table is "Against the contract", every
+  column across sources, the three contracted ones against the contract.
+- **"Blended" is gone from every screen**, replaced by "All sources";
+  `no-blended-wording.test.ts` reads the sources and fails on the word.
+- **Frozen months.** A baseline month is read from the frozen channel
+  figures — every channel's spend, approvals, deals and volume — so it does not
+  drift. The one figure the freeze lacked, Direct & other's funded volume, is
+  now a channel figure (`channelMonth.unattributedVolume`) and was frozen for
+  June–September with this decision as the reason. Google Ads' six frozen ramp
+  figures are unchanged and still checked. The cross-screen number check holds
+  the contract's measures, per month, to Monthly performance's all-sources
+  figures.
+- `engagement_targets` (the M1–M8 sheet) stays in the database and is no
+  longer read for any target.

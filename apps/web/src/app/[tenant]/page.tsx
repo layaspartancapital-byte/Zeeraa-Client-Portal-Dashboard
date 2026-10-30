@@ -37,7 +37,7 @@ import { AllSourcesCard } from '@/components/AllSourcesCard';
 import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
 import { allSources } from '@/lib/all-sources';
 import { monthName } from '@/components/RampCard';
-import { buildRampPanels, fundedTargetRows, scorecardRows } from '@/lib/ramp-panels';
+import { buildRampPanels, contractRows, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
 
 import { AllFunded, type FundedSourceRow } from '@/components/AllFunded';
@@ -252,8 +252,8 @@ export default async function ExecutiveBriefing({
     metrics,
     valueLabel,
   });
-  // The funded targets, against every source but lead vendors, on All sources.
-  const fundedTargets = fundedTargetRows(rampPanels, {
+  // This month against the signed contract, program-wide, on All sources.
+  const contractTargetRows = contractRows(rampPanels, {
     currentMonth: periods.currentMonth,
     elapsed: periods.elapsed,
     metrics,
@@ -501,49 +501,47 @@ export default async function ExecutiveBriefing({
         'compare. A cost always shows its number with how many it was based on.',
     },
     {
-      heading: `${rampChannel} vs target`,
+      heading: rampChannel,
       body:
-        `Each figure is ${rampChannel} alone: its spend, and the deals and approvals attributed to it. ` +
-        `CPA, cost per ${valueLabel.toLowerCase()} deal and spend are judged against the engagement model’s figure ` +
-        `for this month; ${valueLabel.toLowerCase()} deals and volume are shown without one, because those targets ` +
-        `are every source’s except lead vendors’ and are judged on All sources.`,
-      detail:
-        'A month in progress is judged against pace — a count or a spend against the target times the share ' +
-        'of the month gone, a cost as it stands once it has enough deals under it. Within 5% of target is on ' +
-        'target; spend is stated as over or under, never as behind.',
+        `Each figure is ${rampChannel} alone this month: its spend, and the deals and approvals attributed to it. ` +
+        'No target: every target is the signed contract’s, and the contract’s targets are program-wide, so they ' +
+        'are judged on All sources.',
     },
     {
       heading: 'All sources',
       body:
-        'The blended figures follow the picked period: every funded deal from every source, every ad platform’s ' +
-        'spend (lead vendors’ costs are not ingested), and that spend over all deals and all approvals. Below them, ' +
-        `this month’s ${valueLabel.toLowerCase()} deals and volume against the engagement model’s funded targets, ` +
-        'counted across every source except lead vendors.',
+        'The first row follows the picked period: every funded deal from every source, every ad platform’s spend ' +
+        '(lead vendors’ costs are not ingested), and that spend over all deals and all approvals. Below it, this ' +
+        `month against the signed contract${rampPanels.contract.source ? ` (${rampPanels.contract.source})` : ''}: ` +
+        `cost per ${valueLabel.toLowerCase()} deal and cost per acquisition across every source, and ` +
+        `${valueLabel.toLowerCase()} volume across every source except lead vendors.`,
       detail:
-        'The funded targets are the marketing’s, not Google Ads’ alone (client decision, 30 October 2026). A month ' +
-        'in progress is judged against pace. The total above includes vendors’ deals and the target count does not, ' +
-        'so the two can differ.',
+        'The contract governs every target, and its targets are program-wide (client decision, 30 October 2026); ' +
+        'it sets none for the number of deals. A month in progress is judged against pace for volume and as it ' +
+        'stands for a cost; a month the contract states as a range is on target at its low end.',
     },
     {
-      heading: `${rampChannel} cost per ${valueLabel.toLowerCase()} deal, by month`,
+      heading: `Cost per ${valueLabel.toLowerCase()} deal (all sources), by month`,
       body:
         ramp.startMonth === null
           ? 'The contract commits a figure for each month of the engagement; until the start month is recorded the curve is drawn on an M1–M8 axis.'
-          : `The months before M1 (${monthName(ramp.startMonth)}) are the baseline, from the first month ${rampChannel} spend was read; the dashed line is the contracted target.`,
+          : `Every ad platform’s spend over every source’s ${valueLabel.toLowerCase()} deals. The months before ` +
+            `${monthName(ramp.startMonth)} are the baseline before Zeeraa, read from the frozen figures; the dashed ` +
+            'line is the contract’s target.',
       detail:
         'A solid point is a finished month. The hollow point is the month so far, never compared with a target. ' +
         'A month with too few deals, or with days its source was not read, is left as a gap; hover it for why.',
     },
     {
       heading: 'CPA',
-      body: `${rampChannel} spend divided by the UW approvals attributed to ${rampChannel} — cost per approval.`,
-      detail: 'The full CPA, approvals, budget and volume curves are on Monthly performance.',
+      body: `On the ${rampChannel} card, ${rampChannel} spend over the approvals attributed to it; on All sources, every ad platform’s spend over every source’s approvals.`,
+      detail: 'Every month against the contract is on Monthly performance.',
     },
     {
       heading: 'Cost per stage',
       body:
         'Each figure is one channel’s spend over the records attributed to that channel at that ' +
-        'stage. Nothing here is blended across channels.',
+        'stage. No figure here mixes one channel’s spend with another’s deals.',
       detail:
         'Under each cost is the number it was divided by. A cost over one or two deals can move a lot when the next one lands.',
     },
@@ -655,8 +653,8 @@ export default async function ExecutiveBriefing({
           currency={currency}
           note={scorecardNote}
         />
-        {/* Beside the contracted channel, every source at once and blended,
-            for the picked period. No target: the targets are Google Ads'. */}
+        {/* Every source at once for the picked period, and this month against
+            the signed contract, whose targets are program-wide. */}
         <AllSourcesCard
           figures={allSources(current)}
           valueLabel={valueLabel}
@@ -665,7 +663,8 @@ export default async function ExecutiveBriefing({
           crmUnmeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
           spendUnmeasured={isUnmeasured(spendCoverage) ? notMeasuredReason(spendCoverage, 'Paid media') : undefined}
           targets={{
-            rows: fundedTargets,
+            rows: contractTargetRows,
+            source: rampPanels.contract.source,
             heading: `${monthName(periods.currentMonth)}${
               periods.elapsedDays < periods.monthDays
                 ? ` · month to date, ${formatCount(periods.elapsedDays)} of ${formatCount(periods.monthDays)} days`
@@ -675,7 +674,7 @@ export default async function ExecutiveBriefing({
             partial: periods.elapsedDays < periods.monthDays,
           }}
         />
-        <RampCostChart panel={rampPanels.primary} />
+        <RampCostChart panel={rampPanels.contract.primary} />
 
         {/* 2. The outcome, and the spend that bought it. */}
         <TwoPeriodKpi

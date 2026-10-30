@@ -1,8 +1,11 @@
 import {
   channelCostPerDeal,
   channelMonthActuals,
-  fundedTargetActuals,
+  contractMonthActuals,
+  contractRampTargets,
+  contractTarget,
   improvementDirectionFor,
+  isPaidChannel,
   monthKeyOf,
   rampMonthKey,
   rampSeries,
@@ -10,7 +13,10 @@ import {
   rangeCoverage,
   scorecardVerdict,
   type ScorecardVerdict,
-  type FundedTargetMetric,
+  type ContractMetric,
+  type ContractMonthInput,
+  type ContractMonthMetric,
+  type ContractTarget,
   type MonthActual,
   type RampMetricKey,
   type RampTarget,
@@ -23,11 +29,15 @@ import { platformLabel } from '@/lib/platform-labels';
 /**
  * The engagement ramp's panels, built once for every screen that draws them.
  *
- * The executive screen draws a four-card scorecard and one chart, cost per
- * funded deal; Monthly performance draws CPA, budget, approvals, funded deals
- * and funded volume as full charts. Both read the same months through `channelMonthActuals`, and a
- * frozen month from its snapshot, so the two screens cannot disagree about a
- * month.
+ * Two halves (30 October 2026). **The contract** — every target on screen,
+ * from the signed contract (`contract_targets`), measured across sources:
+ * cost per acquisition and cost per funded deal over every source, funded
+ * volume over every source but lead vendors (`contractMonthActuals`). Executive's
+ * All sources card, its cost per funded deal chart and Monthly performance's
+ * ramp table read it. **The ramp channel** (Google Ads) — its own figures,
+ * untargeted, on Executive's Google Ads card, read through
+ * `channelMonthActuals` and a frozen month from its snapshot, as the baseline
+ * check holds them.
  */
 export type RampPanels = {
   platform: string;
@@ -40,13 +50,23 @@ export type RampPanels = {
   compact: RampPanel[];
   /** One month of any contracted metric, frozen or live. */
   monthActual: (metric: RampMetricKey, month: string) => MonthActual;
-  /**
-   * One month of funded deals or volume as the funded targets measure them:
-   * every source except lead vendors (`fundedTargetActuals`, 30 October 2026).
-   * `monthActual` keeps the ramp channel's own, which carries no target now.
-   */
-  fundedTarget: (metric: FundedTargetMetric, month: string) => MonthActual;
+  contract: ContractPanels;
 };
+
+export type ContractPanels = {
+  /** Where the targets come from ("Zeeraa proposal, page 22"), or null with none recorded. */
+  source: string | null;
+  /** Cost per funded deal across every source, against the contract: the Executive chart. */
+  primary: RampPanel;
+  panels: Record<ContractMonthMetric, RampPanel>;
+  /** One month, as the contract measures it: from the frozen channel figures where frozen, else live. */
+  monthActual: (metric: ContractMonthMetric, month: string) => MonthActual;
+  /** The contract's target for a calendar month; null for a metric it sets none for. */
+  target: (metric: ContractMonthMetric, month: string) => ContractTarget | null;
+};
+
+/** How many contract months the chart and table lay out: M1–M8, as the engagement runs. */
+const CONTRACT_MONTHS = 8;
 
 /** Never more baseline than this before M1, however long the record. */
 const MAX_BASELINE_MONTHS = 6;
@@ -64,7 +84,9 @@ export function buildRampPanels(input: {
 }): RampPanels {
   const { buckets, metrics, ramp, frozen: frozenAll, through, valueKey, valueLabel, currency, currentMonth } = input;
   const platform = [...ramp.byPlatform.keys()][0] ?? 'google_ads';
-  const targets = ramp.byPlatform.get(platform) ?? [];
+  // The ramp channel carries no target since the contract replaced the M1–M8
+  // sheet (30 October 2026): its panels are drawn untargeted.
+  const targets: RampTarget[] = [];
   const channel = platformLabel(platform);
 
   /*
@@ -158,26 +180,80 @@ export function buildRampPanels(input: {
   const monthActual = (metric: RampMetricKey, month: string): MonthActual =>
     frozen.get(`${month}|${metric}`) ?? liveMonth(month)[metric];
 
-  // Not frozen: the freeze holds the ramp channel's six figures, and the
-  // channel figures it holds carry no unattributed volume to rebuild this from.
-  const fundedTarget = (metric: FundedTargetMetric, month: string): MonthActual => {
+  /*
+   * The contract's months. A frozen month is rebuilt from its frozen channel
+   * figures — every channel's spend, approvals, funded deals and volume,
+   * Direct & other's included — so a baseline month reads the same until a
+   * correction is frozen; the month in progress and any month not frozen are
+   * live. A frozen month missing any figure it needs is read live whole,
+   * never half and half.
+   */
+  const approvalKey = 'uw_approved';
+  const frozenContractInput = (month: string): ContractMonthInput | null => {
+    if (!valueKey) return null;
+    const rows = [...frozenAll].filter(([key]) => key.split('|')[1] === month);
+    if (rows.length === 0) return null;
+    const at = (platform: string, metric: string) => frozenAll.get(`${platform}|${month}|${metric}`)?.value;
+    const platforms = [...new Set(rows.map(([key]) => key.split('|')[0]!))].filter((p) => p !== 'unattributed');
+    const dealsBySource: Record<string, number> = {};
+    const volumeBySource: Record<string, number> = {};
+    let adSpend = 0;
+    let approvals = 0;
+    for (const p of platforms) {
+      const deals = at(p, `stage:${valueKey}`);
+      const volume = at(p, 'funded_volume');
+      const approved = at(p, `stage:${approvalKey}`);
+      if (deals == null || approved == null) return null;
+      dealsBySource[p] = deals;
+      volumeBySource[p] = volume ?? 0;
+      approvals += approved;
+      if (isPaidChannel(p)) {
+        const spend = at(p, 'spend');
+        if (spend == null) return null;
+        adSpend += spend;
+      }
+    }
+    const unattributedDeals = at('unattributed', `stage:${valueKey}`);
+    const unattributedApprovals = at('unattributed', `stage:${approvalKey}`);
+    const unattributedVolume = at('unattributed', 'funded_volume');
+    if (unattributedDeals == null || unattributedApprovals == null || unattributedVolume == null) return null;
+    return {
+      adSpend,
+      approvals: approvals + unattributedApprovals,
+      deals: Object.values(dealsBySource).reduce((n, d) => n + d, 0) + unattributedDeals,
+      dealsBySource,
+      unattributedDeals,
+      volumeBySource,
+      unattributedVolume,
+      spendRead: true,
+      crmRead: true,
+    };
+  };
+  const liveContractInput = (month: string): ContractMonthInput => {
     const bucket = buckets.find((b) => monthKeyOf(b.start) === month);
     const dealsBySource = Object.fromEntries(
       Object.entries(bucket?.stagesByPlatform ?? {}).map(([source, stages]) => [source, valueKey ? (stages[valueKey] ?? 0) : 0]),
     );
     const volumeBySource = bucket?.valueVolumeByPlatform ?? {};
     const attributedVolume = Object.values(volumeBySource).reduce((sum, v) => sum + v, 0);
-    return fundedTargetActuals(
-      {
-        dealsBySource,
-        unattributedDeals: valueKey ? (bucket?.unattributedStages[valueKey] ?? 0) : 0,
-        volumeBySource,
-        unattributedVolume: (bucket?.valueVolume ?? 0) - attributedVolume,
-        crmRead: bucket?.crmIngested ?? false,
-      },
-      { valueStage: valueKey },
-    )[metric];
+    return {
+      adSpend: Object.entries(bucket?.spendByPlatform ?? {})
+        .filter(([p]) => isPaidChannel(p))
+        .reduce((sum, [, v]) => sum + v, 0),
+      approvals: bucket?.stages[approvalKey] ?? 0,
+      deals: valueKey ? (bucket?.stages[valueKey] ?? 0) : 0,
+      dealsBySource,
+      unattributedDeals: valueKey ? (bucket?.unattributedStages[valueKey] ?? 0) : 0,
+      volumeBySource,
+      unattributedVolume: (bucket?.valueVolume ?? 0) - attributedVolume,
+      spendRead: bucket?.spendIngested ?? false,
+      crmRead: bucket?.crmIngested ?? false,
+    };
   };
+  const contractMonthActual = (metric: ContractMonthMetric, month: string): MonthActual =>
+    contractMonthActuals(frozenContractInput(month) ?? liveContractInput(month), { valueStage: valueKey })[metric];
+  const contractTargets = contractRampTargets(ramp.contract, ramp.startMonth, CONTRACT_MONTHS);
+  const isContractMetric = (m: string): m is ContractMetric => m === 'cpa' || m === 'costPerFundedDeal' || m === 'fundedAmount';
 
   const panelFor = (
     metric: RampMetricKey,
@@ -212,163 +288,200 @@ export function buildRampPanels(input: {
   };
 
   const AWAITING =
-    'The engagement model contracts this month by month. The figures have not been entered in the engagement targets yet.';
+    'The contract sets this month by month. Its figures have not been recorded (contract_targets) yet.';
   const deals = `${valueLabel.toLowerCase()} deals`;
   const money = { kind: 'currency', currency } as const;
+
+  /** A contract panel: every source, against the contract where it sets a target. */
+  const contractPanel = (
+    metric: ContractMonthMetric,
+    label: string,
+    formulaKey: string,
+    format: RampPanel['format'],
+    basis: string,
+  ): RampPanel => {
+    const direction = improvementDirectionFor(formulaKey);
+    const targets = isContractMetric(metric) ? contractTargets : contractTargets.map((t) => ({ ...t, [metric]: null }));
+    return {
+      metric,
+      label,
+      format,
+      direction,
+      missing: AWAITING,
+      series: rampSeries(targets, metric, { startMonth: ramp.startMonth, actualFor: () => null, direction }),
+      channel: 'All sources',
+      basis,
+      timeline:
+        ramp.startMonth === null
+          ? null
+          : rampTimeline(targets, metric, {
+              startMonth: ramp.startMonth,
+              baselineMonths,
+              currentMonth,
+              readActual: (month) => contractMonthActual(metric, month),
+              direction,
+            }),
+    };
+  };
+  const contractPanels: Record<ContractMonthMetric, RampPanel> = {
+    costPerFundedDeal: contractPanel('costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal (all sources)`, 'cost_per_funded_deal', money, `Every ad platform's spend ÷ every source's ${deals}`),
+    cpa: contractPanel('cpa', 'Cost per acquisition (all sources)', 'cpa', money, "Every ad platform's spend ÷ every source's approvals"),
+    fundedAmount: contractPanel('fundedAmount', `${valueLabel} volume (all sources except lead vendors)`, 'funded_volume', money, `${valueLabel} volume from every source but lead vendors`),
+    fundedDeals: contractPanel('fundedDeals', `${valueLabel} deals (all sources except lead vendors)`, 'stage_count', { kind: 'projection' }, `${valueLabel} deals from every source but lead vendors`),
+    budget: contractPanel('budget', 'Ad spend (all ad platforms)', 'paid_media_spend', money, "Every ad platform's spend"),
+    approvals: contractPanel('approvals', 'Approvals (all sources)', 'stage_count', { kind: 'projection' }, "Every source's approvals"),
+  };
+
+  // The ramp channel's own panels carry no target: every target is the contract's.
+  const channelPanel = (metric: RampMetricKey, label: string, formulaKey: string, format: RampPanel['format'], basis: string): RampPanel => ({
+    ...panelFor(metric, label, formulaKey, format, AWAITING, basis),
+  });
 
   return {
     platform,
     channel,
     startMonth: ramp.startMonth,
     targets,
-    primary: panelFor('costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal`, 'cost_per_funded_deal', money, AWAITING, `${channel} spend ÷ ${deals} attributed to ${channel}`),
-    secondary: panelFor('cpa', 'CPA · cost per approval', 'cpa', money, AWAITING, `${channel} spend ÷ UW approvals attributed to ${channel}`),
+    primary: channelPanel('costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal`, 'cost_per_funded_deal', money, `${channel} spend ÷ ${deals} attributed to ${channel}`),
+    secondary: channelPanel('cpa', 'CPA · cost per approval', 'cpa', money, `${channel} spend ÷ UW approvals attributed to ${channel}`),
     compact: [
-      panelFor('budget', 'Budget', 'paid_media_spend', money, 'Only M1 of the budget curve has been entered.', `${channel} spend`),
-      panelFor('approvals', 'Approvals', 'stage_count', { kind: 'projection' }, AWAITING, `UW approvals attributed to ${channel}`),
-      panelFor('fundedDeals', `${valueLabel} deals`, 'stage_count', { kind: 'projection' }, AWAITING, `${valueLabel} deals attributed to ${channel}`),
-      panelFor('fundedAmount', `${valueLabel} volume`, 'funded_volume', money, AWAITING, `${valueLabel} volume attributed to ${channel}`),
+      channelPanel('budget', 'Budget', 'paid_media_spend', money, `${channel} spend`),
+      channelPanel('approvals', 'Approvals', 'stage_count', { kind: 'projection' }, `UW approvals attributed to ${channel}`),
+      channelPanel('fundedDeals', `${valueLabel} deals`, 'stage_count', { kind: 'projection' }, `${valueLabel} deals attributed to ${channel}`),
+      channelPanel('fundedAmount', `${valueLabel} volume`, 'funded_volume', money, `${valueLabel} volume attributed to ${channel}`),
     ],
     monthActual,
-    fundedTarget,
+    contract: {
+      source: ramp.contract?.source ?? null,
+      primary: contractPanels.costPerFundedDeal,
+      panels: contractPanels,
+      monthActual: contractMonthActual,
+      target: (metric, month) => (isContractMetric(metric) ? contractTarget(ramp.contract, metric, month) : null),
+    },
   };
 }
 
 /**
- * One card of the executive scorecard: this month's figure for one contracted
- * metric, its target, and the verdict.
+ * One card of a scorecard: this month's figure for one metric, its target and
+ * the verdict.
  *
- * The verdict is `scorecardVerdict` in core, so "on target" means one thing:
- * a month in progress is judged against pace for a count or a spend, and as it
- * stands for a cost, above its comparison floor. Before M1 there is no target
- * this month, and the card names M1's instead of inventing one.
+ * Every target is the contract's (30 October 2026). The verdict is
+ * `scorecardVerdict` in core, so "on target" means one thing: a month in
+ * progress is judged against pace for a count or a spend, and as it stands for
+ * a cost. A month the contract states as a range is on target at its low end.
+ * Before the contract starts there is no target this month, and the card names
+ * the first one instead of inventing one.
  */
 export type ScorecardRow = {
   metric: RampMetricKey;
   label: string;
   format: RampPanel['format'];
   actual: MonthActual;
+  /** The target, the low end of a range. */
   target: number | null;
-  verdict: ScorecardVerdict;
-  /** Before M1: the first contracted figure and the month it applies to. */
+  /** The high end, where the contract states a range. */
+  targetHigh: number | null;
+  verdict: ScorecardVerdict | null;
+  /** Before the contract starts: the first target and the month it applies to. */
   upcoming: { month: string; value: number } | null;
-  /** Shown in place of a target where the figure carries none here. */
-  untargeted?: string;
+  /** A figure shown without a target or verdict. */
+  untargeted?: boolean;
+  /** A cost's basis line, for `CostPerDealFigure`: the noun and the ⓘ sentence. */
+  cost?: { noun: readonly [string, string]; explanation: (spend: string, n: string) => string };
 };
-
-/**
- * The ramp channel's card. Funded deals and volume are its own and carry no
- * target: the funded targets are every source's except lead vendors', on the
- * All sources card (`fundedTargetRows`). CPA, cost per funded deal and spend
- * keep theirs, because Google spend is their numerator (30 October 2026).
- */
-const SCORECARD: { metric: RampMetricKey; formulaKey: string; kind: 'rate' | 'count'; targeted: boolean }[] = [
-  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate', targeted: true },
-  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate', targeted: true },
-  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count', targeted: false },
-  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count', targeted: false },
-  { metric: 'budget', formulaKey: 'paid_media_spend', kind: 'count', targeted: true },
-];
-
-const FUNDED_TARGET_ROWS: { metric: FundedTargetMetric; formulaKey: string; kind: 'count' }[] = [
-  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count' },
-  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count' },
-];
 
 type ScorecardInput = { currentMonth: string; elapsed: number; metrics: Metrics; valueLabel: string };
 
-/** This month's ramp month, and why there is no target where there is none. */
-function thisRampMonth(panels: RampPanels, currentMonth: string) {
-  const start = panels.startMonth;
-  const rampMonth =
-    start === null
-      ? null
-      : (panels.targets.find((t) => rampMonthKey(start, t.monthIndex) === currentMonth) ?? null);
-  const beforeM1 = start !== null && currentMonth < start;
-  const noTarget =
-    start === null
-      ? 'The engagement start month is not recorded.'
-      : beforeM1
-        ? `Targets begin ${monthLabelOf(start)}.`
-        : rampMonth === null
-          ? 'This month is past the contracted ramp.'
-          : null;
-  return { start, rampMonth, beforeM1, noTarget };
-}
-
-function scorecardRow(
-  panels: RampPanels,
-  input: ScorecardInput,
-  row: { metric: RampMetricKey; formulaKey: string; kind: 'rate' | 'count'; label: string; format: RampPanel['format'] },
-  actual: MonthActual,
-  untargeted?: string,
-): ScorecardRow {
-  const { start, rampMonth, beforeM1, noTarget } = thisRampMonth(panels, input.currentMonth);
-  const raw = untargeted ? null : rampMonth?.[row.metric];
-  const target = raw === null || raw === undefined ? null : Number(raw);
-  const m1 = panels.targets.find((t) => t.monthIndex === 1)?.[row.metric];
-  return {
-    metric: row.metric,
-    label: row.label,
-    format: row.format,
-    actual,
-    target,
-    upcoming: !untargeted && beforeM1 && m1 !== null && m1 !== undefined ? { month: start!, value: Number(m1) } : null,
-    ...(untargeted ? { untargeted } : {}),
-    verdict: scorecardVerdict({
-      actual: actual.value,
-      actualReason: actual.reason,
-      target,
-      noTarget: untargeted ?? noTarget ?? 'No target is recorded for this month.',
-      direction: improvementDirectionFor(row.formulaKey),
-      kind: row.kind,
-      partial: true,
-      elapsed: input.elapsed,
-    }),
-  };
-}
-
-const panelOf = (panels: RampPanels, metric: RampMetricKey) =>
-  [panels.primary, panels.secondary, ...panels.compact].find((p) => p.metric === metric)!;
-
+/** The ramp channel's card (Google Ads): its own figures this month, no targets. */
 export function scorecardRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
   const { currentMonth, valueLabel } = input;
-  const labels: Record<string, string> = {
-    costPerFundedDeal: `Cost per ${valueLabel.toLowerCase()} deal`,
-    cpa: 'CPA',
-    fundedDeals: `${valueLabel} deals`,
-    fundedAmount: `${valueLabel} volume`,
-    budget: 'Spend',
-  };
-  return SCORECARD.map(({ metric, formulaKey, kind, targeted }) =>
-    scorecardRow(
-      panels,
-      input,
-      { metric, formulaKey, kind, label: labels[metric]!, format: panelOf(panels, metric).format },
-      panels.monthActual(metric, currentMonth),
-      targeted ? undefined : 'Targeted across all sources',
-    ),
-  );
+  const rows: [RampMetricKey, string][] = [
+    ['costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal`],
+    ['cpa', 'CPA'],
+    ['fundedDeals', `${valueLabel} deals`],
+    ['fundedAmount', `${valueLabel} volume`],
+    ['budget', 'Spend'],
+  ];
+  const panelOf = (metric: RampMetricKey) =>
+    [panels.primary, panels.secondary, ...panels.compact].find((p) => p.metric === metric)!;
+  return rows.map(([metric, label]) => ({
+    metric,
+    label,
+    format: panelOf(metric).format,
+    actual: panels.monthActual(metric, currentMonth),
+    target: null,
+    targetHigh: null,
+    verdict: null,
+    upcoming: null,
+    untargeted: true,
+  }));
 }
 
+const CONTRACT_ROWS: { metric: ContractMonthMetric; formulaKey: string; kind: 'rate' | 'count' }[] = [
+  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate' },
+  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate' },
+  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count' },
+  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count' },
+];
+
 /**
- * The funded targets for this month, against every source except lead
- * vendors: the All sources card's half of the ramp (30 October 2026).
+ * This month against the contract, on Executive's All sources card: cost per
+ * funded deal and cost per acquisition across every source, funded volume
+ * across every source but lead vendors, and funded deals beside them with no
+ * target — the contract sets volume only.
  */
-export function fundedTargetRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
-  const { currentMonth, valueLabel } = input;
-  const labels: Record<FundedTargetMetric, string> = {
-    fundedDeals: `${valueLabel} deals`,
-    fundedAmount: `${valueLabel} volume`,
+export function contractRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
+  const { currentMonth, elapsed, valueLabel } = input;
+  const c = panels.contract;
+  const start = panels.startMonth;
+  const beforeStart = start !== null && currentMonth < start;
+  const noTarget =
+    c.source === null
+      ? 'No contract targets are recorded.'
+      : beforeStart
+        ? `Targets begin ${monthLabelOf(start!)}.`
+        : 'The contract sets no target for this month.';
+  const deal = valueLabel.toLowerCase();
+  const costs: Partial<Record<ContractMonthMetric, ScorecardRow['cost']>> = {
+    costPerFundedDeal: {
+      noun: ['deal', 'deals'],
+      explanation: (spend, n) => `${spend} of ad spend divided by all ${n} ${deal} deals, from every source.`,
+    },
+    cpa: {
+      noun: ['approval', 'approvals'],
+      explanation: (spend, n) => `${spend} of ad spend divided by all ${n} approvals, from every source.`,
+    },
   };
-  return FUNDED_TARGET_ROWS.map(({ metric, formulaKey, kind }) =>
-    scorecardRow(
-      panels,
-      input,
-      { metric, formulaKey, kind, label: labels[metric], format: panelOf(panels, metric).format },
-      panels.fundedTarget(metric, currentMonth),
-    ),
-  );
+  return CONTRACT_ROWS.map(({ metric, formulaKey, kind }) => {
+    const panel = c.panels[metric];
+    const actual = c.monthActual(metric, currentMonth);
+    const target = c.target(metric, currentMonth);
+    const untargeted = metric === 'fundedDeals';
+    const first = start ? c.target(metric, start) : null;
+    return {
+      metric,
+      label: panel.label,
+      format: panel.format,
+      actual,
+      target: target?.low ?? null,
+      targetHigh: target?.high ?? null,
+      upcoming: !untargeted && beforeStart && first ? { month: start!, value: first.low } : null,
+      untargeted,
+      cost: costs[metric],
+      verdict: untargeted
+        ? null
+        : scorecardVerdict({
+            actual: actual.value,
+            actualReason: actual.reason,
+            target: target?.low ?? null,
+            noTarget,
+            direction: improvementDirectionFor(formulaKey),
+            kind,
+            partial: true,
+            elapsed,
+          }),
+    };
+  });
 }
 
 /** `Oct 2026`, from `2026-10`. */
@@ -382,43 +495,39 @@ function monthLabelOf(month: string): string {
 }
 
 /**
- * The engagement ramp as one table (24 September 2026, replacing five charts
- * on Monthly performance): a row per month, the baseline months first with
- * actuals only, then M1–Mn with each figure against its target.
+ * The contract as one month-by-month table on Monthly performance: the
+ * baseline months first with actuals only, then M1–M8 with each targeted
+ * figure against the contract. Every figure is across sources, as the
+ * contract measures them (30 October 2026).
  *
- * Every cell's verdict is `scorecardVerdict`, the executive scorecard's rule,
- * so a month cannot read "on target" on one screen and "behind" on the other:
- * a finished month against its target, the month in progress against pace.
- * A month that has not happened shows its target and nothing else.
+ * Every cell's verdict is `scorecardVerdict`, the scorecard's rule, so a month
+ * cannot read "on target" on one screen and "behind" on the other: a finished
+ * month against its target, the month in progress against pace. A month that
+ * has not happened shows its target and nothing else.
  */
 export type RampTableColumn = {
-  key: string;
-  metric: RampMetricKey;
+  key: ContractMonthMetric;
+  metric: ContractMonthMetric;
   label: (valueLabel: string) => string;
   formulaKey: string;
   kind: 'rate' | 'count';
-  /**
-   * `channel`: the ramp channel's own figure. `funded`: the funded targets'
-   * measure, every source except lead vendors (30 October 2026).
-   */
-  scope: 'channel' | 'funded';
-  /** False where the figure is shown without its target. */
+  /** False where the contract sets no target for the figure. */
   targeted: boolean;
 };
 
 export const RAMP_TABLE_COLUMNS: RampTableColumn[] = [
-  { key: 'budget', metric: 'budget', label: () => 'Spend', formulaKey: 'paid_media_spend', kind: 'count', scope: 'channel', targeted: true },
-  { key: 'approvals', metric: 'approvals', label: () => 'Approvals', formulaKey: 'stage_count', kind: 'count', scope: 'channel', targeted: true },
-  { key: 'cpa', metric: 'cpa', label: () => 'CPA', formulaKey: 'cpa', kind: 'rate', scope: 'channel', targeted: true },
-  { key: 'fundedDeals', metric: 'fundedDeals', label: (v) => `${v}`, formulaKey: 'stage_count', kind: 'count', scope: 'channel', targeted: false },
-  { key: 'costPerFundedDeal', metric: 'costPerFundedDeal', label: (v) => `Cost per ${v.toLowerCase()}`, formulaKey: 'cost_per_funded_deal', kind: 'rate', scope: 'channel', targeted: true },
-  { key: 'allFundedDeals', metric: 'fundedDeals', label: (v) => `${v}, all sources`, formulaKey: 'stage_count', kind: 'count', scope: 'funded', targeted: true },
-  { key: 'allFundedAmount', metric: 'fundedAmount', label: (v) => `${v} volume, all sources`, formulaKey: 'funded_volume', kind: 'count', scope: 'funded', targeted: true },
+  { key: 'budget', metric: 'budget', label: () => 'Ad spend', formulaKey: 'paid_media_spend', kind: 'count', targeted: false },
+  { key: 'approvals', metric: 'approvals', label: () => 'Approvals', formulaKey: 'stage_count', kind: 'count', targeted: false },
+  { key: 'cpa', metric: 'cpa', label: () => 'Cost per acquisition', formulaKey: 'cpa', kind: 'rate', targeted: true },
+  { key: 'fundedDeals', metric: 'fundedDeals', label: (v) => `${v} deals`, formulaKey: 'stage_count', kind: 'count', targeted: false },
+  { key: 'costPerFundedDeal', metric: 'costPerFundedDeal', label: (v) => `Cost per ${v.toLowerCase()} deal`, formulaKey: 'cost_per_funded_deal', kind: 'rate', targeted: true },
+  { key: 'fundedAmount', metric: 'fundedAmount', label: (v) => `${v} volume`, formulaKey: 'funded_volume', kind: 'count', targeted: true },
 ];
 
 export type RampTableCell = {
   actual: MonthActual | null;
   target: number | null;
+  targetHigh: number | null;
   verdict: ScorecardVerdict | null;
 };
 
@@ -432,39 +541,31 @@ export type RampTableRow = {
   cells: Record<string, RampTableCell>;
 };
 
-export function rampTableRows(
-  panels: RampPanels,
-  input: { currentMonth: string; elapsed: number },
-): RampTableRow[] {
-  const timeline = panels.primary.timeline;
+export function rampTableRows(panels: RampPanels, input: { currentMonth: string; elapsed: number }): RampTableRow[] {
+  const c = panels.contract;
+  const timeline = c.primary.timeline;
   if (!timeline) return [];
   return timeline.points.map((point) => {
     const future = point.month > input.currentMonth;
     const inProgress = point.month === input.currentMonth;
-    const target = point.monthIndex === null ? null : (panels.targets.find((t) => t.monthIndex === point.monthIndex) ?? null);
     const cells = Object.fromEntries(
-      RAMP_TABLE_COLUMNS.map(({ key, metric, formulaKey, kind, scope, targeted }) => {
-        const raw = targeted ? target?.[metric] : null;
-        const targetValue = raw === null || raw === undefined ? null : Number(raw);
-        const actual = future
-          ? null
-          : scope === 'funded'
-            ? panels.fundedTarget(metric as FundedTargetMetric, point.month)
-            : panels.monthActual(metric, point.month);
+      RAMP_TABLE_COLUMNS.map(({ key, metric, formulaKey, kind, targeted }) => {
+        const target = targeted && point.monthIndex !== null ? c.target(metric, point.month) : null;
+        const actual = future ? null : c.monthActual(metric, point.month);
         const verdict =
-          point.monthIndex === null || future || targetValue === null
+          point.monthIndex === null || future || !target
             ? null
             : scorecardVerdict({
                 actual: actual?.value ?? null,
                 actualReason: actual?.reason ?? null,
-                target: targetValue,
+                target: target.low,
                 noTarget: null,
                 direction: improvementDirectionFor(formulaKey),
                 kind,
                 partial: inProgress,
                 elapsed: inProgress ? input.elapsed : 1,
               });
-        return [key, { actual, target: targetValue, verdict }];
+        return [key, { actual, target: target?.low ?? null, targetHigh: target?.high ?? null, verdict }];
       }),
     ) as Record<string, RampTableCell>;
     return {

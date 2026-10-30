@@ -1,4 +1,4 @@
-import { FUNDED_TARGET_SCOPE, formatCount, formatCurrency } from '@zeeraa/core';
+import { formatCount, formatCurrency } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
@@ -11,16 +11,15 @@ import { ExportButton } from '@/components/export/ExportScope';
 
 /**
  * Every source at once, beside the one channel the contract names: the
- * period's deals from everywhere, every ad platform's spend, and the blended
+ * period's deals from everywhere, every ad platform's spend, and the
  * costs between them.
  *
- * Laid out as `RampScorecard` is. The blended figures carry no target, and
- * "blended" is in the title and in every cost's label, because a reader who
- * takes one for a channel's cost per deal will credit the ads with the sales
- * team's month. Below them, this calendar month's funded deals and volume
- * against the funded targets, which are every source's except lead vendors'
- * (30 October 2026) — a different population from the total above, which
- * counts vendors too, so the two never share a cell.
+ * Laid out as `RampScorecard` is. "All sources" is in every cost's label,
+ * because a reader who takes one for a channel's cost per deal will credit the
+ * ads with the sales team's month. Below, this calendar month against the
+ * signed contract, whose targets are program-wide (30 October 2026): cost per
+ * funded deal and cost per acquisition across every source, funded volume
+ * across every source but lead vendors.
  */
 export function AllSourcesCard({
   figures,
@@ -40,8 +39,8 @@ export function AllSourcesCard({
   crmUnmeasured?: string;
   /** The reason, where the ad platforms have not been read for the period. */
   spendUnmeasured?: string;
-  /** This calendar month against the funded targets (`fundedTargetRows`). */
-  targets?: { rows: ScorecardRow[]; heading: string; currency: string; partial: boolean };
+  /** This calendar month against the contract (`contractRows`). */
+  targets?: { rows: ScorecardRow[]; heading: string; currency: string; partial: boolean; source: string | null };
 }) {
   const deal = valueLabel.toLowerCase();
   const platforms = figures.spendPlatforms.map(platformLabel);
@@ -51,7 +50,7 @@ export function AllSourcesCard({
   return (
     <Card span={12} id="all-sources">
       <CardHeader
-        title="All sources · blended"
+        title="All sources"
         subtitle={periodLabel}
         controls={<ExportButton datasets={['sources', 'deals:value']} />}
       />
@@ -71,7 +70,7 @@ export function AllSourcesCard({
           </Sub>
         </Cell>
 
-        <Cell label={`Blended cost per ${deal} deal`} unmeasured={costUnmeasured}>
+        <Cell label={`Cost per ${deal} deal (all sources)`} unmeasured={costUnmeasured}>
           <CostPerDealFigure
             cost={figures.costPerDeal}
             currency={currency}
@@ -83,7 +82,7 @@ export function AllSourcesCard({
           />
         </Cell>
 
-        <Cell label="Blended CPA" unmeasured={costUnmeasured}>
+        <Cell label="Cost per acquisition (all sources)" unmeasured={costUnmeasured}>
           <CostPerDealFigure
             cost={figures.cpa}
             currency={currency}
@@ -99,8 +98,10 @@ export function AllSourcesCard({
       {targets && targets.rows.length > 0 && (
         <>
           <div className="border-t border-border px-5 pt-4 pb-3">
-            <h3 className="text-[14px] font-semibold text-text">Funded targets</h3>
-            <p className="mt-0.5 text-[13px] text-text-2">{`${targets.heading} · ${FUNDED_TARGET_SCOPE}`}</p>
+            <h3 className="text-[14px] font-semibold text-text">Against the contract</h3>
+            <p className="mt-0.5 text-[13px] text-text-2">
+              {`${targets.heading}${targets.source ? ` · ${targets.source}` : ''}`}
+            </p>
           </div>
           <dl className={SCORE_GRID}>
             {targets.rows.map((row) => (

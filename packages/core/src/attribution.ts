@@ -141,7 +141,7 @@ export type ChannelCostPerDeal = {
  *
  * Blended cost per deal across every channel is a different metric with a
  * different denominator, and it is not this function with the arguments added
- * up: see `blendedCostPer`.
+ * up: see `allSourcesCostPer`.
  */
 export function channelCostPerDeal(input: {
   channelSpend: number;
@@ -195,7 +195,7 @@ export function costPerFundedDeal(input: {
  * its basis: `attributedDeals` is every deal here, and nothing is unattributed
  * because nothing was excluded.
  */
-export function blendedCostPer(input: { adSpend: number; deals: number }): ChannelCostPerDeal {
+export function allSourcesCostPer(input: { adSpend: number; deals: number }): ChannelCostPerDeal {
   return channelCostPerDeal({ channelSpend: input.adSpend, attributedDeals: input.deals });
 }
 

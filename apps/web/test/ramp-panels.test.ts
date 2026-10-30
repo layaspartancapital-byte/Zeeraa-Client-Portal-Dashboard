@@ -1,39 +1,53 @@
 /**
- * The executive scorecard: the ramp channel's figures against this month's
- * target, judged by `scorecardVerdict`, and a month with no target saying why
- * instead of showing a zero or a gap. Since 30 October 2026 its funded figures
- * carry none, and the funded targets are judged across sources.
+ * The scorecards (30 October 2026): the ramp channel's card carries no target,
+ * and every target is the signed contract's, judged by `scorecardVerdict` on
+ * the All sources card — a range at its low end, a month before the contract
+ * naming the first target instead of inventing one.
  */
 import { describe, expect, it } from 'vitest';
-import type { MonthActual, PopulationVerdict, RampTarget } from '@zeeraa/core';
-import { fundedTargetRows, scorecardRows, type RampPanels } from '../src/lib/ramp-panels';
+import { contractTarget, parseContractTargets, type MonthActual, type PopulationVerdict } from '@zeeraa/core';
+import { contractRows, scorecardRows, type RampPanels } from '../src/lib/ramp-panels';
 import type { Metrics } from '../src/lib/dashboard';
 
-const actual = (value: number | null, attributed?: number): MonthActual =>
+const actual = (value: number | null, deals?: number): MonthActual =>
   ({
     value,
     reason: value === null ? 'Not read.' : null,
-    ...(attributed === undefined ? {} : { cost: { value, attributedDeals: attributed } }),
+    ...(deals === undefined ? {} : { cost: { value, attributedDeals: deals, channelSpend: (value ?? 0) * deals } }),
   }) as unknown as MonthActual;
 
-const panel = (metric: string) => ({ metric, label: metric, format: { kind: 'projection' } });
+const panel = (metric: string, label = metric) => ({ metric, label, format: { kind: 'projection' } });
 
-const panels = (
-  startMonth: string | null,
-  targets: Partial<RampTarget>[],
-  values: Record<string, MonthActual>,
-  funded: Record<string, MonthActual> = {},
-): RampPanels =>
+const contract = parseContractTargets({
+  source: 'Zeeraa proposal, page 22',
+  cpa: [{ from: '2026-10', value: 1000 }],
+  costPerFundedDeal: [{ from: '2026-10', value: 4500 }],
+  fundedAmount: [
+    { from: '2026-10', low: 100000, high: 150000 },
+    { from: '2026-11', value: 200000 },
+  ],
+});
+
+const panels = (startMonth: string | null, channel: Record<string, MonthActual>, all: Record<string, MonthActual>): RampPanels =>
   ({
     platform: 'google_ads',
     channel: 'Google Ads',
     startMonth,
-    targets: targets as RampTarget[],
+    targets: [],
     primary: panel('costPerFundedDeal'),
     secondary: panel('cpa'),
-    compact: ['budget', 'approvals', 'fundedDeals', 'fundedAmount'].map(panel),
-    monthActual: (metric: string) => values[metric] ?? actual(null),
-    fundedTarget: (metric: string) => funded[metric] ?? actual(null),
+    compact: ['budget', 'approvals', 'fundedDeals', 'fundedAmount'].map((m) => panel(m)),
+    monthActual: (metric: string) => channel[metric] ?? actual(null),
+    contract: {
+      source: contract?.source ?? null,
+      primary: panel('costPerFundedDeal'),
+      panels: Object.fromEntries(
+        ['costPerFundedDeal', 'cpa', 'fundedAmount', 'fundedDeals', 'budget', 'approvals'].map((m) => [m, panel(m, `${m} (all sources)`)]),
+      ),
+      monthActual: (metric: string) => all[metric] ?? actual(null),
+      target: (metric: string, month: string) =>
+        metric === 'cpa' || metric === 'costPerFundedDeal' || metric === 'fundedAmount' ? contractTarget(contract, metric, month) : null,
+    },
   }) as unknown as RampPanels;
 
 const metrics = {
@@ -41,81 +55,49 @@ const metrics = {
     ({ sufficient: population >= 5, reason: population >= 5 ? null : 'Fewer than 5 deals.' }) as PopulationVerdict,
 } as unknown as Metrics;
 
-const run = (p: RampPanels, currentMonth: string, elapsed = 0.8) =>
-  Object.fromEntries(
-    scorecardRows(p, { currentMonth, elapsed, metrics, valueLabel: 'Funded' }).map((r) => [r.metric, r]),
-  );
+const input = (currentMonth: string, elapsed = 0.8) => ({ currentMonth, elapsed, metrics, valueLabel: 'Funded' });
+const byMetric = <T extends { metric: string }>(rows: T[]) => Object.fromEntries(rows.map((r) => [r.metric, r]));
 
-describe('scorecardRows', () => {
-  const m1 = { monthIndex: 1, costPerFundedDeal: 4000, cpa: 1000, fundedDeals: 10, fundedAmount: 80000, budget: 30000 } as never;
-
-  it("draws the channel's five figures, in order", () => {
-    const rows = scorecardRows(panels('2026-10', [m1], {}), {
-      currentMonth: '2026-10',
-      elapsed: 0.5,
-      metrics,
-      valueLabel: 'Funded',
-    });
+describe('scorecardRows (the ramp channel)', () => {
+  it('draws the channel’s five figures with no target and no verdict', () => {
+    const rows = scorecardRows(panels('2026-10', { costPerFundedDeal: actual(5000, 3) }, {}), input('2026-10'));
     expect(rows.map((r) => r.label)).toEqual(['Cost per funded deal', 'CPA', 'Funded deals', 'Funded volume', 'Spend']);
-  });
-
-  it("shows the channel's funded deals and volume without a target (30 October 2026)", () => {
-    const rows = run(panels('2026-10', [m1], { fundedDeals: actual(3), fundedAmount: actual(40000) }), '2026-10');
-    for (const metric of ['fundedDeals', 'fundedAmount']) {
-      expect(rows[metric]).toMatchObject({ target: null, upcoming: null, untargeted: 'Targeted across all sources' });
-    }
-  });
-
-  it('judges a cost as it stands and a count against pace', () => {
-    const rows = run(
-      panels('2026-10', [m1], {
-        costPerFundedDeal: actual(5000, 6),
-        fundedDeals: actual(8),
-        budget: actual(24000),
-      }),
-      '2026-10',
-    );
-    expect(rows.costPerFundedDeal!.verdict).toEqual({ state: 'behind', by: 1000, paced: false });
-    expect(rows.budget!.verdict).toEqual({ state: 'on_target', paced: true });
-  });
-
-  it('compares a cost over any number of deals (no minimum, 24 September 2026)', () => {
-    const rows = run(panels('2026-10', [m1], { costPerFundedDeal: actual(9000, 2) }), '2026-10');
-    expect(rows.costPerFundedDeal!.verdict).toEqual({ state: 'behind', by: 5000, paced: false });
-  });
-
-  it('before M1 names the first target and never computes a verdict', () => {
-    const rows = run(panels('2026-10', [m1], { cpa: actual(900, 3) }), '2026-09');
-    expect(rows.cpa).toMatchObject({
-      target: null,
-      upcoming: { month: '2026-10', value: 1000 },
-      verdict: { state: 'no_target' },
-    });
-  });
-
-  it('keeps an unmeasured actual unmeasured, not zero', () => {
-    const rows = run(panels('2026-10', [m1], {}), '2026-10');
-    expect(rows.budget!.actual.value).toBeNull();
-    expect(rows.budget!.verdict).toEqual({ state: 'not_measured', reason: 'Not read.' });
+    for (const r of rows) expect(r).toMatchObject({ target: null, verdict: null, untargeted: true });
   });
 });
 
-describe('fundedTargetRows (30 October 2026)', () => {
-  const m1 = { monthIndex: 1, fundedDeals: 10, fundedAmount: 80000 } as never;
-  const rows = (funded: Record<string, MonthActual>, elapsed = 0.8) =>
-    Object.fromEntries(
-      fundedTargetRows(panels('2026-10', [m1], {}, funded), { currentMonth: '2026-10', elapsed, metrics, valueLabel: 'Funded' }).map(
-        (r) => [r.metric, r],
+describe('contractRows (All sources, against the contract)', () => {
+  it('judges costs as they stand and volume against pace, at a range’s low end', () => {
+    const rows = byMetric(
+      contractRows(
+        panels('2026-10', {}, {
+          costPerFundedDeal: actual(5000, 6),
+          cpa: actual(900, 40),
+          fundedAmount: actual(85000),
+          fundedDeals: actual(9),
+        }),
+        input('2026-10', 0.8),
       ),
     );
-
-  it('judges every source but lead vendors against the funded targets, by pace', () => {
-    const r = rows({ fundedDeals: actual(8), fundedAmount: actual(40000) });
-    expect(r.fundedDeals).toMatchObject({ label: 'Funded deals', target: 10, verdict: { state: 'on_target', paced: true } });
-    expect(r.fundedAmount).toMatchObject({ label: 'Funded volume', target: 80000, verdict: { state: 'behind', paced: true } });
+    expect(rows.costPerFundedDeal).toMatchObject({ target: 4500, verdict: { state: 'behind', by: 500, paced: false } });
+    expect(rows.cpa!.verdict?.state).toBe('on_target');
+    // $85K of a $100K floor with 80% of the month gone is on pace.
+    expect(rows.fundedAmount).toMatchObject({ target: 100000, targetHigh: 150000, verdict: { state: 'on_target', paced: true } });
+    expect(rows.fundedDeals).toMatchObject({ target: null, verdict: null, untargeted: true });
   });
 
-  it('keeps an unread month unmeasured', () => {
-    expect(rows({}).fundedDeals!.verdict).toEqual({ state: 'not_measured', reason: 'Not read.' });
+  it('is on target for a finished October at $100K, the range’s low end', () => {
+    const rows = byMetric(contractRows(panels('2026-10', {}, { fundedAmount: actual(100000) }), input('2026-10', 1)));
+    expect(rows.fundedAmount!.verdict?.state).toBe('on_target');
+  });
+
+  it('before the contract starts names the first target and judges nothing', () => {
+    const rows = byMetric(contractRows(panels('2026-10', {}, { cpa: actual(1200, 10) }), input('2026-09')));
+    expect(rows.cpa).toMatchObject({ target: null, upcoming: { month: '2026-10', value: 1000 }, verdict: { state: 'no_target' } });
+  });
+
+  it('keeps an unmeasured month unmeasured, not zero', () => {
+    const rows = byMetric(contractRows(panels('2026-10', {}, {}), input('2026-11')));
+    expect(rows.fundedAmount!.verdict).toEqual({ state: 'not_measured', reason: 'Not read.' });
   });
 });

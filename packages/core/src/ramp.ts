@@ -2,7 +2,6 @@ import { delta, type Delta, type ImprovementDirection } from './format';
 import { channelCostPerDeal, type ChannelCostPerDeal } from './attribution';
 import { daySpans, formatRangeLabel, type RangeCoverage } from './date-range';
 import { assessPopulation } from './population';
-import { isVendorChannel } from './lead-channel';
 
 /**
  * The engagement ramp: what a metric is contracted to reach, month by month.
@@ -545,54 +544,5 @@ export function channelMonthActuals(
     approvals: count(input.stages[approvalStage]?.own ?? 0, 'crm'),
     fundedDeals: valueStage ? count(input.stages[valueStage]?.own ?? 0, 'crm') : { value: null, reason: noValue },
     fundedAmount: valueStage ? count(input.ownVolume, 'crm') : { value: null, reason: noValue },
-  };
-}
-
-/* ------------------------------------------------------------------------- */
-/* The funded targets, measured across sources                               */
-/* ------------------------------------------------------------------------- */
-
-/** The contracted figures measured across sources rather than for the ramp's channel. */
-export type FundedTargetMetric = 'fundedDeals' | 'fundedAmount';
-
-/** How the funded targets' measure is named wherever it renders. */
-export const FUNDED_TARGET_SCOPE = 'all sources except lead vendors';
-
-/**
- * A month's funded deals and volume as the funded targets measure them: every
- * source except lead vendors, attributed or not (client decision, 30 October
- * 2026).
- *
- * The engagement model's funded figures (e.g. $80K in M1) are the marketing's,
- * not Google Ads' alone: Google, Meta, LinkedIn, SEO/Organic and Direct & other
- * all count. A lead vendor's deals do not — the vendor is paid per lead, and
- * the contract is not judged on what was bought. CPA and cost per funded deal
- * stay Google Ads', from `channelMonthActuals`, because their numerator is
- * Google spend. A month the CRM has not read has no figure, as there.
- */
-export function fundedTargetActuals(
-  input: {
-    /** Value-stage deals per source that month, vendors included. */
-    dealsBySource: Record<string, number>;
-    unattributedDeals: number;
-    volumeBySource: Record<string, number>;
-    unattributedVolume: number;
-    crmRead: boolean;
-  },
-  options: { valueStage: string | null },
-): Record<FundedTargetMetric, MonthActual> {
-  const missing = !options.valueStage
-    ? 'No funnel stage is configured to count value.'
-    : !input.crmRead
-      ? 'Salesforce is not synced for this month.'
-      : null;
-  if (missing) return { fundedDeals: { value: null, reason: missing }, fundedAmount: { value: null, reason: missing } };
-  const counted = (bySource: Record<string, number>, unattributed: number) =>
-    Object.entries(bySource)
-      .filter(([source]) => !isVendorChannel(source))
-      .reduce((sum, [, n]) => sum + n, unattributed);
-  return {
-    fundedDeals: { value: counted(input.dealsBySource, input.unattributedDeals), reason: null },
-    fundedAmount: { value: counted(input.volumeBySource, input.unattributedVolume), reason: null },
   };
 }

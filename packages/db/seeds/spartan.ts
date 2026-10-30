@@ -204,6 +204,31 @@ export const spartan: TenantSeed = {
 
   config: [
     {
+      key: 'contract_targets',
+      description:
+        'The signed contract\'s targets (Zeeraa proposal, page 22): the source of ' +
+        'every target on screen since 30 October 2026, replacing the M1–M8 ' +
+        'sheet in `engagement_targets`. Program-wide: cost per acquisition and ' +
+        'cost per funded deal across every source, funded volume across every ' +
+        'source except lead vendors. The contract sets no deal-count target. ' +
+        'October\'s volume is a range and is on target at its low end. Load with ' +
+        'scripts/load-config-row.ts contract_targets, not db:seed.',
+      value: {
+        source: 'Zeeraa proposal, page 22',
+        cpa: [{ from: '2026-10', value: 1000 }],
+        costPerFundedDeal: [{ from: '2026-10', value: 4500 }],
+        fundedAmount: [
+          { from: '2026-10', low: 100000, high: 150000 },
+          { from: '2026-11', value: 200000 },
+          { from: '2026-12', value: 400000 },
+          { from: '2027-01', value: 750000 },
+          { from: '2027-02', value: 1000000 },
+          { from: '2027-03', value: 1500000 },
+          { from: '2027-04', value: 2000000 },
+        ],
+      },
+    },
+    {
       key: 'engagement_start_month',
       description:
         'The calendar month the engagement begins, as YYYY-MM. M1 of the ' +

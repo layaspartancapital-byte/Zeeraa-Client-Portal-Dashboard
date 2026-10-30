@@ -21,6 +21,8 @@ import {
   type MonthActual,
   type PopulationVerdict,
   type RampTarget,
+  parseContractTargets,
+  type ContractTargets,
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
@@ -1066,7 +1068,16 @@ export type EngagementRamp = {
    * nobody started.
    */
   startMonth: string | null;
-  /** Contracted figures by platform. A platform with no ramp has no target. */
+  /**
+   * The signed contract's targets (`contract_targets`, 30 October 2026): the
+   * source of every target on screen. Null where none is recorded.
+   */
+  contract: ContractTargets | null;
+  /**
+   * The M1–M8 planning sheet by platform. **Not a target source** since the
+   * contract replaced it; read only for which channel the Google Ads card and
+   * its frozen baseline are drawn for.
+   */
   byPlatform: Map<string, RampTarget[]>;
 };
 
@@ -1080,7 +1091,7 @@ export type EngagementRamp = {
 export async function engagementRamp(session: TenantSession): Promise<EngagementRamp> {
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
-    const [config, rows] = await Promise.all([
+    const [config, contractRow, rows] = await Promise.all([
       tx
         .select({ value: schema.tenantConfig.value })
         .from(schema.tenantConfig)
@@ -1090,6 +1101,11 @@ export async function engagementRamp(session: TenantSession): Promise<Engagement
             eq(schema.tenantConfig.key, 'engagement_start_month'),
           ),
         )
+        .limit(1),
+      tx
+        .select({ value: schema.tenantConfig.value })
+        .from(schema.tenantConfig)
+        .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'contract_targets')))
         .limit(1),
       tx
         .select({
@@ -1132,7 +1148,7 @@ export async function engagementRamp(session: TenantSession): Promise<Engagement
       byPlatform.set(row.platform, list);
     }
 
-    return { startMonth, byPlatform };
+    return { startMonth, contract: parseContractTargets(contractRow[0]?.value), byPlatform };
   });
 }
 

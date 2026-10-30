@@ -47,7 +47,7 @@ export function CostPerDealCoverage({
   cost: ChannelCostPerDeal;
   currency: string;
   channelLabel: string;
-  /** Replaces the channel sentence in the ⓘ — a blended cost is not one channel's. */
+  /** Replaces the channel sentence in the ⓘ — an all-sources cost is not one channel's. */
   explanation?: string;
   /** What the figure is per, singular and plural: deals unless said otherwise. */
   noun?: readonly [string, string];

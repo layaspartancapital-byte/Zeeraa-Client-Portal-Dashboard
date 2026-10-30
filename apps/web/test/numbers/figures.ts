@@ -10,11 +10,11 @@ import { isPaidChannel, monthRange, stageBeforeValue as coreStageBeforeValue, pl
 import { channelFigures, UNATTRIBUTED } from '@zeeraa/jobs';
 import type { TenantSession } from '@/lib/tenant';
 import { monthlyPerformance, type MonthlyPerformance } from '@/lib/reporting';
-import { engagementRamp, loadMetrics, windowBuckets, type WindowBucket } from '@/lib/dashboard';
+import { engagementRamp, frozenBaseline, loadMetrics, windowBuckets, type WindowBucket } from '@/lib/dashboard';
 import { sourcesThrough } from '@/lib/coverage';
 import { platformView } from '@/lib/platform';
 import { buildRampPanels } from '@/lib/ramp-panels';
-import { allSources } from '@/lib/all-sources';
+import { allSources, approvalStageKey } from '@/lib/all-sources';
 
 export type Figures = Map<string, number | null>;
 export const key = (platform: string, metric: string) => `${platform}|${metric}`;
@@ -77,6 +77,7 @@ export function fromMonthlyPerformance(mp: MonthlyPerformance): Figures {
     f.set(key(c.platform, 'cost_per_funded'), c.costPerDeal.value);
   }
   for (const s of mp.stages) f.set(key(UNATTRIBUTED, `stage:${s.key}`), mp.unattributed.stages[s.key] ?? 0);
+  f.set(key(UNATTRIBUTED, 'funded_volume'), value ? mp.unattributed.valueVolume : null);
   return f;
 }
 
@@ -94,6 +95,8 @@ export function fromBucket(b: WindowBucket, stages: { key: string }[], platforms
     f.set(key(p, 'cost_per_funded'), value ? cpa(spend, st[value] ?? 0) : null);
   }
   for (const s of stages) f.set(key(UNATTRIBUTED, `stage:${s.key}`), b.unattributedStages[s.key] ?? 0);
+  const attributedVolume = Object.values(b.valueVolumeByPlatform).reduce((n, v) => n + v, 0);
+  f.set(key(UNATTRIBUTED, 'funded_volume'), value ? b.valueVolume - attributedVolume : null);
   return f;
 }
 
@@ -119,8 +122,12 @@ export async function fromIngestion(t: Tenant, month: string): Promise<Figures> 
 }
 
 /** The ramp's live figures for a month (the frozen snapshot bypassed). */
-/** The ramp's panels as the screens build them, over `months` to today. */
-async function rampPanelsFor(t: Tenant, months: string[]) {
+/**
+ * The ramp's panels as the screens build them, over `months` to today.
+ * `useFrozen` reads frozen months as the screens do; the baseline check must
+ * not, since it compares the live figures with the freeze.
+ */
+async function rampPanelsFor(t: Tenant, months: string[], useFrozen = false) {
   const ramp = await engagementRamp(t.session);
   if (ramp.byPlatform.size === 0) return null;
   const first = months.slice().sort()[0]!;
@@ -136,7 +143,7 @@ async function rampPanelsFor(t: Tenant, months: string[]) {
     buckets,
     metrics,
     ramp,
-    frozen: new Map(),
+    frozen: useFrozen ? await frozenBaseline(t.session) : new Map(),
     through,
     valueKey: valueStage?.key ?? null,
     valueLabel: valueStage?.label ?? 'Funded',
@@ -211,24 +218,27 @@ export function withAllSources(f: Figures, value: string | null, approval: strin
 }
 
 function stageBeforeValueKey(mp: MonthlyPerformance): string | null {
-  return coreStageBeforeValue(mp.stages)?.key ?? null;
+  return approvalStageKey(mp.stages);
 }
 
 /**
- * The funded targets' measure per month, as Executive and the ramp table read
- * it (`fundedTarget`): every source's value deals and volume but lead
- * vendors'. Null where the tenant has no ramp.
+ * The contract's measures per month, as Executive's All sources card, its
+ * chart and Monthly performance's ramp table read them: cost per acquisition
+ * and cost per funded deal across every source, funded volume and deals
+ * across every source but lead vendors. Null where the tenant has no ramp.
  */
-export async function fromFundedTargets(
+export async function fromContract(
   t: Tenant,
   months: string[],
-): Promise<Map<string, { deals: number | null; volume: number | null }> | null> {
-  const built = await rampPanelsFor(t, months);
+): Promise<Map<string, Record<'cpa' | 'costPerFundedDeal' | 'fundedAmount' | 'fundedDeals', number | null>> | null> {
+  const built = await rampPanelsFor(t, months, true);
   if (!built) return null;
+  const read = (metric: 'cpa' | 'costPerFundedDeal' | 'fundedAmount' | 'fundedDeals', m: string) =>
+    built.panels.contract.monthActual(metric, m).value;
   return new Map(
     months.map((m) => [
       m,
-      { deals: built.panels.fundedTarget('fundedDeals', m).value, volume: built.panels.fundedTarget('fundedAmount', m).value },
+      { cpa: read('cpa', m), costPerFundedDeal: read('costPerFundedDeal', m), fundedAmount: read('fundedAmount', m), fundedDeals: read('fundedDeals', m) },
     ]),
   );
 }

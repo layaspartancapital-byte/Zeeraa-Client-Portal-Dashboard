@@ -1,23 +1,25 @@
-import { FUNDED_TARGET_SCOPE, type RampMetricKey } from '@zeeraa/core';
+import type { ContractMonthMetric } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { monthName, renderer, targetRenderer, type RampPanel } from '@/components/RampCard';
 import { RAMP_TABLE_COLUMNS, type RampTableCell, type RampTableRow } from '@/lib/ramp-panels';
 import { ExportButton } from '@/components/export/ExportScope';
 
 /**
- * The engagement ramp as one month-by-month table: each figure against its
- * target with a ✓ or "behind", the baseline months as actuals only. No
- * legend, basis line or footnote — the words in the cells are the key.
+ * The engagement against the signed contract, one row a month: every figure
+ * across sources, each targeted one against the contract with a ✓ or
+ * "behind", the baseline months before Zeeraa as actuals only. No legend,
+ * basis line or footnote — the words in the cells are the key.
  */
 export function RampTable({
-  channel,
+  source,
   rows,
   formats,
   valueLabel,
 }: {
-  channel: string;
+  /** Where the targets come from: "Zeeraa proposal, page 22". */
+  source: string | null;
   rows: RampTableRow[];
-  formats: Record<RampMetricKey, RampPanel['format']>;
+  formats: Record<ContractMonthMetric, RampPanel['format']>;
   valueLabel: string;
 }) {
   const baseline = rows.filter((r) => r.rampLabel === null);
@@ -25,13 +27,13 @@ export function RampTable({
   const span =
     baseline.length === 0
       ? ''
-      : `Baseline ${monthName(baseline[0]!.month).split(' ')[0]}–${monthName(baseline.at(-1)!.month)}, then `;
+      : `Baseline ${monthName(baseline[0]!.month).split(' ')[0]}–${monthName(baseline.at(-1)!.month)} before Zeeraa, then `;
   return (
     <Card span={12}>
       <CardHeader
-        title="Engagement ramp"
+        title="Against the contract"
         controls={<ExportButton datasets={['ramp']} />}
-        subtitle={`${channel} · ${span}M1–M${engagement} against target · ${valueLabel.toLowerCase()} targets across ${FUNDED_TARGET_SCOPE}`}
+        subtitle={`All sources · ${span}M1–M${engagement}${source ? ` · ${source}` : ''} · ${valueLabel.toLowerCase()} volume excludes lead vendors`}
       />
       <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
         <table className="w-full min-w-[980px] border-collapse text-[13px]">
@@ -77,7 +79,12 @@ export function RampTable({
 function Cell({ cell, format, future }: { cell: RampTableCell; format: RampPanel['format']; future: boolean }) {
   const render = renderer({ format } as RampPanel);
   const renderTarget = targetRenderer({ format } as RampPanel);
-  const target = cell.target === null ? null : renderTarget(cell.target);
+  const target =
+    cell.target === null
+      ? null
+      : cell.targetHigh !== null
+        ? `${renderTarget(cell.target)}–${renderTarget(cell.targetHigh)}`
+        : renderTarget(cell.target);
 
   if (future) {
     return <span className="text-[12px] tabular text-text-3">{target ? `Target ${target}` : '—'}</span>;

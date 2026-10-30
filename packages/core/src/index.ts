@@ -26,3 +26,4 @@ export * from './manual-sync';
 export * from './integrating';
 export * from './landing-parameters';
 export * from './seo';
+export * from './contract';

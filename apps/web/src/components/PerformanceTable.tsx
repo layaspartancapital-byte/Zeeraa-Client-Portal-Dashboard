@@ -337,7 +337,7 @@ export function PerformanceTable({
             <td className="numeric px-5 py-3">
               <span className="inline-flex items-center gap-1.5 text-text-3">
                 —
-                <InfoTip label="Why there is no blended cost per deal" align="end">
+                <InfoTip label="Why the total has no cost per deal" align="end">
                   {total.costPerDealAbsentBecause}
                 </InfoTip>
               </span>

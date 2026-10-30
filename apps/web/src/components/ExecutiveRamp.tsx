@@ -1,4 +1,4 @@
-import { formatCount, type RampTimeline } from '@zeeraa/core';
+import { formatCount, formatCurrency, type RampTimeline } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
@@ -8,13 +8,12 @@ import type { ScorecardRow } from '@/lib/ramp-panels';
 import { ExportButton } from '@/components/export/ExportScope';
 
 /**
- * The engagement ramp as a client reads it: four figures against this month's
- * target, and one chart.
+ * The ramp channel's month (Google Ads): its own figures, and no targets —
+ * every target is the signed contract's, program-wide, on the All sources
+ * card (30 October 2026).
  *
- * Deliberately bare. No legend, no basis line, no badge stack: the chart labels
- * its own lines, a month with no figure is a gap with its reason on hover, and
- * every definition is in the page's one "How this is measured" drawer. The
- * other contracted curves are on Monthly performance.
+ * Deliberately bare. No legend, no basis line, no badge stack: every
+ * definition is in the page's one "How this is measured" drawer.
  */
 export function RampScorecard({
   channel,
@@ -38,10 +37,9 @@ export function RampScorecard({
   const partial = elapsedDays < monthDays;
   return (
     <Card span={12} id="ramp-scorecard" dataTour="scorecard">
-      {/* Named for its channel: the targets are contracted for one channel,
-          and "This month vs target" read as the whole business's month. */}
+      {/* Named for its channel, so its month is never read as the whole business's. */}
       <CardHeader
-        title={`${channel} vs target`}
+        title={channel}
         controls={<ExportButton datasets={['ramp']} />}
         subtitle={`${monthLabel}${
           partial ? ` · month to date, ${formatCount(elapsedDays)} of ${formatCount(monthDays)} days` : ''
@@ -93,10 +91,20 @@ export function ScoreCell({
             </Badge>
             <span className="sr-only">{actual.reason}</span>
           </span>
-        ) : row.metric === 'costPerFundedDeal' && actual.cost ? (
+        ) : actual.cost && (row.metric === 'costPerFundedDeal' || row.cost) ? (
           // A cost per deal carries its coverage, always: the figure component
           // is the only way one renders.
-          <CostPerDealFigure cost={actual.cost} currency={currency} channelLabel={channel} />
+          <CostPerDealFigure
+            cost={actual.cost}
+            currency={currency}
+            channelLabel={channel}
+            noun={row.cost?.noun}
+            explanation={
+              row.cost
+                ? row.cost.explanation(formatCurrency(actual.cost.channelSpend, currency), formatCount(actual.cost.attributedDeals))
+                : undefined
+            }
+          />
         ) : (
           <p className="text-[28px] font-semibold leading-[1.1] tabular text-text">
             {render(actual.value)}
@@ -104,16 +112,16 @@ export function ScoreCell({
         )}
         {partial && actual.value !== null && <p className="text-[12px] text-text-3">Month to date</p>}
 
-        <p className="mt-1 text-[13px] tabular text-text-2">
-          {row.untargeted
-            ? row.untargeted
-            : row.target !== null
-              ? `Target ${renderTarget(row.target)}`
+        {!row.untargeted && (
+          <p className="mt-1 text-[13px] tabular text-text-2">
+            {row.target !== null
+              ? `Target ${row.targetHigh !== null ? `${renderTarget(row.target)}–${renderTarget(row.targetHigh)}` : renderTarget(row.target)}`
               : row.upcoming
                 ? `Target from ${monthName(row.upcoming.month)}: ${renderTarget(row.upcoming.value)}`
                 : 'No target this month'}
-        </p>
-        {!row.untargeted && <Verdict row={row} render={render} renderWhole={renderTarget} />}
+          </p>
+        )}
+        {!row.untargeted && row.verdict && <Verdict row={row} verdict={row.verdict} render={render} renderWhole={renderTarget} />}
       </dd>
     </div>
   );
@@ -125,15 +133,16 @@ export function ScoreCell({
  */
 function Verdict({
   row,
+  verdict,
   render,
   renderWhole,
 }: {
   row: ScorecardRow;
+  verdict: NonNullable<ScorecardRow['verdict']>;
   render: (v: number) => string;
   /** The target's renderer: whole dollars for money, `render` otherwise. */
   renderWhole: (v: number) => string;
 }) {
-  const { verdict } = row;
   // Whole dollars: "$412.68 behind" is precision a monthly target does not
   // have. Rounding before `render` was not enough — it still printed "$253.00".
   const amount = (v: number) => (row.format.kind === 'currency' ? renderWhole(v) : render(v));
@@ -175,8 +184,8 @@ function Verdict({
 }
 
 /**
- * The one ramp chart on the executive screen: the channel's cost per funded
- * deal, its baseline months, then the contracted curve.
+ * The one ramp chart on the executive screen: cost per funded deal across
+ * every source, its baseline months before Zeeraa, then the contract's target.
  */
 export function RampCostChart({ panel }: { panel: RampPanel }) {
   const timeline = panel.timeline;
@@ -184,7 +193,7 @@ export function RampCostChart({ panel }: { panel: RampPanel }) {
   return (
     <Card span={12} id="ramp-chart" dataTour="cost-chart">
       <CardHeader
-        title={`${panel.channel} ${panel.label.toLowerCase()}`}
+        title={panel.label}
         subtitle={timeline ? phases(timeline) : undefined}
         controls={<ExportButton datasets={['ramp']} />}
       />
@@ -211,10 +220,9 @@ export function RampCostChart({ panel }: { panel: RampPanel }) {
   );
 }
 
-/** `Baseline Jun–Sep 2026, then the M1–M8 target`. */
+/** `Baseline Jun–Sep 2026, before Zeeraa; then the contract's target`. */
 function phases(timeline: RampTimeline): string {
   const baseline = timeline.points.filter((p) => p.phase === 'baseline');
-  const months = timeline.points.filter((p) => p.phase === 'engagement').length;
   const short = (m: string) => monthName(m).split(' ')[0];
   const span =
     baseline.length === 0
@@ -222,5 +230,5 @@ function phases(timeline: RampTimeline): string {
       : baseline.length === 1
         ? monthName(baseline[0]!.month)
         : `${short(baseline[0]!.month)}–${monthName(baseline.at(-1)!.month)}`;
-  return `${span ? `Baseline ${span}, then ` : ''}the M1–M${formatCount(months)} target`;
+  return `${span ? `Baseline ${span}, before Zeeraa; then ` : ''}the contract's target`;
 }

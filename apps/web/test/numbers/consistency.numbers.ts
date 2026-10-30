@@ -16,7 +16,8 @@ import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
 import { platformView } from '@/lib/platform';
-import { fromAllSources, fromBucket, fromFundedTargets, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, withAllSources, type Figures } from './figures';
+import { allSources, approvalStageKey } from '@/lib/all-sources';
+import { fromAllSources, fromBucket, fromContract, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, withAllSources, type Figures } from './figures';
 import { sql } from 'drizzle-orm';
 
 function disagreements(label: string, sources: Record<string, Figures>): string[] {
@@ -44,7 +45,7 @@ describe('the same figure on every screen', () => {
         month = previousMonth(month);
       }
       const buckets = await windowBuckets(t.session, { start: `${months[0]}-01`, end: t.today }, 'month', 'last_touch');
-      const funded = await fromFundedTargets(t, months);
+      const contract = await fromContract(t, months);
       for (const m of months) {
         const range: DateRange = monthRange(m);
         const mp = await monthlyPerformance(t.session, range, 'last_touch');
@@ -52,7 +53,7 @@ describe('the same figure on every screen', () => {
         const platforms = mp.channels.map((c) => c.platform);
         // The All sources card against each other source's channels summed:
         // its spend, deals, approvals and both blended costs.
-        const approval = stageBeforeValue(mp.stages)?.key ?? null;
+        const approval = approvalStageKey(mp.stages);
         const rolled = (f: Figures) => withAllSources(f, mp.valueStageKey, approval);
         const sources: Record<string, Figures> = {
           'Monthly performance': rolled(fromMonthlyPerformance(mp)),
@@ -64,17 +65,24 @@ describe('the same figure on every screen', () => {
         compared += Object.values(sources).reduce((n, f) => n + f.size, 0);
         problems.push(...disagreements(`${t.slug} ${m}`, sources));
 
-        // The funded targets' measure (30 October 2026): every source's value
-        // deals and volume but lead vendors', on Executive and the ramp table.
+        // The contract's measures (30 October 2026), read from the frozen
+        // channel figures for a frozen month: they must be Monthly
+        // performance's all-sources figures for the same month.
         const v = mp.valueStageKey;
-        const target = funded?.get(m);
-        if (v && target && target.deals !== null) {
-          const kept = mp.channels.filter((c) => !isVendorChannel(c.platform));
-          const deals = kept.reduce((n, c) => n + (c.stages[v] ?? 0), 0) + (mp.unattributed.stages[v] ?? 0);
-          const volume = kept.reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
-          compared += 2;
-          if (!same(target.deals, deals)) problems.push(`${t.slug} ${m} funded targets deals: ramp ${target.deals}, Monthly performance ${deals}`);
-          if (!same(target.volume, volume)) problems.push(`${t.slug} ${m} funded targets volume: ramp ${target.volume}, Monthly performance ${volume}`);
+        const c = contract?.get(m);
+        if (v && c && c.fundedDeals !== null) {
+          const all = allSources(mp);
+          const kept = mp.channels.filter((ch) => !isVendorChannel(ch.platform));
+          const expected = {
+            cpa: all.cpa.value,
+            costPerFundedDeal: all.costPerDeal.value,
+            fundedAmount: kept.reduce((n, ch) => n + ch.valueVolume, 0) + mp.unattributed.valueVolume,
+            fundedDeals: kept.reduce((n, ch) => n + (ch.stages[v] ?? 0), 0) + (mp.unattributed.stages[v] ?? 0),
+          };
+          for (const [metric, value] of Object.entries(expected) as [keyof typeof expected, number | null][]) {
+            compared += 1;
+            if (!same(c[metric], value)) problems.push(`${t.slug} ${m} contract ${metric}: ramp ${c[metric]}, Monthly performance ${value}`);
+          }
         }
       }
     }

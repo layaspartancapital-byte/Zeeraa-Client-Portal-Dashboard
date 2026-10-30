@@ -26,6 +26,11 @@ export type ChannelMonth = {
   stages: Record<string, { own: number; unattributed: number; all: number }>;
   /** Funded amount on this channel's value-stage deals. */
   ownVolume: number;
+  /**
+   * Value-stage volume of the deals no channel claims (30 October 2026): the
+   * contract's funded volume counts Direct & other, so a frozen month needs it.
+   */
+  unattributedVolume: number;
   /** Days of the month this channel's spend was read (`sync_days`). */
   readDays: string[];
   /** The channel's first and last read day overall, or null if never read. */
@@ -127,6 +132,7 @@ export async function channelMonth(
   }
 
   let ownVolume = 0;
+  let unattributedVolume = 0;
   if (valueStage) {
     const [row] = await tx
       .select({
@@ -146,6 +152,25 @@ export async function channelMonth(
           on o.tenant_id = ${tenantId} and o.external_id = d.opportunity_external_id`,
       );
     ownVolume = Number(row?.volume ?? 0);
+    const [none] = await tx
+      .select({
+        volume: sql<string>`coalesce(sum(coalesce(o.funded_amount, o.amount, 0)), 0)`,
+      })
+      .from(
+        sql`(
+          select distinct e.opportunity_external_id
+          from ${schema.stageEvents} e
+          left join ${schema.attribution} a
+            on a.tenant_id = e.tenant_id and a.opportunity_external_id = e.opportunity_external_id
+           and a.model = ${model}
+          where e.tenant_id = ${tenantId} and e.stage = ${valueStage}
+            and e.excluded_reason is null
+            and e.occurred_on between ${start} and ${end}
+            and a.platform is null
+        ) d join ${schema.opportunities} o
+          on o.tenant_id = ${tenantId} and o.external_id = d.opportunity_external_id`,
+      );
+    unattributedVolume = Number(none?.volume ?? 0);
   }
 
   const days = await tx
@@ -160,6 +185,7 @@ export async function channelMonth(
     spend: Number(spendRow?.spend ?? 0),
     stages: counts,
     ownVolume,
+    unattributedVolume,
     readDays: all.filter((d) => d >= start && d <= end),
     firstRead: all[0] ?? null,
     lastRead: all.at(-1) ?? null,

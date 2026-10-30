@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attributionCoverage,
-  blendedCostPer,
+  allSourcesCostPer,
   channelCostPerDeal,
   costPerFundedDeal,
   resolveAttribution,
@@ -162,16 +162,16 @@ describe('attributionCoverage', () => {
   });
 });
 
-describe('blendedCostPer', () => {
+describe('allSourcesCostPer', () => {
   it('divides all ad spend by every deal, attributed or not', () => {
-    const cost = blendedCostPer({ adSpend: 12_000, deals: 8 });
+    const cost = allSourcesCostPer({ adSpend: 12_000, deals: 8 });
     expect(cost.value).toBe(1_500);
     expect(cost.attributedDeals).toBe(8);
     expect(cost.unattributedDeals).toBe(0);
   });
 
   it('has no figure over no deals, and keeps the spend', () => {
-    const cost = blendedCostPer({ adSpend: 4_000, deals: 0 });
+    const cost = allSourcesCostPer({ adSpend: 4_000, deals: 0 });
     expect(cost.value).toBeNull();
     expect(cost.channelSpend).toBe(4_000);
   });

@@ -166,10 +166,13 @@ commit history and get it wrong.
   executive scorecard alone judges it, against pace, through `scorecardVerdict`
   in core — see `docs/brief-amendments.md`), and a
   month with no figure is `Not measured` with its reason, never a zero. Each
-  ramp chart names the channel its target is contracted for. **The funded
-  deals and volume targets are every source's except lead vendors'**
-  (`fundedTargetActuals`, 30 October 2026); CPA, cost per funded deal and spend
-  stay the ramp channel's.
+  ramp chart names the channel its target is contracted for. **The signed
+  contract governs every target, and its targets are program-wide** (30
+  October 2026): the `contract_targets` row, measured by `contractMonthActuals`
+  — cost per acquisition and cost per funded deal across every source, funded
+  volume across every source but lead vendors, no deal-count target. The
+  M1–M8 sheet (`engagement_targets`) is not a target source; the Google Ads
+  card carries no target. Never say "blended" on screen; say "All sources".
 - **A ratio has a minimum population, and the metric declares it.** Whether a
   formula means anything below a population is a property of the formula, so it
   is declared in `packages/core/src/population.ts` keyed on `formula_key`,
@@ -390,10 +393,11 @@ assumes they are comparable.
   spend, so their cost cells are an em dash with `noSpendReason`, never $0.
 - **No total mixes them.** A totals row sums what is summable — spend across
   channels, deals across every source — and renders nothing where the sum would
-  be a category error. Blended cost per deal is one of those in a table. The
-  one exception is Executive's "All sources" card (30 October 2026, client
-  decision): blended cost per funded deal and blended CPA, `blendedCostPer` in
-  core, labelled blended on every figure and never in a channel's row.
+  be a category error. A cost per deal across channels is one of those in a
+  table. The one exception is Executive's "All sources" card (30 October 2026,
+  client decision): cost per funded deal and cost per acquisition across every
+  source, `allSourcesCostPer` in core, labelled "(all sources)" on every figure
+  and never in a channel's row.
 - **Reports total in the database.** A report reads counts and sums, not one
   row per lead or deal to count in JavaScript: Neon meters network transfer,
   and that is what used up October 2026's allowance. A write counts its rows
