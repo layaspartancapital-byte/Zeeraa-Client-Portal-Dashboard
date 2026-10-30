@@ -168,6 +168,10 @@ export async function upsertLeads(
         target: [schema.leads.tenantId, schema.leads.externalId],
         set: {
           createdOn: sql`excluded.created_on`,
+          // A lead the sync reads has passed every exclusion rule, so a rule
+          // reason it carried no longer holds; renewals, merges and lead-source
+          // rules are re-applied later in the same transaction.
+          excludedReason: sql`null`,
           clickId: sql`excluded.click_id`,
           clickIdType: sql`excluded.click_id_type`,
           utmSource: sql`excluded.utm_source`,

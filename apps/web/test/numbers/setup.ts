@@ -9,9 +9,12 @@ import { sql } from 'drizzle-orm';
  */
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/session', () => ({ readSession: async () => null }));
-vi.mock('@/lib/tenant', async () => {
+vi.mock('@/lib/tenant', async (original) => {
   const { getMaintenanceDb } = await import('@zeeraa/db');
+  // The real module with only `queryTenant` replaced, so a report that reads
+  // through `cached-reports` (Comparison does) loads here as on a page.
   return {
+    ...(await original<object>()),
     queryTenant: (_session: unknown, fn: (tx: unknown) => Promise<unknown>) =>
       getMaintenanceDb().transaction(async (tx) => {
         await tx.execute(sql`set transaction read only`);

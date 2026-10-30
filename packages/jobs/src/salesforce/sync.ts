@@ -22,7 +22,7 @@ import {
 import { qualifyLead, type LeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
 import { resolveCallLeads } from '../aloware/writer';
-import { markLeadsNowExcluded } from './reexclude';
+import { leadRuleReasons, markLeadsNowExcluded } from './reexclude';
 import {
   closeSyncRun,
   lastSuccessfulWatermark,
@@ -407,6 +407,9 @@ export async function runSalesforceSync(
         tx,
         context.tenantId,
         context.stageExclusions ?? [],
+        // Kept through the reset: rule reasons judged from Salesforce's record
+        // by `markLeadsNowExcluded`, which stored rows cannot re-judge.
+        leadRuleReasons(context.leadExclusion ?? NO_LEAD_EXCLUSION),
       );
       // Straight after: the stage exclusions clear every lead's reason first.
       await applyLeadSourceExclusions(tx, context.tenantId, context.leadExclusion ?? NO_LEAD_EXCLUSION);

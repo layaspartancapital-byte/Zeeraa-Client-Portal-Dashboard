@@ -11,6 +11,11 @@ import { affectedRows } from '../affected-rows';
 /** The reason a lead with no rule and no inbound signal is excluded under. */
 export const UNCLASSIFIED_REASON = 'unclassified';
 
+/** The reasons `markLeadsNowExcluded` sets, which the sync's reset must keep. */
+export function leadRuleReasons(config: LeadExclusionConfig): string[] {
+  return config.enabled ? [...config.rules.map((r) => r.key), UNCLASSIFIED_REASON] : [];
+}
+
 /**
  * Marks stored leads that now fall under an exclusion rule (30 October 2026).
  *

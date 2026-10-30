@@ -32,6 +32,8 @@ export function DateRangePicker({
   problem,
   earliest,
   today,
+  names = { from: 'from', to: 'to' },
+  label,
 }: {
   range: DateRange;
   /** The preset this range corresponds to, where it is one. */
@@ -49,23 +51,31 @@ export function DateRangePicker({
    */
   earliest: string | null;
   today: string;
+  /**
+   * The query params the dates submit as. Every page but Comparison reads
+   * `from`/`to`; Comparison has two periods on one page (`aFrom`, `bFrom`, …).
+   */
+  names?: { from: string; to: string };
+  /** Named above the dates where a page has more than one: "Period A". */
+  label?: string;
 }) {
   const days = rangeLengthDays(range);
 
   return (
     <div data-tour="date-range" className="flex min-w-0 flex-col gap-1.5 print-hidden">
+      {label && <p className="text-[12px] font-semibold text-text-2">{label}</p>}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <form method="GET" className="flex shrink-0 items-center gap-1.5">
+        <form method="GET" className="flex min-w-0 flex-wrap items-center gap-1.5">
           {Object.entries(preserve).map(([name, value]) => (
             <input key={name} type="hidden" name={name} value={value} />
           ))}
 
-          <label htmlFor="from" className="sr-only">
-            Start date
+          <label htmlFor={names.from} className="sr-only">
+            {label ? `${label} start date` : 'Start date'}
           </label>
           <input
-            id="from"
-            name="from"
+            id={names.from}
+            name={names.from}
             type="date"
             defaultValue={range.start}
             // `max` on the start and `min` on the end stop the browser offering
@@ -77,12 +87,12 @@ export function DateRangePicker({
           <span aria-hidden="true" className="text-[13px] text-text-3">
             –
           </span>
-          <label htmlFor="to" className="sr-only">
-            End date
+          <label htmlFor={names.to} className="sr-only">
+            {label ? `${label} end date` : 'End date'}
           </label>
           <input
-            id="to"
-            name="to"
+            id={names.to}
+            name={names.to}
             type="date"
             defaultValue={range.end}
             min={range.start}
@@ -98,7 +108,7 @@ export function DateRangePicker({
 
         <div
           role="group"
-          aria-label="Quick ranges"
+          aria-label={label ? `${label} quick ranges` : 'Quick ranges'}
           className="inline-flex h-9 shrink-0 items-center rounded-[8px] border border-border bg-surface p-[2px]"
         >
           {RANGE_PRESETS.map((option) => {

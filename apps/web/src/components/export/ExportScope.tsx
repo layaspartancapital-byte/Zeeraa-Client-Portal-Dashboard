@@ -14,13 +14,15 @@ import { FileSpreadsheet } from 'lucide-react';
  */
 export type ExportScopeValue = {
   slug: string;
-  page: 'executive' | 'performance' | 'funnel' | 'platform';
+  page: 'executive' | 'performance' | 'funnel' | 'platform' | 'comparison';
   from: string;
   to: string;
   model?: string;
   source?: string | null;
   /** A platform page's platform. */
   platform?: string | null;
+  /** Further filters a page has, carried on every export: Comparison's Period B. */
+  extra?: Record<string, string>;
 };
 
 const Scope = createContext<ExportScopeValue | null>(null);
@@ -40,6 +42,7 @@ function href(
   params.set('to', scope.to);
   if (scope.model) params.set('model', scope.model);
   if (scope.source) params.set('source', scope.source);
+  for (const [k, v] of Object.entries(scope.extra ?? {})) params.set(k, v);
   for (const [k, v] of Object.entries(extra)) if (v) params.set(k, v);
   return `/api/xlsx/${scope.slug}?${params.toString()}`;
 }

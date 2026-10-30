@@ -50,6 +50,13 @@ describe('Excel exports on every screen', () => {
     expect(src(path)).toMatch(/<ExportButton datasets=|exportAs=\{\[/);
   });
 
+  it('the Comparison page exports both periods (30 October 2026)', () => {
+    const code = src('app/[tenant]/comparison/page.tsx');
+    expect(code).toContain('<ExportEverything />');
+    expect(code).toMatch(/extra: \{ bFrom: b\.range\.start, bTo: b\.range\.end \}/);
+    expect(src('components/ComparisonTable.tsx')).toContain("<ExportButton datasets={['comparison']} />");
+  });
+
   it('decides contact columns on the server, by role, never from the URL', () => {
     const route = src('app/api/xlsx/[tenant]/route.ts');
     expect(route).toContain('seesContacts(session.tenant.role)');

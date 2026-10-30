@@ -358,7 +358,10 @@ The short version:
   screens cannot disagree about what `?from=&to=` means. The resolved period is
   always stated in words — a pill saying "90d" does not say *which* 90 days. A
   second period control on the same page is what the hero's 3m/6m/12m toggle
-  was, and it went.
+  was, and it went. The one exception is the Comparison page,
+  whose two pickers are two periods by design (`aFrom`/`aTo`, `bFrom`/`bTo`),
+  and which states each count's change with a note when the periods differ in
+  length (30 October 2026).
 - No horizontal page scroll at any width down to 375px. Anything wide scrolls
   inside its own card, and the scroll container needs `min-w-0` or it widens the
   page instead.

@@ -67,8 +67,12 @@ choice was this or nothing. Calls from 26 October 15:42 to 30 October 13:50
 UTC were lost to the Neon outage unless Aloware retried; an Aloware export for
 that window through `import-aloware-calls` would fill them.
 
-**Queued, not started:** a Comparison page; the deploy check freezing
-Salesforce-proven merge corrections itself.
+**30 October 2026: a Comparison page** (sidebar, under Performance): two
+periods, one source, every KPI with change and % change. See
+`docs/brief-amendments.md`, "§12 — a Comparison page".
+
+**Queued, not started:** the deploy check freezing Salesforce-proven merge
+corrections itself.
 
 **13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
 fixed against the icon, kept inside the viewport and flipped below when there

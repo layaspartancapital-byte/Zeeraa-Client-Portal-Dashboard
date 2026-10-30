@@ -14,6 +14,7 @@ import { queryTenant, type TenantSession } from '@/lib/tenant';
 import type { XlsxCell, XlsxColumn, XlsxSheet } from '@/lib/xlsx';
 import { buildRampPanels, RAMP_TABLE_COLUMNS, rampTableRows } from '@/lib/ramp-panels';
 import * as cached from '@/lib/cached-reports';
+import { comparisonReport } from '@/lib/comparison';
 
 /**
  * The Excel exports (30 October 2026): the rows behind each card, for the
@@ -41,10 +42,11 @@ export const DATASETS = [
   'platform_daily',
   'seo',
   'organic',
+  'comparison',
 ] as const;
 export type Dataset = (typeof DATASETS)[number];
 
-export const PAGES = ['executive', 'performance', 'funnel', 'platform'] as const;
+export const PAGES = ['executive', 'performance', 'funnel', 'platform', 'comparison'] as const;
 export type ExportPage = (typeof PAGES)[number];
 
 /** What one card's button asks for. `stage` narrows deals or leads; `platform` names a platform page's source. */
@@ -56,6 +58,8 @@ export type ExportFilters = {
   /** A channel key (`google_ads`, `vendor:Popcrumbs`, `unattributed`), or null for every source. */
   source: string | null;
   today: string;
+  /** Comparison's Period B; Period A is `range`. */
+  compare?: DateRange | null;
 };
 
 export function seesContacts(role: string): boolean {
@@ -71,6 +75,8 @@ export function pageExports(page: ExportPage, platform: string | null, kind: str
       return [{ dataset: 'sources' }, { dataset: 'ramp' }, { dataset: 'deals' }, { dataset: 'leads' }, { dataset: 'lender_decisions' }];
     case 'funnel':
       return [{ dataset: 'leads' }, { dataset: 'deals' }, { dataset: 'lender_decisions' }, { dataset: 'calls' }];
+    case 'comparison':
+      return [{ dataset: 'comparison' }];
     case 'platform':
       if (!platform) return [];
       if (kind === 'seo') return [{ dataset: 'seo', platform }];
@@ -676,6 +682,52 @@ async function organicSheets(ctx: Ctx, platform: string): Promise<XlsxSheet[]> {
   ];
 }
 
+/** The Comparison table as one sheet: each row with both periods, its targets and its change. */
+async function comparisonSheets(ctx: Ctx): Promise<XlsxSheet[]> {
+  const { filters, session } = ctx;
+  if (!filters.compare) return [];
+  const report = await comparisonReport(session, {
+    a: filters.range,
+    b: filters.compare,
+    source: filters.source ?? 'all',
+    model: filters.model,
+  });
+  const label = report.sources.find((s) => s.key === report.source)?.label ?? 'All sources';
+  return [
+    {
+      name: `Comparison · ${label}`,
+      columns: [
+        { header: 'Section', type: 'text' },
+        { header: 'Metric', type: 'text' },
+        { header: `Period A (${filters.range.start} to ${filters.range.end})`, type: 'number' },
+        { header: 'A target', type: 'money' },
+        { header: 'A based on', type: 'count' },
+        { header: `Period B (${filters.compare.start} to ${filters.compare.end})`, type: 'number' },
+        { header: 'B target', type: 'money' },
+        { header: 'B based on', type: 'count' },
+        { header: 'Change (A − B)', type: 'number' },
+        { header: '% change', type: 'percent' },
+        { header: 'Why no figure (A)', type: 'text' },
+        { header: 'Why no figure (B)', type: 'text' },
+      ],
+      rows: report.rows.map((r) => [
+        r.section,
+        r.label,
+        r.a.value,
+        r.a.target?.low ?? null,
+        r.a.basis?.n ?? null,
+        r.b.value,
+        r.b.target?.low ?? null,
+        r.b.basis?.n ?? null,
+        r.change,
+        r.pct,
+        r.a.value === null ? r.a.reason : null,
+        r.b.value === null ? r.b.reason : null,
+      ]),
+    },
+  ];
+}
+
 /* ------------------------------------------------------------------------- */
 
 export async function buildSheets(ctx: Ctx, spec: ExportSpec): Promise<XlsxSheet[]> {
@@ -701,6 +753,8 @@ export async function buildSheets(ctx: Ctx, spec: ExportSpec): Promise<XlsxSheet
       return seoSheets(ctx);
     case 'organic':
       return platform ? organicSheets(ctx, platform) : [];
+    case 'comparison':
+      return comparisonSheets(ctx);
   }
 }
 

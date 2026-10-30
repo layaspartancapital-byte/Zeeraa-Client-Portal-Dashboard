@@ -21,6 +21,7 @@ import {
   Users,
   Share2,
   Briefcase,
+  GitCompareArrows,
   TrendingUp,
   X,
 } from 'lucide-react';
@@ -80,6 +81,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { segment: 'performance', label: 'Monthly performance', icon: TrendingUp },
       { segment: 'funnel', label: 'Funnel', icon: Filter },
+      { segment: 'comparison', label: 'Comparison', icon: GitCompareArrows },
     ],
   },
   // Platforms is spliced in below, between Performance and Setup: its items

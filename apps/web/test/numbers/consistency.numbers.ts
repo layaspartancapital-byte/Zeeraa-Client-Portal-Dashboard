@@ -11,12 +11,13 @@
  * summed against the funnel's totals.
  */
 import { describe, expect, it } from 'vitest';
-import { AD_DETAIL, addDays, isVendorChannel, cohortConversionRate, monthRange, platformLabel, previousMonth, stageBeforeValue, type DateRange } from '@zeeraa/core';
+import { AD_DETAIL, addDays, isPaidChannel, isVendorChannel, cohortConversionRate, monthRange, platformLabel, previousMonth, stageBeforeValue, type DateRange } from '@zeeraa/core';
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
 import { platformView } from '@/lib/platform';
 import { allSources } from '@/lib/all-sources';
+import { comparisonReport } from '@/lib/comparison';
 import { fromBucket, fromContract, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, type Figures } from './figures';
 import { sql } from 'drizzle-orm';
 
@@ -82,6 +83,42 @@ describe('the same figure on every screen', () => {
       }
     }
     console.log(`Consistency: ${compared} figures compared.`);
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
+  it('Comparison shows each source’s figures as Monthly performance does (30 October 2026)', async () => {
+    const problems: string[] = [];
+    for (const t of await tenants()) {
+      const last = previousMonth(t.today.slice(0, 7));
+      for (const a of [monthRange(last), { start: `${t.today.slice(0, 7)}-01`, end: t.today }]) {
+        const b = monthRange(previousMonth(a.start.slice(0, 7)));
+        const mp = await monthlyPerformance(t.session, a, 'last_touch');
+        const v = mp.valueStageKey;
+        const first = await comparisonReport(t.session, { a, b, source: 'all', model: 'last_touch' });
+        for (const { key: source } of first.sources) {
+          const report = source === 'all' ? first : await comparisonReport(t.session, { a, b, source, model: 'last_touch' });
+          const row = (k: string) => report.rows.find((r) => r.key === k)?.a.value ?? null;
+          const pick = source === 'all' ? mp.total : source === 'unattributed' ? mp.unattributed : mp.channels.find((c) => c.platform === source);
+          if (!pick) continue;
+          const stagesOf = pick.stages as Record<string, number>;
+          const expected: Record<string, number | null> = {
+            leads: stagesOf.lead ?? 0,
+            applications: stagesOf.application ?? 0,
+            funded_deals: v ? (stagesOf[v] ?? 0) : null,
+            funded_volume: pick.valueVolume,
+          };
+          if (source === 'all' || (source !== 'unattributed' && isPaidChannel(source))) {
+            const spend = source === 'all' ? mp.total.spend : (pick as { spend: number }).spend;
+            expected.spend = spend;
+            const deals = v ? (stagesOf[v] ?? 0) : 0;
+            expected.cpfd = deals > 0 ? spend / deals : null;
+          }
+          for (const [k, value] of Object.entries(expected)) {
+            if (!same(row(k), value)) problems.push(`${t.slug} ${a.start}–${a.end} ${source} ${k}: Comparison ${row(k)}, Monthly performance ${value}`);
+          }
+        }
+      }
+    }
     expect(problems, problems.join('\n')).toEqual([]);
   });
 

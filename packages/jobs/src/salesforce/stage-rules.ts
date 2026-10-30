@@ -152,11 +152,19 @@ export function parseStageExclusions(value: unknown): StageExclusionRule[] {
  * Cleared first, then applied rule by rule, so removing a rule from config
  * restores the events it had excluded on the next sync. Inside the sync's
  * transaction, so no reader sees the cleared state.
+ *
+ * `keepLeadReasons` are left in place on leads: a lead-exclusion rule's key
+ * set by `markLeadsNowExcluded`, which judges a rule from Salesforce's current
+ * record — an owner, a creation date — that stored rows cannot re-judge here.
+ * Clearing it put a lead a merge had moved under the cold-list rule back into
+ * September's counts on the next sync (30 October 2026). A rule removed from
+ * config is no longer kept, so its leads are restored as before.
  */
 export async function applyStageExclusions(
   tx: Database,
   tenantId: string,
   rules: readonly StageExclusionRule[],
+  keepLeadReasons: readonly string[] = [],
 ): Promise<Record<string, number>> {
   await tx
     .update(schema.stageEvents)
@@ -170,7 +178,13 @@ export async function applyStageExclusions(
   await tx
     .update(schema.leads)
     .set({ excludedReason: null })
-    .where(and(eq(schema.leads.tenantId, tenantId), sql`${schema.leads.excludedReason} is not null`));
+    .where(
+      and(
+        eq(schema.leads.tenantId, tenantId),
+        sql`${schema.leads.excludedReason} is not null`,
+        ...(keepLeadReasons.length > 0 ? [notInArray(schema.leads.excludedReason, [...keepLeadReasons])] : []),
+      ),
+    );
   await tx
     .update(schema.submissions)
     .set({ excludedReason: null })

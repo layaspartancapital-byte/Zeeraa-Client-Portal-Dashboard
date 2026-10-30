@@ -4060,3 +4060,49 @@ October on two Salesforce differences. Both were traced to the record:
 
 With the reconciliation clean, September's six ramp figures and its channel
 figures were frozen (`freeze-baseline`), with that as the reason.
+
+## §12 — a Comparison page (30 October 2026)
+
+Client decision. "Comparison" in the sidebar, under Performance: two periods,
+one source, every KPI as a row — Period A, Period B, Change (A − B) and %
+change (over B).
+
+- **Two date controls on one page**, each the same `DateRangePicker` under its
+  own params (`aFrom`/`aTo`, `bFrom`/`bTo`), an exception to "one date control
+  per page". Default: A the last complete month, B the month before. A source
+  filter: All sources, each ad platform, SEO/Organic, each vendor, Direct &
+  other.
+- **A count's change is shown** — an exception to Executive's rule that a
+  count from one period is never subtracted from another — and the page says
+  above the table when the periods differ in length, pointing to rates and
+  costs. A rate's change is in percentage points.
+- **The rows** (`lib/comparison-rows.ts`, pure, shared by the page, the Excel
+  export and the number check): ads (spend, impressions, clicks, CTR, CPC);
+  the funnel (leads, MQL, MQL rate, applications, SQL, approvals/offers, offer
+  amount, funded deals, funded volume, funded volume with lead vendors
+  excluded on All sources, average deal size, and the conversion between each
+  pair of stages, gated by `metrics.population`); costs (per lead, per MQL,
+  per acquisition, per funded deal, each "based on N"); calls (All sources
+  only — calls are not split by source); SEO (All sources and SEO/Organic,
+  from the Semrush snapshot for the period's last month and the tracked
+  visibility at its end).
+- **"—", never 0**, where a source has no figure (ad spend for SEO/Organic, a
+  vendor, Direct & other), with the reason on hover. A count in a read period
+  is a measurement even at zero.
+- **Colour** comes from the metric's formula (`improvementDirectionFor`): a
+  rising cost is red, rising volume green, spend uncoloured; every change
+  carries its sign and an arrow.
+- **Targets**: the Zeeraa contract's, beside cost per acquisition and cost per
+  funded deal (All sources) and the vendor-excluded volume, for a period that
+  is one calendar month.
+- **Frozen months**: a period that is one frozen calendar month reads spend,
+  stage counts and funded volume from the frozen channel figures; rates
+  between stages are read live.
+- The number check holds each source's spend, leads, applications, funded
+  deals, funded volume and cost per funded deal to Monthly performance, for
+  the last complete month and the month in progress.
+
+The same day, a lead-exclusion fix: the sync's exclusion reset now keeps a
+reason set from Salesforce's record by `markLeadsNowExcluded` (it had cleared
+it on the next run, putting September's merged cold-list lead back), and a
+lead the sync re-reads has its reason cleared, since it has passed every rule.

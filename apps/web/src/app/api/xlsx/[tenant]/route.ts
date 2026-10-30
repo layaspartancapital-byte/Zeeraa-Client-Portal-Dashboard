@@ -49,7 +49,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     today,
     earliest: null,
   });
-  const filters = { range, model, source: text('source'), today };
+  // Comparison's Period B, where the export is the Comparison page's.
+  const bFrom = search.get('bFrom');
+  const bTo = search.get('bTo');
+  const compare =
+    bFrom && bTo && /^\d{4}-\d{2}-\d{2}$/.test(bFrom) && /^\d{4}-\d{2}-\d{2}$/.test(bTo) && bFrom <= bTo
+      ? { start: bFrom, end: bTo }
+      : null;
+  const filters = { range, model, source: text('source'), today, compare };
   const platform = text('platform');
 
   const page = text('page');

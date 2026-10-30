@@ -10,7 +10,8 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
 import { parseLeadExclusion, type SalesforceClient } from '@zeeraa/connectors';
-import { markLeadsNowExcluded } from '../src/salesforce/reexclude';
+import { leadRuleReasons, markLeadsNowExcluded } from '../src/salesforce/reexclude';
+import { applyStageExclusions } from '../src/salesforce/stage-rules';
 import { classifyIds } from '../src/reconcile';
 
 const OWNER_URL = process.env.DATABASE_URL_OWNER ?? 'postgres://zeeraa_owner:zeeraa_owner@localhost:5433/zeeraa';
@@ -80,6 +81,19 @@ describe('markLeadsNowExcluded', () => {
     const rows = await withJobTenant(tenantId, (tx) => tx.select().from(schema.leads).where(eq(schema.leads.tenantId, tenantId)), jobs);
     const reason = Object.fromEntries(rows.map((r) => [r.externalId, r.excludedReason]));
     expect(reason).toEqual({ 'merged-into-cold': 'bulk_load', 'still-inbound': null, 'already-merged': 'merged' });
+  });
+});
+
+describe('the sync’s exclusion reset', () => {
+  it('keeps a reason set from Salesforce’s record while its rule is configured, and clears it once it is not', async () => {
+    const reasonOf = async () =>
+      (await withJobTenant(tenantId, (tx) => tx.select().from(schema.leads).where(eq(schema.leads.tenantId, tenantId)), jobs)).find(
+        (r) => r.externalId === 'merged-into-cold',
+      )?.excludedReason;
+    await withJobTenant(tenantId, (tx) => applyStageExclusions(tx, tenantId, [], leadRuleReasons(config)), jobs);
+    expect(await reasonOf()).toBe('bulk_load');
+    await withJobTenant(tenantId, (tx) => applyStageExclusions(tx, tenantId, [], []), jobs);
+    expect(await reasonOf()).toBeNull();
   });
 });
 
