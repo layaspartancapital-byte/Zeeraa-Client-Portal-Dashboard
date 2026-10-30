@@ -38,7 +38,7 @@ type Query = {
  *
  * Each period has its own picker — the same control as every other page,
  * under its own params (`aFrom`/`aTo`, `bFrom`/`bTo`). With none given, A is
- * the last complete month and B the month before. Every KPI is a row, with the
+ * this month to date and B the previous full month. Every KPI is a row, with the
  * change and the change in per cent; a count's change is stated even when the
  * periods differ in length, and the page says so above the table (a departure
  * from Executive's two-figure rule, recorded in `docs/brief-amendments.md`).
@@ -61,8 +61,12 @@ export default async function ComparisonPage({
     if (!from && !to && !preset && fallback) return { range: fallback, preset: null as RangePresetKey | null, problem: null };
     return resolveDateRange({ from, to, preset, today, earliest });
   };
-  const a = resolve(query.aFrom, query.aTo, query.aPreset, monthRange(lastMonth));
-  const b = resolve(query.bFrom, query.bTo, query.bPreset, monthRange(previousMonth(lastMonth)));
+  // By default A is this month to date (the MTD preset, so its pill reads as
+  // chosen) and B the previous full month.
+  const a = query.aFrom || query.aTo || query.aPreset
+    ? resolve(query.aFrom, query.aTo, query.aPreset)
+    : resolveDateRange({ preset: 'mtd', today, earliest });
+  const b = resolve(query.bFrom, query.bTo, query.bPreset, monthRange(lastMonth));
 
   const asked = query.source && /^[A-Za-z0-9_:]{1,64}$/.test(query.source) ? query.source : 'all';
   let comparison = await comparisonReport(session, { a: a.range, b: b.range, source: asked, model });
@@ -93,7 +97,7 @@ export default async function ComparisonPage({
     {
       heading: 'The two periods',
       body:
-        'Period A and Period B are picked separately; by default A is the last complete month and B the month before. ' +
+        'Period A and Period B are picked separately; by default A is this month to date and B the previous full month. ' +
         'Change is A minus B, and % change is that over B.',
       detail:
         'A count or a total covers its own number of days, so when the periods differ in length the page says so: ' +

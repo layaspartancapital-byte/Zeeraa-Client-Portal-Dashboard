@@ -4069,7 +4069,8 @@ change (over B).
 
 - **Two date controls on one page**, each the same `DateRangePicker` under its
   own params (`aFrom`/`aTo`, `bFrom`/`bTo`), an exception to "one date control
-  per page". Default: A the last complete month, B the month before. A source
+  per page". Default: A this month to date, B the previous full month (changed
+  the same day; it was the last complete month and the one before). A source
   filter: All sources, each ad platform, SEO/Organic, each vendor, Direct &
   other.
 - **A count's change is shown** — an exception to Executive's rule that a
