@@ -16,10 +16,65 @@ import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comp
  * and an arrow, so colour is never the only signal. A rate's change is in
  * percentage points.
  */
-export function ComparisonTable({ comparison, currency }: { comparison: Comparison; currency: string }) {
+export function ComparisonTable({
+  comparison,
+  currency,
+  bare = false,
+}: {
+  comparison: Comparison;
+  currency: string;
+  /** The table alone, for a card that draws its own header (the folded "All metrics"). */
+  bare?: boolean;
+}) {
   const sections = [...new Set(comparison.rows.map((r) => r.section))];
   const period = (p: Comparison['a'], name: string) =>
     `${name} · ${formatRangeLabel(p.range)} · ${rangeLengthDays(p.range)} days${p.frozen ? ' · frozen baseline' : ''}`;
+  const table = (
+    <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
+      <table className="w-full min-w-[720px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
+            <th scope="col" className="px-5 py-2.5">Metric</th>
+            <th scope="col" className="numeric px-3 py-2.5">Period A</th>
+            <th scope="col" className="numeric px-3 py-2.5">Period B</th>
+            <th scope="col" className="numeric px-3 py-2.5">Change</th>
+            <th scope="col" className="numeric px-5 py-2.5">% change</th>
+          </tr>
+        </thead>
+        {sections.map((section) => (
+          <tbody key={section}>
+            <tr className="border-b border-border bg-canvas">
+              <th colSpan={5} scope="colgroup" className="px-5 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-text-3">
+                {section}
+              </th>
+            </tr>
+            {comparison.rows
+              .filter((r) => r.section === section)
+              .map((row) => (
+                <tr key={row.key} className="border-b border-border last:border-b-0">
+                  <th scope="row" className="px-5 py-2.5 text-left font-medium text-text">
+                    {row.label}
+                  </th>
+                  <td className="numeric px-3 py-2.5 align-top">
+                    <Value cell={row.a} format={row.format} currency={currency} />
+                  </td>
+                  <td className="numeric px-3 py-2.5 align-top">
+                    <Value cell={row.b} format={row.format} currency={currency} />
+                  </td>
+                  <td className="numeric px-3 py-2.5 align-top">
+                    <Change row={row} currency={currency} />
+                  </td>
+                  <td className="numeric px-5 py-2.5 align-top">
+                    <Percent row={row} />
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        ))}
+      </table>
+    </div>
+  );
+  if (bare) return table;
   return (
     <Card span={12} id="comparison-table">
       <CardHeader
@@ -27,49 +82,7 @@ export function ComparisonTable({ comparison, currency }: { comparison: Comparis
         subtitle={`${period(comparison.a, 'A')}  vs  ${period(comparison.b, 'B')}`}
         controls={<ExportButton datasets={['comparison']} />}
       />
-      <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
-        <table className="w-full min-w-[720px] border-collapse text-[13px]">
-          <thead>
-            <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
-              <th scope="col" className="px-5 py-2.5">Metric</th>
-              <th scope="col" className="numeric px-3 py-2.5">Period A</th>
-              <th scope="col" className="numeric px-3 py-2.5">Period B</th>
-              <th scope="col" className="numeric px-3 py-2.5">Change</th>
-              <th scope="col" className="numeric px-5 py-2.5">% change</th>
-            </tr>
-          </thead>
-          {sections.map((section) => (
-            <tbody key={section}>
-              <tr className="border-b border-border bg-canvas">
-                <th colSpan={5} scope="colgroup" className="px-5 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-text-3">
-                  {section}
-                </th>
-              </tr>
-              {comparison.rows
-                .filter((r) => r.section === section)
-                .map((row) => (
-                  <tr key={row.key} className="border-b border-border last:border-b-0">
-                    <th scope="row" className="px-5 py-2.5 text-left font-medium text-text">
-                      {row.label}
-                    </th>
-                    <td className="numeric px-3 py-2.5 align-top">
-                      <Value cell={row.a} format={row.format} currency={currency} />
-                    </td>
-                    <td className="numeric px-3 py-2.5 align-top">
-                      <Value cell={row.b} format={row.format} currency={currency} />
-                    </td>
-                    <td className="numeric px-3 py-2.5 align-top">
-                      <Change row={row} currency={currency} />
-                    </td>
-                    <td className="numeric px-5 py-2.5 align-top">
-                      <Percent row={row} />
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          ))}
-        </table>
-      </div>
+      {table}
     </Card>
   );
 }
@@ -91,14 +104,17 @@ export function formatValue(value: number, format: ComparisonFormat, currency: s
   }
 }
 
+/** "Target $1,000" or "Target $100K–$150K": the contract's figure as it is written. */
+export function targetText(target: NonNullable<ComparisonCell['target']>, currency: string): string {
+  return `Target ${
+    target.high !== null
+      ? `${formatTargetCurrency(target.low, currency)}–${formatTargetCurrency(target.high, currency)}`
+      : formatTargetCurrency(target.low, currency)
+  }`;
+}
+
 function Value({ cell, format, currency }: { cell: ComparisonCell; format: ComparisonFormat; currency: string }) {
-  const target =
-    cell.target &&
-    `Target ${
-      cell.target.high !== null
-        ? `${formatTargetCurrency(cell.target.low, currency)}–${formatTargetCurrency(cell.target.high, currency)}`
-        : formatTargetCurrency(cell.target.low, currency)
-    }`;
+  const target = cell.target && targetText(cell.target, currency);
   return (
     <span className="inline-flex flex-col items-end gap-0.5">
       {cell.value === null ? (

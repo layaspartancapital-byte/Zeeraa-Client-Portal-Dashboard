@@ -3,7 +3,17 @@ import { contractTarget, isVendorChannel, monthRange, platformLabel, sourceRank,
 import type { TenantSession } from '@/lib/tenant';
 import * as cached from '@/lib/cached-reports';
 import { coverageFor, isUnmeasured, notMeasuredReason } from '@/lib/coverage';
-import { compareRows, lengthNote, periodRows, type ComparisonRow, type PeriodInput } from '@/lib/comparison-rows';
+import {
+  compareRows,
+  funnelSteps,
+  hasAdSpend,
+  lengthNote,
+  periodRows,
+  type ComparisonCell,
+  type ComparisonRow,
+  type FunnelStep,
+  type PeriodInput,
+} from '@/lib/comparison-rows';
 
 /**
  * The Comparison page (30 October 2026): two periods, one source, every KPI.
@@ -19,6 +29,15 @@ export type Comparison = {
   rows: ComparisonRow[];
   /** Said above the table when the periods differ in length. */
   lengthNote: string | null;
+  /** Whether the source has ad spend; without it, no ad or cost figures are drawn. */
+  paid: boolean;
+  /** The funnel's steps, each naming its rows in `rows`. */
+  funnel: FunnelStep[];
+  /**
+   * Funded deals and volume per source, each period read exactly as the
+   * table reads that source. Only sources with a deal in either period.
+   */
+  bySource: { key: string; label: string; deals: [ComparisonCell, ComparisonCell]; volume: [ComparisonCell, ComparisonCell] }[];
 };
 
 export type PeriodMeta = {
@@ -124,16 +143,34 @@ export async function comparisonReport(
   const channels = [...new Set(['google_ads', 'meta', 'organic_search', ...a.channels, ...b.channels])].sort(
     (x, y) => sourceRank(x) - sourceRank(y) || (isVendorChannel(x) ? 1 : 0) - (isVendorChannel(y) ? 1 : 0) || platformLabel(x).localeCompare(platformLabel(y)),
   );
+  const sources = [
+    { key: 'all', label: 'All sources' },
+    ...channels.map((key) => ({ key, label: platformLabel(key) })),
+    { key: 'unattributed', label: 'Direct & other' },
+  ];
+  const bySource = sources
+    .filter((s) => s.key !== 'all')
+    .map((s) => {
+      const ra = periodRows({ ...a.input, source: s.key });
+      const rb = periodRows({ ...b.input, source: s.key });
+      const pick = (rows: typeof ra, key: string) => rows.get(key)!.cell;
+      return {
+        key: s.key,
+        label: s.label,
+        deals: [pick(ra, 'funded_deals'), pick(rb, 'funded_deals')] as [ComparisonCell, ComparisonCell],
+        volume: [pick(ra, 'funded_volume'), pick(rb, 'funded_volume')] as [ComparisonCell, ComparisonCell],
+      };
+    })
+    .filter((s) => s.deals.some((c) => (c.value ?? 0) > 0));
   return {
     a: a.meta,
     b: b.meta,
     source: options.source,
-    sources: [
-      { key: 'all', label: 'All sources' },
-      ...channels.map((key) => ({ key, label: platformLabel(key) })),
-      { key: 'unattributed', label: 'Direct & other' },
-    ],
+    sources,
     rows: compareRows(periodRows(a.input), periodRows(b.input)),
     lengthNote: lengthNote(options.a, options.b),
+    paid: hasAdSpend(options.source),
+    funnel: funnelSteps(a.input.mp),
+    bySource,
   };
 }

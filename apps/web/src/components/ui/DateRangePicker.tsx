@@ -6,6 +6,7 @@ import {
   type DateRange,
   type RangePresetKey,
 } from '@zeeraa/core';
+import { DateFields } from './DateFields';
 
 /**
  * The page's date control: two dates, the common ranges beside them, and the
@@ -70,33 +71,14 @@ export function DateRangePicker({
             <input key={name} type="hidden" name={name} value={value} />
           ))}
 
-          <label htmlFor={names.from} className="sr-only">
-            {label ? `${label} start date` : 'Start date'}
-          </label>
-          <input
-            id={names.from}
-            name={names.from}
-            type="date"
-            defaultValue={range.start}
-            // `max` on the start and `min` on the end stop the browser offering
-            // a reversed pair at all. The server refuses one anyway — this is
-            // the affordance, not the check.
-            max={range.end}
-            className="h-9 rounded-[8px] border border-border bg-surface px-2 text-[13px] tabular text-text"
-          />
-          <span aria-hidden="true" className="text-[13px] text-text-3">
-            –
-          </span>
-          <label htmlFor={names.to} className="sr-only">
-            {label ? `${label} end date` : 'End date'}
-          </label>
-          <input
-            id={names.to}
-            name={names.to}
-            type="date"
-            defaultValue={range.end}
-            min={range.start}
-            className="h-9 rounded-[8px] border border-border bg-surface px-2 text-[13px] tabular text-text"
+          <DateFields
+            // Remounted when the applied range changes, so the fields show it.
+            key={`${range.start}|${range.end}`}
+            names={names}
+            start={range.start}
+            end={range.end}
+            today={today}
+            label={label}
           />
           <button
             type="submit"

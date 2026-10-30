@@ -15,7 +15,7 @@ import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components/ui/Drawer';
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
-import { ComparisonTable } from '@/components/ComparisonTable';
+import { ComparisonView } from '@/components/ComparisonView';
 import { comparisonReport } from '@/lib/comparison';
 import { resolvePageRange } from '@/lib/range';
 import { requireTenant } from '@/lib/tenant';
@@ -188,7 +188,7 @@ export default async function ComparisonPage({
           )}
         </Card>
 
-        <ComparisonTable comparison={comparison} currency={session.tenant.currency} />
+        <ComparisonView comparison={comparison} currency={session.tenant.currency} />
       </Grid>
 
       <MethodNotesForPrint notes={notes} />

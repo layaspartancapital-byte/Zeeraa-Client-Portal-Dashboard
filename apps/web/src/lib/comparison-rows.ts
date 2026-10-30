@@ -38,6 +38,12 @@ export type ComparisonCell = {
   basis: { n: number; noun: string } | null;
   /** The contract's target for this period, where it sets one. */
   target: ContractTarget | null;
+  /**
+   * The source was not read for the period: a `Not measured` badge, never a
+   * dash. A figure the source simply does not have (no ad spend) or an empty
+   * denominator ("No deals yet") is a dash with its reason.
+   */
+  unmeasured?: boolean;
 };
 
 export type ComparisonRowSpec = {
@@ -114,18 +120,6 @@ export function periodRows(input: PeriodInput): PeriodRows {
   const noSpend = all ? null : paid ? null : `${source === 'unattributed' ? 'Direct & other' : platformLabel(source)} has no ad spend.`;
 
   /* Counts, frozen where the period is a frozen month. */
-  const frozenSum = (metric: string, filter: (platform: string) => boolean = () => true): number | null => {
-    if (!input.frozen) return null;
-    let found = false;
-    let sum = 0;
-    for (const [k, v] of input.frozen) {
-      const [platform, m] = k.split('|');
-      if (m !== metric || !filter(platform!)) continue;
-      found = true;
-      sum += v;
-    }
-    return found ? sum : null;
-  };
   // A channel's live figure, for a source the freeze did not hold.
   const liveOf = (platform: string, metric: string): number => {
     const row = platform === 'unattributed' ? mp.unattributed : mp.channels.find((c) => c.platform === platform);
@@ -224,7 +218,15 @@ export function periodRows(input: PeriodInput): PeriodRows {
       input.crmUnmeasured
         ? null
         : mp.channels.filter((c) => !isVendorChannel(c.platform)).reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
-    const frozenVendorOut = input.frozen ? frozenSum('funded_volume', (p) => !isVendorChannel(p)) : null;
+    // Each source from the freeze where it was frozen and live where it was
+    // not, as `frozenFor` reads every source: the ramp channel's volume is
+    // frozen under the ramp's name, and summing frozen channel figures alone
+    // dropped it — September read $97,600 for $153,500 (30 October 2026).
+    const frozenVendorOut = input.frozen
+      ? [...mp.channels.map((c) => c.platform), 'unattributed']
+          .filter((p) => !isVendorChannel(p))
+          .reduce((sum, p) => sum + (input.frozen!.get(`${p}|funded_volume`) ?? liveOf(p, 'funded_volume')), 0)
+      : null;
     add(
       { section: 'Funnel', key: 'funded_volume_contract', label: `${valueLabel} volume, lead vendors excluded`, format: 'money', formulaKey: 'funded_volume' },
       cell(frozenVendorOut ?? vendorOut, crmReason, { target: input.contract?.fundedAmount ?? null }),
@@ -242,6 +244,18 @@ export function periodRows(input: PeriodInput): PeriodRows {
     add(
       { section: 'Funnel', key: `conv:${from.key}:${to.key}`, label: `${from.label} → ${to.label}`, format: 'percent', formulaKey: 'stage_conversion_rate' },
       rate(from.key, to.key),
+    );
+  }
+
+  // A pair the funnel draws side by side with a stage between them that it
+  // does not (UW approved → Funded, past Offer): its own conversion, measured
+  // as every other.
+  for (const step of funnelSteps(mp)) {
+    if (!step.conversion || rows.has(step.conversion)) continue;
+    const [, from, to] = step.conversion.split(':');
+    add(
+      { section: 'Funnel', key: step.conversion, label: `${label(from!, from!)} → ${label(to!, to!)}`, format: 'percent', formulaKey: 'stage_conversion_rate' },
+      rate(from!, to!),
     );
   }
 
@@ -286,7 +300,61 @@ export function periodRows(input: PeriodInput): PeriodRows {
     add({ section: 'SEO', key: 'top10', label: 'Top-10 keywords', format: 'count', formulaKey: 'organic_keywords' }, cell(input.seo?.top10 ?? null, seoReason));
     add({ section: 'SEO', key: 'visibility', label: 'Visibility', format: 'points', formulaKey: 'tracked_visibility' }, cell(input.seo?.visibility ?? null, seoReason));
   }
+  const unread = new Set([input.crmUnmeasured, input.spendUnmeasured, input.callsUnmeasured].filter((r): r is string => r !== null));
+  for (const row of rows.values()) if (row.cell.value === null && row.cell.reason && unread.has(row.cell.reason)) row.cell.unmeasured = true;
   return rows;
+}
+
+/** Whether a source has ad spend at all: every source together, or a paid channel. */
+export function hasAdSpend(source: string): boolean {
+  return source === 'all' || (source !== 'unattributed' && isPaidChannel(source));
+}
+
+export type FunnelStep = {
+  key: string;
+  label: string;
+  /** The row holding the stage's count. */
+  row: string;
+  /** The row holding the conversion from the step before; null on the first. */
+  conversion: string | null;
+};
+
+/**
+ * The funnel as the Comparison page draws it — Lead → MQL → Application → SQL
+ * → UW approved → Funded, whichever of those the tenant measures — each step
+ * naming the table rows it reads, so the chart is the table's figures.
+ */
+export function funnelSteps(mp: Pick<MonthlyPerformance, 'stages' | 'stageStatus' | 'valueStageKey'>): FunnelStep[] {
+  const approval = approvalStageKey(mp.stages);
+  const rowFor = (s: MonthlyPerformance['stages'][number]): string | null =>
+    s.source === 'leads'
+      ? 'leads'
+      : s.source === 'qualified_leads'
+        ? 'mql'
+        : s.key === 'application'
+          ? 'applications'
+          : s.key === 'sql'
+            ? 'sql'
+            : s.key === approval
+              ? 'approvals'
+              : s.key === mp.valueStageKey
+                ? 'funded_deals'
+                : null;
+  const steps: FunnelStep[] = [];
+  let prev: MonthlyPerformance['stages'][number] | null = null;
+  for (const s of mp.stages) {
+    if (mp.stageStatus[s.key]?.blocked) continue;
+    const row = rowFor(s);
+    if (!row) continue;
+    const conversion = !prev
+      ? null
+      : prev.source === 'leads' && s.source === 'qualified_leads'
+        ? 'mql_rate'
+        : `conv:${prev.key}:${s.key}`;
+    steps.push({ key: s.key, label: s.label, row, conversion });
+    prev = s;
+  }
+  return steps;
 }
 
 /** Two periods side by side: A against B. */

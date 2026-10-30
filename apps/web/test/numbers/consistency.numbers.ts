@@ -109,6 +109,14 @@ describe('the same figure on every screen', () => {
         const mp = await monthlyPerformance(t.session, a, 'last_touch');
         const v = mp.valueStageKey;
         const first = await comparisonReport(t.session, { a, b, source: 'all', model: 'last_touch' });
+        // "Funded by source" (30 October 2026): each source's bars are Monthly
+        // performance's funded deals and volume for that source.
+        for (const s of first.bySource) {
+          const pick = s.key === 'unattributed' ? mp.unattributed : mp.channels.find((c) => c.platform === s.key);
+          const deals = v ? ((pick?.stages as Record<string, number> | undefined)?.[v] ?? 0) : null;
+          if (!same(s.deals[0].value, deals)) problems.push(`${t.slug} ${a.start}–${a.end} by source ${s.key} funded deals: Comparison ${s.deals[0].value}, Monthly performance ${deals}`);
+          if (!same(s.volume[0].value, pick?.valueVolume ?? 0)) problems.push(`${t.slug} ${a.start}–${a.end} by source ${s.key} funded volume: Comparison ${s.volume[0].value}, Monthly performance ${pick?.valueVolume ?? 0}`);
+        }
         for (const { key: source } of first.sources) {
           const report = source === 'all' ? first : await comparisonReport(t.session, { a, b, source, model: 'last_touch' });
           const row = (k: string) => report.rows.find((r) => r.key === k)?.a.value ?? null;
@@ -121,6 +129,12 @@ describe('the same figure on every screen', () => {
             funded_deals: v ? (stagesOf[v] ?? 0) : null,
             funded_volume: pick.valueVolume,
           };
+          // The contract's volume: every source's but lead vendors', frozen
+          // month or not (a frozen month once dropped the ramp channel's).
+          if (source === 'all' && v) {
+            expected.funded_volume_contract =
+              mp.channels.filter((c) => !isVendorChannel(c.platform)).reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
+          }
           if (source === 'all' || (source !== 'unattributed' && isPaidChannel(source))) {
             const spend = source === 'all' ? mp.total.spend : (pick as { spend: number }).spend;
             expected.spend = spend;

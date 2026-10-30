@@ -43,6 +43,7 @@ export const DATASETS = [
   'seo',
   'organic',
   'comparison',
+  'comparison_sources',
 ] as const;
 export type Dataset = (typeof DATASETS)[number];
 
@@ -76,7 +77,7 @@ export function pageExports(page: ExportPage, platform: string | null, kind: str
     case 'funnel':
       return [{ dataset: 'leads' }, { dataset: 'deals' }, { dataset: 'lender_decisions' }, { dataset: 'calls' }];
     case 'comparison':
-      return [{ dataset: 'comparison' }];
+      return [{ dataset: 'comparison' }, { dataset: 'comparison_sources' }];
     case 'platform':
       if (!platform) return [];
       if (kind === 'seo') return [{ dataset: 'seo', platform }];
@@ -728,6 +729,28 @@ async function comparisonSheets(ctx: Ctx): Promise<XlsxSheet[]> {
   ];
 }
 
+/** Comparison's "Funded by source": each source's funded deals and volume in both periods. */
+async function comparisonSourceSheets(ctx: Ctx): Promise<XlsxSheet[]> {
+  const { filters, session } = ctx;
+  if (!filters.compare) return [];
+  const report = await comparisonReport(session, { a: filters.range, b: filters.compare, source: 'all', model: filters.model });
+  const a = `${filters.range.start} to ${filters.range.end}`;
+  const b = `${filters.compare.start} to ${filters.compare.end}`;
+  return [
+    {
+      name: 'Comparison · funded by source',
+      columns: [
+        { header: 'Source', type: 'text' },
+        { header: `Funded deals, A (${a})`, type: 'count' },
+        { header: `Funded deals, B (${b})`, type: 'count' },
+        { header: `Funded volume, A (${a})`, type: 'money' },
+        { header: `Funded volume, B (${b})`, type: 'money' },
+      ],
+      rows: report.bySource.map((s) => [s.label, s.deals[0].value, s.deals[1].value, s.volume[0].value, s.volume[1].value]),
+    },
+  ];
+}
+
 /* ------------------------------------------------------------------------- */
 
 export async function buildSheets(ctx: Ctx, spec: ExportSpec): Promise<XlsxSheet[]> {
@@ -755,6 +778,8 @@ export async function buildSheets(ctx: Ctx, spec: ExportSpec): Promise<XlsxSheet
       return platform ? organicSheets(ctx, platform) : [];
     case 'comparison':
       return comparisonSheets(ctx);
+    case 'comparison_sources':
+      return comparisonSourceSheets(ctx);
   }
 }
 

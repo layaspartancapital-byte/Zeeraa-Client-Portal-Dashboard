@@ -70,6 +70,15 @@ that window through `import-aloware-calls` would fill them.
 periods, one source, every KPI with change and % change. See
 `docs/brief-amendments.md`, "§12 — a Comparison page".
 
+**30 October 2026: Comparison redesigned; date fields reach today.**
+Cards, funnel, costs, by source, calls, and the table folded under "All
+metrics"; every date field on every page now reaches today (the start was
+capped at the applied end). A frozen month's lead-vendor-excluded volume
+dropped Google Ads' (September $97,600, now $153,500). Number checks 9/9
+against production; checked at 1440 and 390 on local data (layout only —
+local has no October sync). See `docs/brief-amendments.md`, "§12 —
+Comparison redesigned". Full mutation suite 78/78 killed.
+
 **30 October 2026: Salesforce-proven lead restatements.**
 `baseline_leads` (migration 0047) records which leads each frozen month's
 lead counts were made of; the deploy check passes a lead or MQL difference

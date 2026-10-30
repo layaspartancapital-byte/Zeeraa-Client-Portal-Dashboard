@@ -55,6 +55,12 @@ describe('Excel exports on every screen', () => {
     expect(code).toContain('<ExportEverything />');
     expect(code).toMatch(/extra: \{ bFrom: b\.range\.start, bTo: b\.range\.end \}/);
     expect(src('components/ComparisonTable.tsx')).toContain("<ExportButton datasets={['comparison']} />");
+    // Every card of the redesigned page (30 October 2026): the headline and
+    // call cards, the funnel, costs, by source, and the folded table.
+    const view = src('components/ComparisonView.tsx');
+    expect(view.match(/<ExportButton datasets=\{\['comparison'\]\} \/>/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(view).toContain("<ExportButton datasets={['comparison_sources']} />");
+    expect(src('lib/exports.ts')).toContain("return [{ dataset: 'comparison' }, { dataset: 'comparison_sources' }];");
   });
 
   it('decides contact columns on the server, by role, never from the URL', () => {

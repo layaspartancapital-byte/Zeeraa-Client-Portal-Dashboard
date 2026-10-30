@@ -4149,3 +4149,40 @@ freeze — the third time a merge had blocked a deploy.
 - **Months frozen before 0047** (June–September) are recorded once with
   `record-baseline-leads`, which refuses unless every frozen lead count equals
   the count now.
+
+## §12 — Comparison redesigned; its date fields reach today (30 October 2026)
+
+Client decision. Comparison is laid out as Monthly performance is
+(`components/ComparisonView.tsx`), every figure still a row of
+`lib/comparison-rows.ts`:
+
+- **Headline cards**: ad spend, leads, approvals, funded deals, funded
+  volume, cost per acquisition, cost per funded deal — Period A large,
+  Period B beneath, the change and % change with its arrow and the colour
+  the metric's formula gives it, "based on N" under a cost, the contract's
+  target where one applies (a calendar month; funded volume's is on the
+  lead-vendor-excluded measure, stated beside it). Each card's mini chart is
+  A and B as two bars on one scale. A source with no ad spend draws no spend
+  or cost card and no cost chart.
+- **Funnel, side by side** (Lead → MQL → Application → SQL → UW approved →
+  Funded, as horizontal paired bars) with each conversion for both periods.
+  A pair the funnel draws across a stage it does not (UW approved → Funded,
+  past Offer) gets its own conversion row, measured as every other.
+- **Cost comparison** (per lead, MQL, acquisition, funded deal) and **Funded
+  by source** (deals and volume per source, each read as the table reads
+  that source; its own export sheet, `comparison_sources`).
+- **Calls**: median speed to lead and called within 5 minutes, All sources
+  only — calls are not split by source.
+- **All metrics**: the full table, folded at the bottom.
+
+The number check holds each source's bars and the contract volume to
+Monthly performance. It found that a frozen month's lead-vendor-excluded
+volume summed frozen channel figures alone and so dropped the ramp
+channel's, frozen under the ramp's name: September read $97,600 for
+$153,500. It now reads each source frozen where it was frozen and live
+where it was not, as every other frozen read does.
+
+**The date fields** (`DateFields`, every page's picker): the start's
+ceiling was the applied end, so a page opened on September could not pick
+October at all. Both fields now stop at today, and a start picked after the
+end carries the end with it.
