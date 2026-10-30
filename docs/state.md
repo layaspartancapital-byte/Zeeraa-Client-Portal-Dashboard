@@ -4,7 +4,33 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 13 October 2026 (ⓘ bubbles render in a portal, so a table's scroll container no longer clips them; deployed).**
+**Last updated: 30 October 2026 (Neon back on Launch; transfer cut, All sources card; deploying).**
+
+**30 October 2026: Neon outage and network transfer.** The Free plan refused
+every connection from 26 October ~15:40 UTC to 30 October ~13:50 UTC: October's
+*network transfer* hit 5.51 GB of 5 GB (compute was 59 CU-hours, not the
+limit). The project is on Launch. Catch-up: a "Sync now" at 13:53 UTC read
+every source; the 14:00 crons (Salesforce ten-minute, ad platforms hourly)
+succeeded. The ten-minute Salesforce schedule stays; the hourly-everything
+draft of 29 October was discarded. Calls whose webhooks failed during the
+outage are lost unless Aloware retried — an export for 26–30 October through
+`import-aloware-calls` would fill them. What changed to cut transfer is in
+`docs/brief-amendments.md`, "Neon network transfer"; cold loads are about a
+third of before and a call no longer resets the cache.
+
+**30 October 2026: the frozen June–August channel figures were corrected**
+(16 lead and MQL counts, v3–v6): Spartan merged duplicate leads in Salesforce
+after the 13 October freeze. The `backfill-lead-channel` dry run reproduced the
+new figures exactly. No ramp figure changed. **Next:** the user asked for the
+deploy check to freeze such corrections itself when Salesforce history proves
+a merge or source edit, and block only on unexplained or ramp differences.
+
+**30 October 2026: Executive's "All sources" card** (blended, client decision)
+and whole dollars on the scorecard's verdict. See `docs/brief-amendments.md`.
+
+**Queued, not started:** funded targets onto All sources (all sources except
+lead vendors; Google keeps CPA, cost per funded deal and spend); a Comparison
+page; Excel export (field report given, build awaits a go-ahead).
 
 **13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
 fixed against the icon, kept inside the viewport and flipped below when there

@@ -1,4 +1,5 @@
 import { and, eq, isNotNull, notExists, sql } from 'drizzle-orm';
+import { affectedRows } from '../affected-rows';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { schema, type Database } from '@zeeraa/db';
 import { landingParameterFor, type LandingParameter } from '@zeeraa/core';
@@ -74,8 +75,7 @@ export async function resolveMetaAdNames(
       .onConflictDoUpdate({
         target: [schema.platformAds.tenantId, schema.platformAds.platform, schema.platformAds.externalId],
         set: { name: sql`excluded.name`, fetchedAt: sql`now()` },
-      })
-      .returning({ id: schema.platformAds.externalId });
-    return written.length;
+      });
+    return affectedRows(written);
   });
 }

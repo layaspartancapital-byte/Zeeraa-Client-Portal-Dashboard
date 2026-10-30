@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, gte, isNotNull, lte, sql } from 'drizzle-orm';
 import { leadChannel, leadsCreatedIn, schema, stageEventsIn } from '@zeeraa/db';
 import {
   addDays,
@@ -24,7 +24,7 @@ import {
 } from '@zeeraa/core';
 import { queryTenant, type TenantSession } from '@/lib/tenant';
 import { platformLabel, type StageCounts } from '@/lib/reporting';
-import { sourcesThrough } from '@/lib/coverage';
+import { sourcesThrough, type SourcesThrough } from '@/lib/coverage';
 import {
   NO_REASON_BUCKET,
   declineReasonSummary,
@@ -405,95 +405,119 @@ export type Granularity = 'month' | 'week' | 'day';
  * measures, per population, so anything computed downstream can keep both
  * halves inside one channel.
  */
+/**
+ * A connection row without its encrypted credentials: no screen reads them,
+ * and they were most of the row's bytes on the wire (30 October 2026).
+ */
+const { credentialsEncrypted: _credentials, ...connectionColumns } = getTableColumns(schema.connections);
+
+/** `values` as a typed Postgres array literal of parameters. */
+function textArrayOf(values: readonly (string | null)[]) {
+  return sql`array[${sql.join(
+    values.map((v) => sql`${v}::text`),
+    sql`, `,
+  )}]::text[]`;
+}
+
 export async function windowBuckets(
   session: TenantSession,
   range: DateRange,
   granularity: Granularity,
   model: AttributionModel = 'last_touch',
+  /** `sourcesThrough(session)`, when the caller has it already. */
+  given?: SourcesThrough,
 ): Promise<WindowBucket[]> {
   const spans: DayBucket[] =
     granularity === 'month'
       ? monthBucketsIn(range)
       : evenBucketsIn(range, granularity === 'week' ? 7 : 1);
 
-  const through = await sourcesThrough(session);
+  const through = given ?? (await sourcesThrough(session));
   const crmThrough = through.byPlatform.salesforce ?? null;
 
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
 
-    const [stages, spendRows, stageRows, leadRows, firstDaily, firstStage, firstLead] =
-      await Promise.all([
-      tx
-        .select()
-        .from(schema.funnelStages)
-        .where(eq(schema.funnelStages.tenantId, tenantId))
-        .orderBy(asc(schema.funnelStages.position)),
+    /*
+     * Everything below is counted per bucket in the database (30 October
+     * 2026). It read one row per day, stage, deal and channel, and per day of
+     * leads and spend, and folded them into buckets here — on Executive, the
+     * largest share of what every page load pulled from Neon. The buckets go
+     * in as arrays; what comes back is one row per bucket and population.
+     */
+    const bucketTable = sql`unnest(${textArrayOf(spans.map((s) => s.key))}, ${textArrayOf(
+      spans.map((s) => s.start),
+    )}::date[], ${textArrayOf(spans.map((s) => s.end))}::date[]) as b(key, start_on, end_on)`;
 
-      tx
-        .select({
-          day: schema.dailyMetrics.date,
-          platform: schema.dailyMetrics.platform,
-          spend: sql<string>`coalesce(sum(${schema.dailyMetrics.spend}), 0)`,
-          clicks: sql<string>`coalesce(sum(${schema.dailyMetrics.clicks}), 0)`,
-          impressions: sql<string>`coalesce(sum(${schema.dailyMetrics.impressions}), 0)`,
-        })
-        .from(schema.dailyMetrics)
-        .where(
-          and(
-            eq(schema.dailyMetrics.tenantId, tenantId),
-            gte(schema.dailyMetrics.date, range.start),
-            lte(schema.dailyMetrics.date, range.end),
-          ),
-        )
-        .groupBy(schema.dailyMetrics.date, schema.dailyMetrics.platform),
+    const stages = await tx
+      .select()
+      .from(schema.funnelStages)
+      .where(eq(schema.funnelStages.tenantId, tenantId))
+      .orderBy(asc(schema.funnelStages.position));
+    const valueStageKey = stages.find((s) => s.countsValue)?.key ?? null;
+    // A lead-grain stage (MQL) is counted from `leads` below, as
+    // `monthlyPerformance` counts it. Its stage events are the subset that
+    // became deals, and adding them too counted those MQLs twice — found by
+    // the cross-screen number check, 24 September 2026.
+    const leadGrainStages = stages
+      .filter((s) => s.source === 'leads' || s.source === 'qualified_leads')
+      .map((s) => ({ key: s.key, qualifiedOnly: s.source === 'qualified_leads' }));
+    const leadGrainKeys = leadGrainStages.map((s) => s.key);
 
-      // One row per (day, stage, opportunity, channel). Distinct because a
-      // stage recurs: a deal that funds twice in a bucket is one deal.
-      tx
-        .selectDistinct({
-          day: sql<string>`to_char(${schema.stageEvents.occurredOn}, 'YYYY-MM-DD')`,
-          stage: schema.stageEvents.stage,
-          opportunityExternalId: schema.stageEvents.opportunityExternalId,
-          platform: schema.attribution.platform,
-        })
-        .from(schema.stageEvents)
-        .leftJoin(
-          schema.attribution,
-          and(
-            eq(schema.attribution.tenantId, schema.stageEvents.tenantId),
-            eq(
-              schema.attribution.opportunityExternalId,
-              schema.stageEvents.opportunityExternalId,
-            ),
-            eq(schema.attribution.model, model),
-          ),
+    const se = schema.stageEvents;
+    const at = schema.attribution;
+    const opp = schema.opportunities;
+    const dm = schema.dailyMetrics;
+    const ld = schema.leads;
+
+    const [spendRows, stageRows, leadRows, firstDaily, firstStage, firstLead] = await Promise.all([
+      tx.execute<{ key: string; platform: string; spend: string; clicks: string; impressions: string }>(sql`
+        select b.key, ${dm.platform} as platform,
+          coalesce(sum(${dm.spend}), 0) as spend,
+          coalesce(sum(${dm.clicks}), 0) as clicks,
+          coalesce(sum(${dm.impressions}), 0) as impressions
+        from ${bucketTable}
+        join ${dm} on ${dm.tenantId} = ${tenantId}
+          and ${dm.date} between b.start_on and b.end_on
+          and ${dm.date} between ${range.start} and ${range.end}
+        group by 1, 2`),
+
+      /*
+       * One deal counted once per stage per bucket, and one amount per deal
+       * reaching the value stage in it. Distinct on (bucket, stage, deal,
+       * channel): a deal reaching a stage on two days inside one bucket is one
+       * deal — declines were 555 over a window in which only 554 deals have
+       * ever been declined, which is how that was found. A deal has one
+       * attribution per model (`attribution_upsert_key`), so it has one channel.
+       */
+      tx.execute<{ key: string; stage: string; platform: string | null; deals: number; volume: string | null }>(sql`
+        with x as (
+          select distinct b.key, ${se.stage} as stage, ${se.opportunityExternalId} as id, ${at.platform} as platform
+          from ${bucketTable}
+          join ${se} on ${se.tenantId} = ${tenantId}
+            and ${se.occurredOn} between b.start_on and b.end_on
+            and ${stageEventsIn(range)}
+          left join ${at} on ${at.tenantId} = ${se.tenantId}
+            and ${at.opportunityExternalId} = ${se.opportunityExternalId}
+            and ${at.model} = ${model}
+          where ${leadGrainKeys.length === 0 ? sql`true` : sql`${se.stage} <> all(${textArrayOf(leadGrainKeys)})`}
         )
-        .where(
-          and(
-            eq(schema.stageEvents.tenantId, tenantId),
-            stageEventsIn(range),
-          ),
-        ),
+        select x.key, x.stage, x.platform, count(*)::int as deals,
+          sum(coalesce(${opp.fundedAmount}, ${opp.amount}, 0)) filter (where x.stage = ${valueStageKey}) as volume
+        from x
+        left join ${opp} on ${opp.tenantId} = ${tenantId} and ${opp.externalId} = x.id
+        group by 1, 2, 3`),
 
       // The verdict is part of the grouping because a lead-grain stage may be
       // the whole population (`leads`) or the part of it that passes the bar
       // (`qualified_leads`), and both are counted from these rows.
-      tx
-        .select({
-          day: sql<string>`to_char(${schema.leads.createdOn}, 'YYYY-MM-DD')`,
-          clickIdType: leadChannel(),
-          verdict: schema.leads.mqlVerdict,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(schema.leads)
-        .where(
-          and(
-            eq(schema.leads.tenantId, tenantId),
-            leadsCreatedIn(range),
-          ),
-        )
-        .groupBy(sql`1`, leadChannel(), schema.leads.mqlVerdict),
+      tx.execute<{ key: string; channel: string | null; verdict: string | null; count: number }>(sql`
+        select b.key, ${leadChannel()} as channel, ${ld.mqlVerdict} as verdict, count(*)::int as count
+        from ${bucketTable}
+        join ${ld} on ${ld.tenantId} = ${tenantId}
+          and ${ld.createdOn} between b.start_on and b.end_on
+          and ${leadsCreatedIn(range)}
+        group by 1, 2, 3`),
 
       tx
         .select({ day: sql<string | null>`min(${schema.dailyMetrics.date})::text` })
@@ -515,42 +539,6 @@ export async function windowBuckets(
         .where(eq(schema.leads.tenantId, tenantId)),
     ]);
 
-    /**
-     * Funded amount per opportunity, for the value-volume series.
-     *
-     * A second round trip rather than a join on the stage query: the stage
-     * query is already distinct across four columns, and adding a numeric to
-     * it would make a deal that funds twice in a bucket contribute its amount
-     * twice.
-     */
-    const valueStageKey = stages.find((s) => s.countsValue)?.key ?? null;
-    const valueIds = valueStageKey
-      ? [
-          ...new Set(
-            stageRows.filter((r) => r.stage === valueStageKey).map((r) => r.opportunityExternalId),
-          ),
-        ]
-      : [];
-    const amounts = new Map<string, number>();
-    if (valueIds.length > 0) {
-      const rows = await tx
-        .select({
-          externalId: schema.opportunities.externalId,
-          fundedAmount: schema.opportunities.fundedAmount,
-          amount: schema.opportunities.amount,
-        })
-        .from(schema.opportunities)
-        .where(
-          and(
-            eq(schema.opportunities.tenantId, tenantId),
-            inArray(schema.opportunities.externalId, valueIds),
-          ),
-        );
-      for (const row of rows) {
-        amounts.set(row.externalId, Number(row.fundedAmount ?? row.amount ?? 0));
-      }
-    }
-
     // The first day each source covers, across all time. Everything before it
     // is absent from the record rather than zero in it. Per platform where the
     // ledger knows; the earliest spend row otherwise.
@@ -570,10 +558,6 @@ export async function windowBuckets(
       [firstStage[0]?.day, firstLead[0]?.day].filter((d): d is string => Boolean(d)).sort()[0] ??
       null;
 
-    const leadGrainStages = stages
-      .filter((s) => s.source === 'leads' || s.source === 'qualified_leads')
-      .map((s) => ({ key: s.key, qualifiedOnly: s.source === 'qualified_leads' }));
-    const leadGrainKeys = new Set(leadGrainStages.map((s) => s.key));
     const settledBefore = addDays(range.end, -6);
 
     return spans.map((span) => {
@@ -612,10 +596,8 @@ export async function windowBuckets(
         valueVolume: 0,
         valueVolumeByPlatform: {},
       };
-      const counted = new Set<string>();
-
       for (const row of spendRows) {
-        if (row.day < span.start || row.day > span.end) continue;
+        if (row.key !== span.key) continue;
         const spend = Number(row.spend);
         bucket.spend += spend;
         bucket.clicks += Number(row.clicks);
@@ -624,43 +606,18 @@ export async function windowBuckets(
           (bucket.spendByPlatform[row.platform] ?? 0) + spend;
       }
 
-      /*
-       * One deal counted once per stage per bucket.
-       *
-       * The rows are distinct on (day, stage, opportunity, platform), so a
-       * deal that reaches a stage on two days inside one bucket arrives twice
-       * — and a stage that recurs by nature makes that common rather than
-       * exotic. Declines were 555 over a window in which only 554 deals have
-       * ever been declined, which is the tell: the figure was counting
-       * deal-days under a label that says deals.
-       */
-      const seenInBucket = new Set<string>();
-
       for (const row of stageRows) {
-        if (row.day < span.start || row.day > span.end) continue;
-        // A lead-grain stage (MQL) is counted from `leads` below, as
-        // `monthlyPerformance` counts it. Its stage events are the subset that
-        // became deals, and adding them too counted those MQLs twice — found by
-        // the cross-screen number check, 24 September 2026.
-        if (leadGrainKeys.has(row.stage)) continue;
-        const key = `${row.stage}\u0000${row.opportunityExternalId}`;
-        if (seenInBucket.has(key)) continue;
-        seenInBucket.add(key);
-
-        bucket.stages[row.stage] = (bucket.stages[row.stage] ?? 0) + 1;
+        if (row.key !== span.key) continue;
+        const deals = Number(row.deals);
+        bucket.stages[row.stage] = (bucket.stages[row.stage] ?? 0) + deals;
         if (row.platform) {
           const counts = (bucket.stagesByPlatform[row.platform] ??= {});
-          counts[row.stage] = (counts[row.stage] ?? 0) + 1;
+          counts[row.stage] = (counts[row.stage] ?? 0) + deals;
         } else {
-          bucket.unattributedStages[row.stage] =
-            (bucket.unattributedStages[row.stage] ?? 0) + 1;
+          bucket.unattributedStages[row.stage] = (bucket.unattributedStages[row.stage] ?? 0) + deals;
         }
-
-        // One deal, one amount, however many times it reached the stage in the
-        // bucket.
-        if (row.stage === valueStageKey && !counted.has(row.opportunityExternalId)) {
-          counted.add(row.opportunityExternalId);
-          const amount = amounts.get(row.opportunityExternalId) ?? 0;
+        if (row.stage === valueStageKey) {
+          const amount = Number(row.volume ?? 0);
           bucket.valueVolume += amount;
           if (row.platform) {
             bucket.valueVolumeByPlatform[row.platform] =
@@ -672,13 +629,13 @@ export async function windowBuckets(
       // Lead-grain stages are counted from `leads`, because a lead that never
       // became an opportunity has no opportunity to attribute through.
       for (const row of leadRows) {
-        if (row.day < span.start || row.day > span.end) continue;
+        if (row.key !== span.key) continue;
         const count = Number(row.count);
         for (const { key, qualifiedOnly } of leadGrainStages) {
           if (qualifiedOnly && row.verdict !== 'qualified') continue;
           bucket.stages[key] = (bucket.stages[key] ?? 0) + count;
-          if (row.clickIdType) {
-            const counts = (bucket.stagesByPlatform[row.clickIdType] ??= {});
+          if (row.channel) {
+            const counts = (bucket.stagesByPlatform[row.channel] ??= {});
             counts[key] = (counts[key] ?? 0) + count;
           } else {
             bucket.unattributedStages[key] = (bucket.unattributedStages[key] ?? 0) + count;
@@ -742,7 +699,7 @@ export async function dataQuality(session: TenantSession): Promise<DataQualityIt
     ),
     queryTenant(session, (tx) =>
       tx
-        .select()
+        .select(connectionColumns)
         .from(schema.connections)
         .where(eq(schema.connections.tenantId, session.tenant.id))
         .orderBy(asc(schema.connections.platform)),
@@ -1025,7 +982,10 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
   return queryTenant(session, async (tx) => {
     const [connections, runs] = await Promise.all([
       tx
-        .select()
+        .select({
+          ...connectionColumns,
+          authorized: sql<boolean>`${schema.connections.credentialsEncrypted} is not null`,
+        })
         .from(schema.connections)
         .where(eq(schema.connections.tenantId, session.tenant.id))
         .orderBy(asc(schema.connections.platform)),
@@ -1087,7 +1047,7 @@ export async function connectionHealth(session: TenantSession): Promise<Connecti
         rowsWritten: run ? Number(run.rowsWritten) : null,
         detail: row.blockedReason ?? row.lastError ?? reasons.get(row.platform) ?? null,
         since: row.blockedSince ?? null,
-        authorized: row.credentialsEncrypted !== null,
+        authorized: row.authorized,
         grantEndsAt: (row.config as { refreshTokenExpiresAt?: string | null } | null)?.refreshTokenExpiresAt ?? null,
       };
     });

@@ -3851,3 +3851,58 @@ read of every lead since June.
 
 A "Paid ads (platform unknown)" source for `100A00` was built the same day and
 withdrawn before it shipped, once the tag's origin was confirmed.
+
+## §12 — Executive's "All sources" card, blended (30 October 2026)
+
+Client decision. Beside "Google Ads vs target", for the picked period, one card
+laid out as the scorecard is: total funded deals from every source, attributed
+or not; total ad spend across every ad platform (Google Ads, Meta, LinkedIn,
+Microsoft when connected), stated as ad spend only and excluding lead vendor
+costs; blended cost per funded deal (that spend over every funded deal, "Based
+on N deals"); and blended CPA (that spend over every approval, "Based on N
+approvals"). No target line — the targets are Google Ads'.
+
+This departs from "No total mixes them" and from core's note that a blended
+cost per deal "needs every channel ingested before it means anything". The
+client asked for the figure knowing its denominator takes in deals no ad paid
+for, so it is labelled blended in the title and on every cost, and its ⓘ says
+it is not any one channel's cost. It is `blendedCostPer` in core, read from the
+same `monthlyPerformance` result as All funded and the Efficiency table
+(`lib/all-sources.ts`), and the cross-screen number check holds it to every
+other source's channels summed: spend, deals, approvals and both costs.
+
+The scorecard's "Behind by" verdict prints whole dollars, as the target beside
+it does: it rounded and then formatted with cents ("$253.00").
+
+## Neon network transfer: reports total in the database (30 October 2026)
+
+Neon's Free plan refused every connection from 26 to 30 October 2026: October's
+**network transfer** reached 5.51 GB of the 5 GB allowance (compute was 59 of
+100 CU-hours — the hourly-sync change drafted on 29 October assumed compute and
+was discarded). The project is on Launch now. What sent the bytes, measured
+through a byte-counting proxy on the local database, and what changed:
+
+- **Reports fetched rows and counted them in JavaScript.** A cold Executive load
+  read 0.71 MB, Performance 1.16 MB, Funnel 0.80 MB. `monthlyPerformance`
+  read every (stage, deal) pair ever reached and every deal's last decline on
+  each of its calls, and every lead in the range one by one; `windowBuckets`
+  one row per day, stage, deal and channel. Now the progression counts and the
+  bucket totals are computed in SQL, the cohort leads come grouped with a
+  count, and deal ids travel joined per (stage, channel). Before and after
+  were diffed on local data (36,638 values) and on production (50,740): no
+  difference. A cold load is now 0.22 / 0.27 / 0.28 MB.
+- **The cache reset on every call.** The data version included the newest
+  webhook delivery, so through the desk's hours a call every few minutes made
+  almost every page load a miss. Only the reports that read calls key on it now
+  (`'calls'` in `cached-reports.ts`, held by `report-cache-scope.test.ts`);
+  `windowBuckets` keys on the `sourcesThrough` result instead, which moves once
+  a day. The stage membership every `monthlyPerformance` needs is read once
+  per data version, not per call. Platform pages, Connections, Admin and the
+  CSV export now read through the cache too.
+- **The logo travelled with every miss** (43 KB as a data URL). It is keyed on
+  an md5 of the images, read in 32 bytes.
+- **Syncs echoed every row back.** Search Console (≈16,800 rows an hour), GA4,
+  Google Ads metrics and clicks, Salesforce and Meta ad names upserted with
+  `RETURNING id` only to count the rows — about 0.8 GB a month. They count from
+  the command tag (`affectedRows`).
+- Connection rows are read without their encrypted credentials.

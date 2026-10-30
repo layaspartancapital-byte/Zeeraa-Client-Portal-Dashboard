@@ -28,7 +28,6 @@ import {
   coverageFor,
   isUnmeasured,
   notMeasuredReason,
-  sourcesThrough,
   throughNote,
   dailyPoints,
 } from '@/lib/coverage';
@@ -38,11 +37,8 @@ import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
 import { AreaSeries } from '@/components/charts/AreaSeries';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
-import { platformView } from '@/lib/platform';
-import { organicView } from '@/lib/organic';
 import { OrganicPlatformView } from '@/components/platform/OrganicPlatformView';
 import { SeoPlatformView } from '@/components/platform/SeoPlatformView';
-import { seoView } from '@/lib/cached-reports';
 import { isSeoList, seoListPage, type SeoListKey, type SeoListRows } from '@/lib/seo-lists';
 import { FundedDealsCard } from '@/components/platform/FundedDealsCard';
 import { integratingPlatforms, reportingPlatforms } from '@/lib/platforms';
@@ -50,7 +46,7 @@ import { IntegratingPlatformView } from '@/components/platform/IntegratingPlatfo
 import { campaignTypeLabel, VOCABULARY } from '@/lib/platform-labels';
 import { platformLabel } from '@/lib/reporting';
 import { queryTenant, requireTenant } from '@/lib/tenant';
-import { loadMetrics } from '@/lib/dashboard';
+import { loadMetrics, organicView, platformView, seoView, sourcesThrough } from '@/lib/cached-reports';
 
 
 

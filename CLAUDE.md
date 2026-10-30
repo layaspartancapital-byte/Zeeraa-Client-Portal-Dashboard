@@ -201,9 +201,11 @@ commit history and get it wrong.
 - **A dashboard page reads reports through `@/lib/cached-reports`**, never
   straight from `reporting`/`dashboard`. `report-cache.ts` keys each result by
   tenant, role, the tenant's local day, the arguments and the tenant's **data
-  version** (the newest sync, webhook delivery, config row, freeze or
-  reconciliation), so a finished sync changes every key on every instance and
-  the ten-minute refresh always shows the latest data. A hit is a
+  version** (the newest sync, config row, freeze or reconciliation), so a
+  finished sync changes every key on every instance and the ten-minute refresh
+  always shows the latest data. **Only a report that reads calls keys on the
+  newest webhook delivery** — declare it `'calls'`; `report-cache-scope.test.ts`
+  fails otherwise — or a call every few minutes recomputes every report. A hit is a
   `structuredClone`; a result carrying functions is cached as its rows and
   rebuilt (`loadMetrics`). `REPORT_CACHE=off` turns it off. The number checks
   call the originals. A section that waits on a slow report streams in its own
@@ -378,8 +380,14 @@ assumes they are comparable.
   spend, so their cost cells are an em dash with `noSpendReason`, never $0.
 - **No total mixes them.** A totals row sums what is summable — spend across
   channels, deals across every source — and renders nothing where the sum would
-  be a category error. Blended cost per deal is one of those until every channel
-  is ingested.
+  be a category error. Blended cost per deal is one of those in a table. The
+  one exception is Executive's "All sources" card (30 October 2026, client
+  decision): blended cost per funded deal and blended CPA, `blendedCostPer` in
+  core, labelled blended on every figure and never in a channel's row.
+- **Reports total in the database.** A report reads counts and sums, not one
+  row per lead or deal to count in JavaScript: Neon meters network transfer,
+  and that is what used up October 2026's allowance. A write counts its rows
+  with `affectedRows`, never `RETURNING id` to take the length.
 - **A cost-per-deal figure carries its coverage as part of the metric** — one
   small line under the number ("Based on 3 deals"), with a one-sentence ⓘ. The
   plausible range was dropped on 24 September 2026 as analyst detail. A bare

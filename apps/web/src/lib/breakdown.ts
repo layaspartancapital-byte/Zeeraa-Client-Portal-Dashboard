@@ -88,8 +88,17 @@ export async function breakdownRows(
         from ${schema.stageEvents}
         -- A deal with no originating lead is still a deal: it lands in "Not
         -- recorded" rather than dropping out, so the rows sum to the funnel.
-        left join ${schema.leads} on ${schema.leads.tenantId} = ${schema.stageEvents.tenantId}
-          and ${schema.leads.convertedOpportunityId} = ${schema.stageEvents.opportunityExternalId}
+        -- One lead per deal, the earliest counted one, as attribution takes a
+        -- deal's source: Salesforce can convert a second lead into an existing
+        -- opportunity, and joining both counted that deal under each lead's
+        -- campaign (647 applications against the funnel's 646, 30 October 2026).
+        left join lateral (
+          select * from ${schema.leads} l1
+          where l1.tenant_id = ${schema.stageEvents.tenantId}
+            and l1.converted_opportunity_id = ${schema.stageEvents.opportunityExternalId}
+          order by l1.excluded_reason is not null, l1.created_at
+          limit 1
+        ) as leads on true
         ${campaignJoin}
         where ${and(eq(schema.stageEvents.tenantId, session.tenant.id), stageEventsIn(range))}
         group by 1, 2`),

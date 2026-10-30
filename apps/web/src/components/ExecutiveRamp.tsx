@@ -100,7 +100,7 @@ function ScoreCell({
               ? `Target from ${monthName(row.upcoming.month)}: ${renderTarget(row.upcoming.value)}`
               : 'No target this month'}
         </p>
-        <Verdict row={row} render={render} />
+        <Verdict row={row} render={render} renderWhole={renderTarget} />
       </dd>
     </div>
   );
@@ -110,11 +110,20 @@ function ScoreCell({
  * On target, or behind by how much — with an arrow for which side of the
  * target the figure is, so the verdict is never colour alone.
  */
-function Verdict({ row, render }: { row: ScorecardRow; render: (v: number) => string }) {
+function Verdict({
+  row,
+  render,
+  renderWhole,
+}: {
+  row: ScorecardRow;
+  render: (v: number) => string;
+  /** The target's renderer: whole dollars for money, `render` otherwise. */
+  renderWhole: (v: number) => string;
+}) {
   const { verdict } = row;
-  const money = row.format.kind === 'currency';
-  // Whole dollars: "$412.68 behind" is precision a monthly target does not have.
-  const amount = (v: number) => render(money ? Math.round(v) : v);
+  // Whole dollars: "$412.68 behind" is precision a monthly target does not
+  // have. Rounding before `render` was not enough — it still printed "$253.00".
+  const amount = (v: number) => (row.format.kind === 'currency' ? renderWhole(v) : render(v));
 
   switch (verdict.state) {
     case 'no_target':

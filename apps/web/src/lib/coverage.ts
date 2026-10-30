@@ -95,13 +95,21 @@ export async function sourcesThrough(session: TenantSession): Promise<SourcesThr
         .selectDistinct({ platform: schema.dailyMetrics.platform })
         .from(schema.dailyMetrics)
         .where(eq(schema.dailyMetrics.tenantId, tenantId)),
-      tx
-        .select({
-          platform: schema.syncDays.platform,
-          day: sql<string>`to_char(${schema.syncDays.day}, 'YYYY-MM-DD')`,
-        })
-        .from(schema.syncDays)
-        .where(eq(schema.syncDays.tenantId, tenantId)),
+      // Per platform: the first and last day read, and the days between them
+      // never read — worked out here rather than shipping every ledger row
+      // to find the gaps (30 October 2026).
+      tx.execute<{ platform: string; first: string; last: string; unread: string | null }>(sql`
+        with d as (
+          select ${schema.syncDays.platform} as platform, ${schema.syncDays.day} as day
+          from ${schema.syncDays}
+          where ${schema.syncDays.tenantId} = ${tenantId}
+        ),
+        b as (select platform, min(day) as first, max(day) as last from d group by 1)
+        select b.platform, to_char(b.first, 'YYYY-MM-DD') as first, to_char(b.last, 'YYYY-MM-DD') as last,
+          (select string_agg(to_char(g::date, 'YYYY-MM-DD'), ',' order by g)
+             from generate_series(b.first, b.last, interval '1 day') g
+             where not exists (select 1 from d where d.platform = b.platform and d.day = g::date)) as unread
+        from b`),
     ]);
 
     // `max()` over a timestamptz arrives as text; coerce before `tenantDay`.
@@ -122,19 +130,11 @@ export async function sourcesThrough(session: TenantSession): Promise<SourcesThr
     // keeps the rule above, so the change cannot blank a screen on deploy.
     const unread: Record<string, string[]> = {};
     const from: Record<string, string | null> = {};
-    const readDays = new Map<string, Set<string>>();
     for (const row of ledger) {
       if (!LEDGERED.includes(row.platform)) continue;
-      const set = readDays.get(row.platform) ?? readDays.set(row.platform, new Set()).get(row.platform)!;
-      set.add(row.day);
-    }
-    for (const [platform, days] of readDays) {
-      const sorted = [...days].sort();
-      const first = sorted[0]!;
-      const last = sorted.at(-1)!;
-      from[platform] = first;
-      byPlatform[platform] = last;
-      unread[platform] = eachDay({ start: first, end: last }).filter((d) => !days.has(d));
+      from[row.platform] = row.first;
+      byPlatform[row.platform] = row.last;
+      unread[row.platform] = row.unread ? row.unread.split(',') : [];
     }
 
     const connected = new Set(

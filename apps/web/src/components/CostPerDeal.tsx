@@ -14,9 +14,13 @@ import { InfoTip } from '@/components/ui/InfoTip';
  * line is how a reader tells a figure over two deals from one over twenty.
  * The plausible range it used to add was analyst detail and is gone.
  */
-export function coverageLine(cost: ChannelCostPerDeal, _currency?: string): string {
+export function coverageLine(
+  cost: ChannelCostPerDeal,
+  _currency?: string,
+  noun: readonly [string, string] = ['deal', 'deals'],
+): string {
   const n = cost.attributedDeals;
-  return `Based on ${formatCount(n)} ${n === 1 ? 'deal' : 'deals'}`;
+  return `Based on ${formatCount(n)} ${n === 1 ? noun[0] : noun[1]}`;
 }
 
 /** The one-sentence ⓘ behind a cost per deal. */
@@ -36,18 +40,24 @@ export function CostPerDealCoverage({
   cost,
   currency,
   channelLabel,
+  explanation,
+  noun,
   className = '',
 }: {
   cost: ChannelCostPerDeal;
   currency: string;
   channelLabel: string;
+  /** Replaces the channel sentence in the ⓘ — a blended cost is not one channel's. */
+  explanation?: string;
+  /** What the figure is per, singular and plural: deals unless said otherwise. */
+  noun?: readonly [string, string];
   className?: string;
 }) {
   return (
     <p className={`flex flex-wrap items-center gap-1.5 text-[13px] text-text-2 tabular ${className}`}>
-      {coverageLine(cost, currency)}
-      <InfoTip label="How this cost per deal is worked out" align="start">
-        {coverageExplanation(cost, currency, channelLabel)}
+      {coverageLine(cost, currency, noun)}
+      <InfoTip label={`How this cost per ${noun?.[0] ?? 'deal'} is worked out`} align="start">
+        {explanation ?? coverageExplanation(cost, currency, channelLabel)}
       </InfoTip>
     </p>
   );
@@ -64,12 +74,16 @@ export function CostPerDealFigure({
   cost,
   currency,
   channelLabel,
+  explanation,
+  noun,
   size = 'kpi',
   className = '',
 }: {
   cost: ChannelCostPerDeal;
   currency: string;
   channelLabel: string;
+  explanation?: string;
+  noun?: readonly [string, string];
   size?: 'kpi' | 'hero';
   className?: string;
 }) {
@@ -78,7 +92,7 @@ export function CostPerDealFigure({
   if (cost.value === null || cost.attributedDeals === 0) {
     return (
       <div className={className}>
-        <p className="py-1.5 text-[15px] font-medium text-text-3">No deals yet</p>
+        <p className="py-1.5 text-[15px] font-medium text-text-3">No {noun?.[1] ?? 'deals'} yet</p>
         <p className="mt-1 text-[13px] tabular text-text-2">
           {formatCurrency(cost.channelSpend, currency)} of {channelLabel} spend so far
         </p>
@@ -91,7 +105,14 @@ export function CostPerDealFigure({
       <p className={`font-semibold leading-[1.1] tabular text-text ${figure}`}>
         {formatCurrency(cost.value, currency)}
       </p>
-      <CostPerDealCoverage cost={cost} currency={currency} channelLabel={channelLabel} className="mt-1" />
+      <CostPerDealCoverage
+        cost={cost}
+        currency={currency}
+        channelLabel={channelLabel}
+        explanation={explanation}
+        noun={noun}
+        className="mt-1"
+      />
     </div>
   );
 }

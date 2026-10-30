@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { affectedRows } from "../affected-rows";
 import type { Database } from "@zeeraa/db";
 import { schema } from "@zeeraa/db";
 import {
@@ -205,10 +206,9 @@ export async function upsertLeads(
           syncRunId: sql`excluded.sync_run_id`,
           updatedAt: sql`excluded.updated_at`,
         },
-      })
-      .returning({ id: schema.leads.id });
+      });
 
-    return written.length;
+    return affectedRows(written);
   });
 }
 
@@ -270,10 +270,9 @@ export async function upsertOpportunities(
           syncRunId: sql`excluded.sync_run_id`,
           updatedAt: sql`excluded.updated_at`,
         },
-      })
-      .returning({ id: schema.opportunities.id });
+      });
 
-    return written.length;
+    return affectedRows(written);
   });
 }
 
@@ -328,10 +327,9 @@ export async function upsertStageEvents(
           // `stage_merges` rule derived, and the next merge must not delete it.
           derivedFrom: null,
         },
-      })
-      .returning({ id: schema.stageEvents.id });
+      });
 
-    return written.length;
+    return affectedRows(written);
   });
 }
 
@@ -387,10 +385,9 @@ export async function upsertOpportunityClickIds(
           syncRunId: sql`excluded.sync_run_id`,
           recordedAt: sql`excluded.recorded_at`,
         },
-      })
-      .returning({ id: schema.opportunityClickIds.id });
+      });
 
-    return written.length;
+    return affectedRows(written);
   });
 }
 
@@ -566,10 +563,9 @@ export async function upsertSubmissions(
           syncRunId: sql`excluded.sync_run_id`,
           updatedAt: sql`excluded.updated_at`,
         },
-      })
-      .returning({ id: schema.submissions.id });
+      });
 
-    return written.length;
+    return affectedRows(written);
   });
 }
 

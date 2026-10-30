@@ -7,7 +7,7 @@ import { InfoTip } from '@/components/ui/InfoTip';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
 import { DataQualityCard } from '@/components/DataQualityCard';
-import { dataQuality } from '@/lib/dashboard';
+import { dataQuality } from '@/lib/cached-reports';
 import { queryTenant, requireRole } from '@/lib/tenant';
 
 export const metadata = { title: 'Reconciliation' };

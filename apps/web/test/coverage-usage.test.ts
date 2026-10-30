@@ -41,6 +41,8 @@ describe('every screen asks how far its sources have been read', () => {
     const code = src('lib/dashboard.ts');
     expect(code).toMatch(/spendIngested:[\s\S]{0,300}coverageOf\(p, span\)[\s\S]{0,200}missing\.length === 0/);
     expect(code).toMatch(/rangeCoverage\(clipped, lastRead, \[\.\.\.beforeRecord, \.\.\.\(through\.unread/);
-    expect(src('lib/coverage.ts')).toMatch(/from\(schema\.syncDays\)/);
+    // Read from the ledger; since 30 October 2026 the unread days are worked
+    // out in the query rather than from every ledger row.
+    expect(src('lib/coverage.ts')).toMatch(/from \$\{schema\.syncDays\}[\s\S]{0,800}generate_series/);
   });
 });

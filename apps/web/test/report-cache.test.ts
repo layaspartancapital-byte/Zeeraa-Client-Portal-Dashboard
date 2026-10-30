@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * version — makes the next request recompute.
  */
 let version = 'v1';
+let calls = 'c1';
 vi.mock('server-only', () => ({}));
 vi.mock('react', async (orig) => ({ ...(await orig<typeof import('react')>()), cache: <T,>(fn: T) => fn }));
 vi.mock('@/lib/tenant', () => ({
-  queryTenant: async (_s: unknown, fn: (tx: unknown) => Promise<unknown>) => fn({ execute: async () => [{ v: version }] }),
+  queryTenant: async (_s: unknown, fn: (tx: unknown) => Promise<unknown>) => fn({ execute: async () => [{ base: version, calls }] }),
 }));
 
 const session = (tenantId = 't1', role = 'zeeraa_admin') =>
@@ -29,6 +30,19 @@ describe('cachedReport', () => {
     version = 'after-sync';
     await cachedReport(session(), 'r', [1], fn);
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('recomputes on a call delivery only the reports that read calls (30 October 2026)', async () => {
+    const { cachedReport } = await import('../src/lib/report-cache');
+    const funnel = vi.fn(async () => ({ deals: 3 }));
+    const callsReport = vi.fn(async () => ({ calls: 9 }));
+    await cachedReport(session(), 'funnel', [], funnel);
+    await cachedReport(session(), 'calls', [], callsReport, 'calls');
+    calls = `c-${Math.random()}`;
+    await cachedReport(session(), 'funnel', [], funnel);
+    await cachedReport(session(), 'calls', [], callsReport, 'calls');
+    expect(funnel).toHaveBeenCalledTimes(1);
+    expect(callsReport).toHaveBeenCalledTimes(2);
   });
 
   it('keys by tenant, role and arguments', async () => {

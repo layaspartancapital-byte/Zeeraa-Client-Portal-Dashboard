@@ -294,10 +294,53 @@ const UNATTRIBUTED_REASON =
   'tagged. Nothing in the data says which, so no channel may count them and no ' +
   'spend stands behind them.';
 
+/**
+ * Every deal each stage has ever reached, counting only events that count
+ * (`countedStageEvent()`): stage key to opportunity external ids.
+ *
+ * Whether a deal reached a stage is a fact about the deal, not about any
+ * window, so this is the same for every range — which is why it is read once
+ * per data version (`cached-reports.ts`) and handed to each
+ * `monthlyPerformance` call rather than read again by every one. One row per
+ * stage, the ids joined by a unit separator: a row per (stage, deal) pair cost
+ * three times the bytes on the wire for the same set (30 October 2026).
+ */
+export type StageMembership = Record<string, string[]>;
+
+const ID_SEPARATOR = '\u001f';
+
+export async function stageMembership(session: TenantSession): Promise<StageMembership> {
+  return queryTenant(session, (tx) => readStageMembership(tx, session.tenant.id));
+}
+
+async function readStageMembership(tx: Database, tenantId: string): Promise<StageMembership> {
+  const rows = await tx
+    .select({
+      stage: schema.stageEvents.stage,
+      ids: sql<string>`string_agg(distinct ${schema.stageEvents.opportunityExternalId}, chr(31))`,
+    })
+    .from(schema.stageEvents)
+    // An excluded event did not happen, as far as progression is concerned:
+    // a renewal's Funded must not make its approval look converted.
+    .where(and(eq(schema.stageEvents.tenantId, tenantId), countedStageEvent()))
+    .groupBy(schema.stageEvents.stage);
+  return Object.fromEntries(rows.map((r) => [r.stage, r.ids ? r.ids.split(ID_SEPARATOR) : []]));
+}
+
+/** `values` as a typed Postgres array literal of parameters. */
+function textArray(values: readonly (string | null)[]) {
+  return sql`array[${sql.join(
+    values.map((v) => sql`${v}::text`),
+    sql`, `,
+  )}]::text[]`;
+}
+
 export async function monthlyPerformance(
   session: TenantSession,
   range: DateRange,
   model: AttributionModel = 'last_touch',
+  /** From `stageMembership`, when the caller already has it for this data version. */
+  membership?: StageMembership,
 ): Promise<MonthlyPerformance> {
   return queryTenant(session, async (tx) => {
     const tenantId = session.tenant.id;
@@ -397,18 +440,33 @@ export async function monthlyPerformance(
      * and which opportunity each became, so a lead-grain cohort can be asked
      * whether it has reached an opportunity stage since.
      */
-    const cohortLeads =
+    // Grouped, with a count: only the combination matters to a cohort, and
+    // the leads that never converted — most of them — collapse to a handful
+    // of rows rather than one each. Each is given a key of its own below.
+    const cohortLeadGroups =
       leadStages.length === 0
         ? []
         : await tx
             .select({
-              id: schema.leads.id,
               channel: leadChannel(),
               qualified: sql<boolean>`${schema.leads.mqlVerdict} is not distinct from 'qualified'`,
               opportunity: schema.leads.convertedOpportunityId,
+              count: sql<number>`count(*)::int`,
             })
             .from(schema.leads)
-            .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn(range)));
+            .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn(range)))
+            .groupBy(sql`1`, sql`2`, schema.leads.convertedOpportunityId);
+    // A lead is only ever a member of a set here, so any key unique within
+    // this call will do; the prefix keeps it apart from opportunity ids.
+    let leadKey = 0;
+    const cohortLeads = cohortLeadGroups.flatMap((g) =>
+      Array.from({ length: Number(g.count) }, () => ({
+        id: `\u0001lead:${(leadKey += 1)}`,
+        channel: g.channel,
+        qualified: g.qualified,
+        opportunity: g.opportunity,
+      })),
+    );
 
     const spendRows = await tx
       .select({
@@ -429,11 +487,13 @@ export async function monthlyPerformance(
 
     // One row per (stage, opportunity, attributed platform). Distinct because a
     // stage can recur — a deal that funds twice is one deal.
-    const stageRows = await tx
-      .selectDistinct({
+    // Read as one row per (stage, platform) with its deals joined, and
+    // unpacked here: the same pairs at a third of the bytes.
+    const stageGroups = await tx
+      .select({
         stage: schema.stageEvents.stage,
-        opportunityExternalId: schema.stageEvents.opportunityExternalId,
         platform: schema.attribution.platform,
+        ids: sql<string>`string_agg(distinct ${schema.stageEvents.opportunityExternalId}, chr(31))`,
       })
       .from(schema.stageEvents)
       .leftJoin(
@@ -449,7 +509,15 @@ export async function monthlyPerformance(
           eq(schema.stageEvents.tenantId, tenantId),
           stageEventsIn(range),
         ),
-      );
+      )
+      .groupBy(schema.stageEvents.stage, schema.attribution.platform);
+    const stageRows = stageGroups.flatMap((g) =>
+      g.ids.split(ID_SEPARATOR).map((opportunityExternalId) => ({
+        stage: g.stage,
+        opportunityExternalId,
+        platform: g.platform,
+      })),
+    );
 
     /*
      * Stage membership and the last decline per deal, for the progression
@@ -459,79 +527,74 @@ export async function monthlyPerformance(
      * July did reach approval, and a 90-day window that excludes May must not
      * report otherwise.
      */
-    const [membershipRows, lastDeclineRows] = await Promise.all([
-      tx
-        .selectDistinct({
-          stage: schema.stageEvents.stage,
-          opportunityExternalId: schema.stageEvents.opportunityExternalId,
-        })
-        .from(schema.stageEvents)
-        // An excluded event did not happen, as far as progression is concerned:
-        // a renewal's Funded must not make its approval look converted.
-        .where(and(eq(schema.stageEvents.tenantId, tenantId), countedStageEvent())),
-      tx
-        .select({
-          opportunityExternalId: schema.stageEvents.opportunityExternalId,
-          at: sql<string>`max(${schema.stageEvents.occurredAt})`,
-        })
-        .from(schema.stageEvents)
-        .where(
-          and(
-            eq(schema.stageEvents.tenantId, tenantId),
-            eq(schema.stageEvents.stage, 'declined'),
-          ),
-        )
-        .groupBy(schema.stageEvents.opportunityExternalId),
-    ]);
+    const reached = membership ?? (await readStageMembership(tx, tenantId));
+    const reachedStages = new Map(Object.entries(reached).map(([stage, ids]) => [stage, new Set(ids)]));
 
-    const reachedStages = new Map<string, Set<string>>();
-    for (const row of membershipRows) {
-      const set = reachedStages.get(row.stage) ?? new Set<string>();
-      set.add(row.opportunityExternalId);
-      reachedStages.set(row.stage, set);
-    }
-    const lastDecline = new Map(
-      lastDeclineRows.map((r) => [r.opportunityExternalId, new Date(r.at).getTime()]),
-    );
-
-    // The last time each deal reached each stage inside the window, so
-    // "declined afterwards" compares two moments rather than two counts.
-    const reachedAtRows = await tx
-      .select({
-        stage: schema.stageEvents.stage,
-        opportunityExternalId: schema.stageEvents.opportunityExternalId,
-        at: sql<string>`max(${schema.stageEvents.occurredAt})`,
-      })
-      .from(schema.stageEvents)
-      .where(
-        and(
-          eq(schema.stageEvents.tenantId, tenantId),
-          stageEventsIn(range),
-        ),
-      )
-      .groupBy(schema.stageEvents.stage, schema.stageEvents.opportunityExternalId);
-
+    /*
+     * Per event stage, counted in the database: the deals reaching it in the
+     * window, those of them that ever reached the stage before it, and those
+     * declined after their last arrival at it. Three integers per stage where
+     * this read every (stage, deal) pair of the window and every deal's last
+     * decline to count them here (30 October 2026). "After" compares
+     * milliseconds, as the comparison in JavaScript it replaces did.
+     *
+     * A previous stage nobody has ever reached leaves the count at every deal,
+     * as before: there is no population to narrow by.
+     */
     const progression: MonthlyPerformance['progression'] = {};
     const eventStages = stages.filter((st) => (st.source ?? 'stage_events') === 'stage_events');
-    for (const [index, stage] of eventStages.entries()) {
-      const previous = index === 0 ? null : (eventStages[index - 1]?.key ?? null);
-      const reachedInWindow = reachedAtRows.filter((r) => r.stage === stage.key);
-      const previousEver = previous ? reachedStages.get(previous) : null;
-
-      progression[stage.key] = {
-        reached: reachedInWindow.length,
-        previous,
-        alsoPrevious: previousEver
-          ? reachedInWindow.filter((r) => previousEver.has(r.opportunityExternalId)).length
-          : reachedInWindow.length,
-        laterLost:
-          stage.key === 'declined'
-            ? 0
-            : reachedInWindow.filter((r) => {
-                const declined = lastDecline.get(r.opportunityExternalId);
-                return declined !== undefined && declined > new Date(r.at).getTime();
-              }).length,
-      };
+    if (eventStages.length > 0) {
+      const se = schema.stageEvents;
+      const keys = eventStages.map((st) => st.key);
+      const previousKeys = eventStages.map((_, i) => (i === 0 ? null : (eventStages[i - 1]?.key ?? null)));
+      const rows = await tx.execute<{ stage: string; reached: number; also_previous: number; later_lost: number }>(sql`
+        with p as (
+          select * from unnest(${textArray(keys)}, ${textArray(previousKeys)}) as p(stage, prev)
+        ),
+        r as (
+          select ${se.stage} as stage, ${se.opportunityExternalId} as id, max(${se.occurredAt}) as at
+          from ${se}
+          where ${and(eq(se.tenantId, tenantId), stageEventsIn(range))}
+          group by 1, 2
+        ),
+        m as (
+          select distinct ${se.stage} as stage, ${se.opportunityExternalId} as id
+          from ${se}
+          where ${and(eq(se.tenantId, tenantId), countedStageEvent())}
+        ),
+        d as (
+          select ${se.opportunityExternalId} as id, max(${se.occurredAt}) as at
+          from ${se}
+          where ${and(eq(se.tenantId, tenantId), eq(se.stage, 'declined'))}
+          group by 1
+        )
+        select
+          p.stage,
+          count(r.id)::int as reached,
+          (case
+            when p.prev is null or not exists (select 1 from m where m.stage = p.prev) then count(r.id)
+            else count(r.id) filter (where exists (select 1 from m where m.stage = p.prev and m.id = r.id))
+          end)::int as also_previous,
+          (case
+            when p.stage = 'declined' then 0
+            else count(r.id) filter (where exists (
+              select 1 from d
+              where d.id = r.id and date_trunc('milliseconds', d.at) > date_trunc('milliseconds', r.at)
+            ))
+          end)::int as later_lost
+        from p
+        left join r on r.stage = p.stage
+        group by p.stage, p.prev`);
+      const byStage = new Map(rows.map((r) => [r.stage, r]));
+      for (const [index, stage] of eventStages.entries()) {
+        const row = byStage.get(stage.key);
+        progression[stage.key] = {
+          reached: Number(row?.reached ?? 0),
+          previous: previousKeys[index] ?? null,
+          alsoPrevious: Number(row?.also_previous ?? 0),
+          laterLost: Number(row?.later_lost ?? 0),
+        };
+      }
     }
 
     // Funded amount per opportunity, for the value-volume column.

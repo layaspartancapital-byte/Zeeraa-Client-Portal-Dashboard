@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { affectedRows } from '../affected-rows';
 import { schema, type Database } from '@zeeraa/db';
 import type { CampaignRow, ClickRow, DailyMetricRow } from '@zeeraa/connectors';
 import type { GoogleAdsAccount } from '@zeeraa/connectors';
@@ -188,10 +189,9 @@ export async function upsertDailyMetrics(
       clicks_all = coalesce(excluded.clicks_all, daily_metrics.clicks_all),
       sync_run_id = excluded.sync_run_id,
       updated_at = excluded.updated_at
-    RETURNING id
   `);
 
-  return Array.isArray(written) ? written.length : (written as { length?: number }).length ?? 0;
+  return affectedRows(written);
 }
 
 /**
@@ -246,10 +246,9 @@ export async function upsertAdClicks(
         syncRunId: sql`excluded.sync_run_id`,
         updatedAt: sql`excluded.updated_at`,
       },
-    })
-    .returning({ id: schema.adClicks.id });
+    });
 
-  return written.length;
+  return affectedRows(written);
 }
 
 /** Clicks already held locally, for the join. */

@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { affectedRows } from '../affected-rows';
 import type { Database } from '@zeeraa/db';
 import type { Ga4Row, SearchConsoleRow } from '@zeeraa/connectors';
 
@@ -47,9 +48,8 @@ export async function upsertGa4Metrics(
         users = excluded.users,
         sync_run_id = excluded.sync_run_id,
         updated_at = excluded.updated_at
-      RETURNING id
     `);
-    return rowCount(written);
+    return affectedRows(written);
   });
 }
 
@@ -82,9 +82,8 @@ export async function upsertSearchConsoleMetrics(
         position = excluded.position,
         sync_run_id = excluded.sync_run_id,
         updated_at = excluded.updated_at
-      RETURNING id
     `);
-    return rowCount(written);
+    return affectedRows(written);
   });
 }
 
@@ -113,6 +112,3 @@ async function upsertBatched<T extends { date: string; dimension: string; dimens
   return written;
 }
 
-function rowCount(result: unknown): number {
-  return Array.isArray(result) ? result.length : ((result as { length?: number }).length ?? 0);
-}

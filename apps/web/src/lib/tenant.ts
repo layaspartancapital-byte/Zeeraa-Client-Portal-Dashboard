@@ -1,6 +1,6 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { parseBusinessHours, type BusinessHours, type Role } from '@zeeraa/core';
 import {
   assertDatabaseSafe,
@@ -202,4 +202,21 @@ export async function tenantBusinessHours(session: TenantSession): Promise<Busin
       .limit(1),
   );
   return parseBusinessHours(row?.value);
+}
+
+/**
+ * A digest of the logo and mark, so a cache can tell whether they changed
+ * without shipping them: 32 characters instead of the images, which were the
+ * largest single read on every page (30 October 2026).
+ */
+export async function tenantLogoDigest(session: TenantSession): Promise<string> {
+  const [row] = await queryTenant(session, (tx) =>
+    tx
+      .select({
+        digest: sql<string>`md5(coalesce(${schema.tenants.logoDataUrl}, '') || '|' || coalesce(${schema.tenants.markDataUrl}, ''))`,
+      })
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, session.tenant.id)),
+  );
+  return row?.digest ?? '';
 }

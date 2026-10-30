@@ -140,9 +140,8 @@ export type ChannelCostPerDeal = {
  * stage a tenant calls valuable — `funnel_stages.counts_value` does.
  *
  * Blended cost per deal across every channel is a different metric with a
- * different denominator — total marketing spend over total marketing-sourced
- * deals — and it is not this function with the arguments added up. It needs
- * every channel ingested before it means anything.
+ * different denominator, and it is not this function with the arguments added
+ * up: see `blendedCostPer`.
  */
 export function channelCostPerDeal(input: {
   channelSpend: number;
@@ -179,6 +178,25 @@ export function costPerFundedDeal(input: {
   dealsAttributedElsewhere?: number;
 }): ChannelCostPerDeal {
   return channelCostPerDeal(input);
+}
+
+/**
+ * Blended cost per stage: every ad platform's spend in the period over every
+ * deal that reached the stage in it, attributed to a channel or not (Executive's
+ * "All sources" card, 30 October 2026).
+ *
+ * Not a channel metric and never shown as one. Its denominator takes in deals
+ * no ad paid for — organic, vendors, direct — and its numerator leaves out
+ * what those cost (lead vendors' invoices are not ingested), so it falls when
+ * the sales team has a good month whatever the ads did. It answers "what did
+ * the ad budget come to per deal, all told", and the card says so.
+ *
+ * Returned in the channel shape so it renders through `CostPerDealFigure` with
+ * its basis: `attributedDeals` is every deal here, and nothing is unattributed
+ * because nothing was excluded.
+ */
+export function blendedCostPer(input: { adSpend: number; deals: number }): ChannelCostPerDeal {
+  return channelCostPerDeal({ channelSpend: input.adSpend, attributedDeals: input.deals });
 }
 
 export type AttributionCoverage = {

@@ -33,6 +33,8 @@ import { DataQualityCard } from '@/components/DataQualityCard';
 import { EfficiencyTable, type EfficiencyRow } from '@/components/EfficiencyTable';
 import { NeedsAttention, type Finding } from '@/components/NeedsAttention';
 import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
+import { AllSourcesCard } from '@/components/AllSourcesCard';
+import { allSources } from '@/lib/all-sources';
 import { monthName } from '@/components/RampCard';
 import { buildRampPanels, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
@@ -629,6 +631,16 @@ export default async function ExecutiveBriefing({
           monthDays={periods.monthDays}
           currency={currency}
           note={scorecardNote}
+        />
+        {/* Beside the contracted channel, every source at once and blended,
+            for the picked period. No target: the targets are Google Ads'. */}
+        <AllSourcesCard
+          figures={allSources(current)}
+          valueLabel={valueLabel}
+          periodLabel={`${mtdLabel}${crmNote}${spendNote}`}
+          currency={currency}
+          crmUnmeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
+          spendUnmeasured={isUnmeasured(spendCoverage) ? notMeasuredReason(spendCoverage, 'Paid media') : undefined}
         />
         <RampCostChart panel={rampPanels.primary} />
 

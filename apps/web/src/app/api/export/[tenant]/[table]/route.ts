@@ -1,9 +1,9 @@
 import type { NextRequest } from 'next/server';
 import { noSpendReason, resolveDateRange, tenantDay, type AttributionModel } from '@zeeraa/core';
 import { csvResponse, type CsvCell } from '@/lib/csv';
-import { monthlyPerformance } from '@/lib/reporting';
+import { monthlyPerformance, sourcesThrough } from '@/lib/cached-reports';
 import { requireTenant } from '@/lib/tenant';
-import { coverageFor, isUnmeasured, notMeasuredReason, sourceName, sourcesThrough, throughNote } from '@/lib/coverage';
+import { coverageFor, isUnmeasured, notMeasuredReason, sourceName, throughNote } from '@/lib/coverage';
 
 /**
  * CSV export, matching the filters on screen.

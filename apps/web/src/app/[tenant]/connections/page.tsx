@@ -17,12 +17,8 @@ import { AutoRefresh } from '@/components/shell/AutoRefresh';
 import { TopBar } from '@/components/shell/TopBar';
 import { PrintButton, SyncNowButton } from '@/components/shell/actions';
 import { ButtonAnchor } from '@/components/ui/Button';
-import {
-  connectionHealth,
-  reconciliationBySource,
-  type ConnectionCard,
-  type ReconciliationRow,
-} from '@/lib/dashboard';
+import type { ConnectionCard, ReconciliationRow } from '@/lib/dashboard';
+import { connectionHealth, reconciliationBySource } from '@/lib/cached-reports';
 import { requireRole } from '@/lib/tenant';
 
 export const metadata = { title: 'Connections' };
