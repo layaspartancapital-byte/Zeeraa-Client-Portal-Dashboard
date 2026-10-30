@@ -4244,3 +4244,9 @@ What changed, in order of effect:
    a range and cost a second per period for three figures; `seoFigures` reads
    the snapshots and visibility once per data version.
 5. **Calls beside the funnel read**, not after it.
+
+**Later the same day:** "Export to Excel" is back on each table — All metrics,
+Funnel and Cost (each its own section of the Comparison sheet), and Funded by
+source — and on no headline or call card. Small costs show cents (CPC, cost
+per lead, cost per MQL: the `cents` format); cost per acquisition, cost per
+funded deal and every larger amount stay in whole dollars.

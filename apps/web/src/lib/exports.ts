@@ -44,6 +44,8 @@ export const DATASETS = [
   'organic',
   'comparison',
   'comparison_sources',
+  'comparison_funnel',
+  'comparison_cost',
 ] as const;
 export type Dataset = (typeof DATASETS)[number];
 
@@ -683,8 +685,12 @@ async function organicSheets(ctx: Ctx, platform: string): Promise<XlsxSheet[]> {
   ];
 }
 
-/** The Comparison table as one sheet: each row with both periods, its targets and its change. */
-async function comparisonSheets(ctx: Ctx): Promise<XlsxSheet[]> {
+/**
+ * The Comparison table as one sheet: each row with both periods, its targets
+ * and its change. `sections` narrows it to one table's rows — the Funnel or
+ * the Cost table's own export.
+ */
+async function comparisonSheets(ctx: Ctx, sections?: readonly string[], title?: string): Promise<XlsxSheet[]> {
   const { filters, session } = ctx;
   if (!filters.compare) return [];
   const report = await comparisonReport(session, {
@@ -696,7 +702,7 @@ async function comparisonSheets(ctx: Ctx): Promise<XlsxSheet[]> {
   const label = report.sources.find((s) => s.key === report.source)?.label ?? 'All sources';
   return [
     {
-      name: `Comparison · ${label}`,
+      name: `Comparison · ${title ?? label}`,
       columns: [
         { header: 'Section', type: 'text' },
         { header: 'Metric', type: 'text' },
@@ -711,7 +717,7 @@ async function comparisonSheets(ctx: Ctx): Promise<XlsxSheet[]> {
         { header: 'Why no figure (A)', type: 'text' },
         { header: 'Why no figure (B)', type: 'text' },
       ],
-      rows: report.rows.map((r) => [
+      rows: report.rows.filter((r) => !sections || sections.includes(r.section)).map((r) => [
         r.section,
         r.label,
         r.a.value,
@@ -780,6 +786,10 @@ export async function buildSheets(ctx: Ctx, spec: ExportSpec): Promise<XlsxSheet
       return comparisonSheets(ctx);
     case 'comparison_sources':
       return comparisonSourceSheets(ctx);
+    case 'comparison_funnel':
+      return comparisonSheets(ctx, ['Funnel'], 'funnel');
+    case 'comparison_cost':
+      return comparisonSheets(ctx, ['Cost'], 'cost');
   }
 }
 

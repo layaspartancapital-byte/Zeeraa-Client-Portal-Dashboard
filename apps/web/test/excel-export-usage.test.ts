@@ -54,11 +54,14 @@ describe('Excel exports on every screen', () => {
     const code = src('app/[tenant]/comparison/page.tsx');
     expect(code).toContain('<ExportEverything />');
     expect(code).toMatch(/extra: \{ bFrom: b\.range\.start, bTo: b\.range\.end \}/);
-    // One "Export everything" stands for every card (30 October 2026, the
-    // client's second pass): no card carries its own button, and the workbook
-    // has the table and the by-source sheet.
-    expect(src('components/ComparisonView.tsx')).not.toContain('<ExportButton');
-    expect(src('components/ComparisonTable.tsx')).not.toContain('<ExportButton');
+    // "Export to Excel" on each table — All metrics, Funnel, Cost, By
+    // source — and on no headline or call card (30 October 2026).
+    const view = src('components/ComparisonView.tsx');
+    for (const d of ['comparison', 'comparison_funnel', 'comparison_cost', 'comparison_sources']) {
+      expect(view).toContain(`<ExportButton datasets={['${d}']} />`);
+    }
+    const kpi = view.slice(view.indexOf('function CompactKpi'), view.indexOf('function ContractLine'));
+    expect(kpi).not.toContain('<ExportButton');
     expect(src('lib/exports.ts')).toContain("return [{ dataset: 'comparison' }, { dataset: 'comparison_sources' }];");
   });
 

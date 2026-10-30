@@ -27,8 +27,12 @@ import { approvalStageKey } from '@/lib/all-sources';
  * from the metric's formula (`improvementDirectionFor`), never from here.
  */
 
-/** `points` is a figure already in percentage points (Semrush visibility). */
-export type ComparisonFormat = 'money' | 'count' | 'percent' | 'points' | 'seconds' | 'number';
+/**
+ * `points` is a figure already in percentage points (Semrush visibility).
+ * `cents` is a small cost shown to the cent (CPC, cost per lead, cost per
+ * MQL); every other amount is `money`, in whole dollars.
+ */
+export type ComparisonFormat = 'money' | 'cents' | 'count' | 'percent' | 'points' | 'seconds' | 'number';
 
 export type ComparisonCell = {
   value: number | null;
@@ -167,7 +171,7 @@ export function periodRows(input: PeriodInput): PeriodRows {
     cell(impressions && clicks !== null ? clicks / impressions : null, spendReason ?? 'No impressions.'),
   );
   add(
-    { section: 'Ads', key: 'cpc', label: 'CPC', format: 'money', formulaKey: 'cpc' },
+    { section: 'Ads', key: 'cpc', label: 'CPC', format: 'cents', formulaKey: 'cpc' },
     cell(spend !== null && clicks ? spend / clicks : null, spendReason ?? 'No clicks.', clicks ? { basis: { n: clicks, noun: 'clicks' } } : {}),
   );
 
@@ -266,8 +270,8 @@ export function periodRows(input: PeriodInput): PeriodRows {
     if (n === 0) return cell(null, `No ${noun} yet.`, { target });
     return cell(spend / n, null, { basis: { n, noun }, target });
   };
-  add({ section: 'Cost', key: 'cpl', label: 'Cost per lead', format: 'money', formulaKey: 'cost_per_stage' }, cost(leads, 'leads'));
-  add({ section: 'Cost', key: 'cpmql', label: `Cost per ${label(mqlKey, 'MQL')}`, format: 'money', formulaKey: 'cost_per_stage' }, cost(mql, label(mqlKey, 'MQL') + 's'));
+  add({ section: 'Cost', key: 'cpl', label: 'Cost per lead', format: 'cents', formulaKey: 'cost_per_stage' }, cost(leads, 'leads'));
+  add({ section: 'Cost', key: 'cpmql', label: `Cost per ${label(mqlKey, 'MQL')}`, format: 'cents', formulaKey: 'cost_per_stage' }, cost(mql, label(mqlKey, 'MQL') + 's'));
   add(
     { section: 'Cost', key: 'cpa', label: 'Cost per acquisition', format: 'money', formulaKey: 'cpa' },
     cost(approvals, 'approvals', all ? (input.contract?.cpa ?? null) : null),

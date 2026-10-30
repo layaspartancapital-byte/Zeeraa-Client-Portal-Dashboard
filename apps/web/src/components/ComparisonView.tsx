@@ -6,6 +6,7 @@ import { InfoTip } from '@/components/ui/InfoTip';
 import { NotMeasuredBadge } from '@/components/ui/Badge';
 import { toneFor } from '@/components/ui/delta-tone';
 import { LazyPairedBars } from '@/components/charts/LazyPairedBars';
+import { ExportButton } from '@/components/export/ExportScope';
 import { ComparisonTable, formatValue, targetText } from '@/components/ComparisonTable';
 import type { Comparison } from '@/lib/comparison';
 import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comparison-rows';
@@ -15,7 +16,8 @@ import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comp
  * second pass): compact headline cards, then tables — the funnel with its
  * conversions inline, the costs, funded by source — one small chart of funded
  * volume by source, the two call cards, and every metric folded at the bottom.
- * One "Export everything" in the top bar stands for every card.
+ * "Export everything" in the top bar, and "Export to Excel" on each table —
+ * not on the headline or call cards.
  *
  * Every figure is a row of `comparison.rows` (or `bySource`, read the same
  * way), so a card and a table cannot disagree. Whether a change is good is
@@ -72,7 +74,11 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
 
       {funnelRows.length > 0 && (
         <Card span={showCosts ? 6 : 12}>
-          <CardHeader title="Funnel" subtitle="Each stage in each period, with the conversion into it" />
+          <CardHeader
+            title="Funnel"
+            subtitle="Each stage in each period, with the conversion into it"
+            controls={<ExportButton datasets={['comparison_funnel']} />}
+          />
           <PairTable head="Stage" periods={periods}>
             {funnelRows.map(({ row: r, conversion }) => (
               <PairRow key={r.key} row={r} currency={currency} minor={conversion} />
@@ -87,6 +93,7 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
             title="Cost"
             subtitle="Ad spend over each period’s own counts"
             info={<InfoTip label="How the costs are read">A cost with nothing to divide by is “—”, with the reason on hover.</InfoTip>}
+            controls={<ExportButton datasets={['comparison_cost']} />}
           />
           <PairTable head="Cost" periods={periods}>
             {costs.map((r) => (
@@ -98,7 +105,11 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
 
       {comparison.bySource.length > 0 && (
         <Card span={8}>
-          <CardHeader title="Funded by source" subtitle="Funded deals and volume per source; the change is in volume" />
+          <CardHeader
+            title="Funded by source"
+            subtitle="Funded deals and volume per source; the change is in volume"
+            controls={<ExportButton datasets={['comparison_sources']} />}
+          />
           <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
             <table className="w-full min-w-[620px] border-collapse text-[13px]">
               <thead>
@@ -162,6 +173,7 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
         <CardHeader
           title="All metrics"
           subtitle={`${comparison.rows.length} metrics · ${periodLine(comparison.a, 'A')} vs ${periodLine(comparison.b, 'B')}`}
+          controls={<ExportButton datasets={['comparison']} />}
         />
         <details className="group border-t border-border">
           <summary className="cursor-pointer list-none px-5 py-3 text-[13px] font-semibold text-text marker:hidden">

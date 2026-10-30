@@ -68,6 +68,9 @@ export function formatValue(value: number, format: ComparisonFormat, currency: s
     case 'money':
       // Whole dollars on this page (30 October 2026).
       return formatWholeCurrency(value, currency);
+    case 'cents':
+      // A small cost to the cent: $21.34 per lead, not $21.
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     case 'percent':
       return formatRate(value);
     case 'points':
