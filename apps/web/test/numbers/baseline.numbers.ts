@@ -8,12 +8,19 @@
  * ramp's live month for its six metrics, `monthlyPerformance` for the rest)
  * and through the ingestion side's (`monthFigures` / `channelFigures`, which
  * the freeze itself used). Both must match the snapshot.
+ *
+ * A lead count that differs passes when Salesforce proves it (30 October
+ * 2026): the month's lead recording reproduces the frozen value, both sources
+ * compute the count now, and every lead that moved was merged, deleted or
+ * edited in Salesforce (`leadFigureProofs`). It is listed, not written — the
+ * daily job freezes it as the next version (`autoCorrectLeadFigures`), with
+ * the code that is deployed rather than the code being tested.
  */
 import { describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { monthRange } from '@zeeraa/core';
 import { schema } from '@zeeraa/db';
-import { freezeContext, isRetired, monthFigures } from '@zeeraa/jobs';
+import { describeLeadMoves, freezeContext, isProvenLeadChange, isRetired, leadFigureProofs, monthFigures } from '@zeeraa/jobs';
 import { monthlyPerformance } from '@/lib/reporting';
 import { BASELINE_EXCEPTIONS } from './baseline-exceptions';
 import { fromIngestion, fromMonthlyPerformance, fromRamp, key, RAMP_TO_FIGURE, readOnly, same, tenants } from './figures';
@@ -24,6 +31,7 @@ describe('the frozen baseline, recomputed with this code', () => {
   it('matches every frozen figure, or the difference is listed with a reason', async () => {
     const problems: string[] = [];
     const explained: string[] = [];
+    const proven: string[] = [];
     const usedExceptions = new Set<number>();
     let checked = 0;
 
@@ -55,6 +63,7 @@ describe('the frozen baseline, recomputed with this code', () => {
         const rampFreeze = await readOnly(async (tx) =>
           monthFigures(tx, t.session.tenant.id, await freezeContext(tx, t.session.tenant.id, new Date()), month),
         ).catch(() => null);
+        const proofs = await readOnly((tx) => leadFigureProofs(tx, t.session.tenant.id, month));
 
         for (const f of frozen.filter((r) => r.month === month)) {
           checked += 1;
@@ -85,6 +94,11 @@ describe('the frozen baseline, recomputed with this code', () => {
               continue;
             }
             if (same(value, f.value)) continue;
+            const proof = isRamp ? undefined : proofs.get(key(f.platform, f.metric));
+            if (isProvenLeadChange(proof, f.value, value)) {
+              proven.push(`${t.slug} ${month} ${f.platform} ${f.metric}: frozen ${f.value}, ${source} ${value} — ${describeLeadMoves(proof!)}`);
+              continue;
+            }
             const i = BASELINE_EXCEPTIONS.findIndex(
               (e) => e.tenant === t.slug && e.month === month && e.platform === f.platform && e.metric === f.metric,
             );
@@ -106,6 +120,10 @@ describe('the frozen baseline, recomputed with this code', () => {
     });
     console.log(`Baseline: ${checked} frozen figures checked, ${explained.length} explained differences.`);
     for (const line of explained) console.log(`  explained: ${line}`);
+    if (proven.length > 0) {
+      console.log(`Baseline: ${proven.length} differences Salesforce proves; the daily job restates them.`);
+      for (const line of proven) console.log(`  proven by Salesforce: ${line}`);
+    }
     expect(problems, problems.join('\n')).toEqual([]);
   });
 });

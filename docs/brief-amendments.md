@@ -4106,3 +4106,46 @@ The same day, a lead-exclusion fix: the sync's exclusion reset now keeps a
 reason set from Salesforce's record by `markLeadsNowExcluded` (it had cleared
 it on the next run, putting September's merged cold-list lead back), and a
 lead the sync re-reads has its reason cleared, since it has passed every rule.
+
+## §7 — a frozen lead count Salesforce moved is restated by the daily job (30 October 2026)
+
+Client decision, after the June–August lead and MQL counts had to be
+restated by hand (v3–v6) because Spartan merged duplicate leads after the
+freeze — the third time a merge had blocked a deploy.
+
+- **What a frozen total could not say.** A frozen figure is a total; it does
+  not record which leads made it up, so a difference could not be traced to
+  the record rather than the code. `baseline_leads` (migration 0047) records,
+  every time a month's channel figures are frozen or corrected, every lead
+  created in the month: its outcome (channel, counted, qualified) and its
+  evidence — `created_at`, `merged_into`, the leads merged into it, Lead Source
+  and an md5 of its click, UTM, page, revenue and conversion fields.
+  Append-only for every role (the trigger of 0032). Derived columns — channel,
+  MQL verdict, revenue band, exclusion — are outcomes and never evidence, so a
+  rule change still reads as the code.
+- **Proven.** A lead that entered or left a frozen lead or MQL count is proven
+  when Salesforce changed it: deleted, merged into another, absorbed a merge,
+  its creation date moved, its Lead Source or its hashed fields edited. A lead
+  not in any recorded month is proven only as a merge survivor. A figure is
+  proven when its recording reproduces the frozen value, the count now is what
+  both the screens and the ingestion side compute, and every move is proven
+  (`leadFigureProofs`, `isProvenLeadChange` in `packages/jobs`).
+- **At deploy, listed; at 08:00 UTC, written.** The baseline number check lets
+  a proven difference through and prints each lead and why; nothing is
+  written by code that may not ship. The reconcile cron then runs
+  `autoCorrectLeadFigures` with the deployed code: in one transaction, it
+  freezes every proven count as the next version (`frozen_by = 'daily-job'`,
+  the reason naming each lead and what Salesforce changed) and records the
+  month's leads afresh, or leaves the month for a person and logs why. The
+  Comparison number check, which reads a frozen month's figures, accepts the
+  same proven difference until the restatement lands.
+- **Still a person's.** The ramp's six figures, deal stages, spend, volume and
+  every money figure. A lead the code moved. A month with no recording.
+- **Known limit.** A change to how the connector *maps* a Salesforce field,
+  followed by a backfill, rewrites stored fields and would read as a
+  Salesforce edit. Such a change should not ship in the same deploy as a rule
+  change, and the backfill's dry run should be compared with the frozen
+  counts first.
+- **Months frozen before 0047** (June–September) are recorded once with
+  `record-baseline-leads`, which refuses unless every frozen lead count equals
+  the count now.

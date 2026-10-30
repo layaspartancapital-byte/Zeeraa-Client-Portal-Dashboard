@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 30 October 2026 (Excel exports deployed; Aloware direct webhook live; the signed contract governs every target).**
+**Last updated: 30 October 2026 (a frozen lead count Salesforce moved restates itself; Excel exports deployed; Aloware direct webhook live; the signed contract governs every target).**
 
 **30 October 2026: the signed contract governs every target** (Zeeraa
 proposal, page 22; `contract_targets`, loaded with `load-config-row.ts`).
@@ -35,9 +35,8 @@ third of before and a call no longer resets the cache.
 **30 October 2026: the frozen June–August channel figures were corrected**
 (16 lead and MQL counts, v3–v6): Spartan merged duplicate leads in Salesforce
 after the 13 October freeze. The `backfill-lead-channel` dry run reproduced the
-new figures exactly. No ramp figure changed. **Next:** the user asked for the
-deploy check to freeze such corrections itself when Salesforce history proves
-a merge or source edit, and block only on unexplained or ramp differences.
+new figures exactly. No ramp figure changed. Such restatements are now
+automatic — see "Salesforce-proven lead restatements" below.
 
 **30 October 2026: Executive's "All sources" card** (blended, client decision)
 and whole dollars on the scorecard's verdict. See `docs/brief-amendments.md`.
@@ -71,8 +70,19 @@ that window through `import-aloware-calls` would fill them.
 periods, one source, every KPI with change and % change. See
 `docs/brief-amendments.md`, "§12 — a Comparison page".
 
-**Queued, not started:** the deploy check freezing Salesforce-proven merge
-corrections itself.
+**30 October 2026: Salesforce-proven lead restatements.**
+`baseline_leads` (migration 0047) records which leads each frozen month's
+lead counts were made of; the deploy check passes a lead or MQL difference
+when every moved lead was merged, deleted or edited in Salesforce, and lists
+it; the 08:00 UTC reconcile cron writes it (`autoCorrectLeadFigures`). See
+`docs/brief-amendments.md`, "§7 — a frozen lead count Salesforce moved".
+Tests pass locally (jobs 144, web 157, the db policy tests; the two new
+mutations killed). Applied to Neon: 0047 (table owned by `zeeraa_owner`,
+FORCE RLS, five policies, the trigger); `record-baseline-leads` recorded
+June–September (991, 981, 987 and 2,137 leads), with every frozen lead count
+reproduced; the number checks passed read-only against production (8 of 8).
+The first `autoCorrectLeadFigures` run is the 08:00 UTC reconcile cron after
+the deploy — check its log line for any month it defers.
 
 **13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
 fixed against the icon, kept inside the viewport and flipped below when there

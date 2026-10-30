@@ -10,6 +10,7 @@ export * from './manual-sync';
 export * from './nightly';
 export * from './reconcile';
 export * from './freeze';
+export * from './baseline-leads';
 export * from './google-ads/writer';
 export * from './google-ads/clicks';
 export * from './google-ads/join';

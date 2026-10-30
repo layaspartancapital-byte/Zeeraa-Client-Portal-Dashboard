@@ -123,6 +123,14 @@
   (the trigger holds it). A correction is the next `version` with a `reason`.
   Its figures come from `channelMonthActuals` in core, which the live ramp also
   uses — never compute a ramp month anywhere else.
+- **A frozen lead count Salesforce moved restates itself; nothing else does.**
+  Every freeze and correction of channel figures records the month's leads in
+  `baseline_leads` (0047, append-only). The deploy check lets a lead or MQL
+  difference through only when every lead that moved was merged, deleted or
+  edited *in Salesforce* (`leadFigureProofs`), and never writes; the reconcile
+  cron writes it (`autoCorrectLeadFigures`). A lead the code moved, the ramp,
+  deal stages and money still need a person. Never record a month's leads while
+  its counts differ from what is frozen — `recordBaselineLeads` refuses.
 - **The daily reconciliation is the check that our figures are the source's.**
   A change that makes a figure differ from its source on purpose (an
   exclusion, a correction) must make the reconciliation say `explained`, not

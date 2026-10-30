@@ -7,6 +7,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -241,5 +242,42 @@ export const baselineSnapshots = pgTable(
   },
   (t) => [
     uniqueIndex('baseline_snapshots_key').on(t.tenantId, t.month, t.platform, t.metric, t.version),
+  ],
+);
+
+/**
+ * Which leads a frozen month's lead counts were made of (migration 0047).
+ *
+ * Recorded whenever a month's channel figures are frozen or corrected: every
+ * lead created in the month, with its channel, whether it was counted and
+ * qualified, and the Salesforce fields a merge or a source edit changes. Lets a later
+ * difference be traced lead by lead to a Salesforce change — or not.
+ * Append-only for every role; the current recording is the latest
+ * `recorded_at`.
+ */
+export const baselineLeads = pgTable(
+  'baseline_leads',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    month: date('month').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull(),
+    externalId: text('external_id').notNull(),
+    createdOn: date('created_on', { mode: 'string' }).notNull(),
+    channel: text('channel'),
+    counted: boolean('counted').notNull(),
+    qualified: boolean('qualified').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    mergedInto: text('merged_into'),
+    mergedFrom: text('merged_from'),
+    leadSource: text('lead_source'),
+    fieldsHash: text('fields_hash').notNull(),
+    recordedBy: text('recorded_by').notNull(),
+    reason: text('reason').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.month, t.recordedAt, t.externalId] }),
+    index('baseline_leads_external_idx').on(t.tenantId, t.externalId),
   ],
 );

@@ -19,6 +19,7 @@ import { platformView } from '@/lib/platform';
 import { allSources } from '@/lib/all-sources';
 import { comparisonReport } from '@/lib/comparison';
 import { fromBucket, fromContract, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, type Figures } from './figures';
+import { isProvenLeadChange, leadFigureProofs } from '@zeeraa/jobs';
 import { sql } from 'drizzle-orm';
 
 function disagreements(label: string, sources: Record<string, Figures>): string[] {
@@ -90,6 +91,19 @@ describe('the same figure on every screen', () => {
     const problems: string[] = [];
     for (const t of await tenants()) {
       const last = previousMonth(t.today.slice(0, 7));
+      // A frozen month's lead counts that Salesforce has since moved: the
+      // baseline check lets them through until the daily job restates them,
+      // and Comparison, which reads the frozen figure, differs by exactly that.
+      const proofs = await readOnly((tx) => leadFigureProofs(tx, t.session.tenant.id, last));
+      const provenLeadDelta = (source: string): number | null => {
+        let delta = 0;
+        for (const p of proofs.values()) {
+          if (p.metric !== 'stage:lead' || (source !== 'all' && p.platform !== source) || p.frozen === p.now) continue;
+          if (!isProvenLeadChange(p, p.frozen, p.now)) return null;
+          delta += p.now - p.frozen!;
+        }
+        return delta;
+      };
       for (const a of [monthRange(last), { start: `${t.today.slice(0, 7)}-01`, end: t.today }]) {
         const b = monthRange(previousMonth(a.start.slice(0, 7)));
         const mp = await monthlyPerformance(t.session, a, 'last_touch');
@@ -114,7 +128,10 @@ describe('the same figure on every screen', () => {
             expected.cpfd = deals > 0 ? spend / deals : null;
           }
           for (const [k, value] of Object.entries(expected)) {
-            if (!same(row(k), value)) problems.push(`${t.slug} ${a.start}–${a.end} ${source} ${k}: Comparison ${row(k)}, Monthly performance ${value}`);
+            if (same(row(k), value)) continue;
+            const delta = k === 'leads' && a.start.startsWith(last) ? provenLeadDelta(source) : null;
+            if (delta && same((row(k) ?? 0) + delta, value)) continue;
+            problems.push(`${t.slug} ${a.start}–${a.end} ${source} ${k}: Comparison ${row(k)}, Monthly performance ${value}`);
           }
         }
       }

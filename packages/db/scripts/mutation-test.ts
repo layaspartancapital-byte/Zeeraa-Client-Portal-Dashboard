@@ -351,6 +351,17 @@ const MUTATIONS: Mutation[] = [
     sql: 'drop trigger baseline_snapshots_append_only on public.baseline_snapshots',
   },
   {
+    // The lead recording proves a restatement; rewritten, it proves anything.
+    name: 'baseline-leads-append-only-dropped',
+    description: 'Drop the trigger that keeps a baseline lead recording from being edited',
+    sql: 'drop trigger baseline_leads_append_only on public.baseline_leads',
+  },
+  {
+    name: 'drop-baseline-leads-policy',
+    description: 'Drop the tenant_isolation policy on baseline_leads',
+    sql: 'drop policy tenant_isolation on public.baseline_leads',
+  },
+  {
     name: 'job-read-targets-unscoped',
     description: 'Let the ingestion role read every tenant’s engagement targets',
     sql: `drop policy job_read_targets on public.engagement_targets;

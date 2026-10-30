@@ -123,6 +123,53 @@ describe('baseline_snapshots', () => {
   });
 });
 
+describe('baseline_leads (0047)', () => {
+  const recorded = (tenantId: string, externalId = '00QX1') => ({
+    tenantId,
+    month: '2026-08-01',
+    recordedAt: new Date('2026-09-23T16:00:00Z'),
+    externalId,
+    createdOn: '2026-08-12',
+    channel: 'google_ads',
+    counted: true,
+    qualified: false,
+    createdAt: new Date('2026-08-12T15:00:00Z'),
+    fieldsHash: 'x',
+    recordedBy: 'test',
+    reason: 'audited',
+  });
+
+  beforeAll(async () => {
+    await withJobTenant(fx.tenantA, (tx) => tx.insert(schema.baselineLeads).values(recorded(fx.tenantA)));
+    await withJobTenant(fx.tenantB, (tx) => tx.insert(schema.baselineLeads).values(recorded(fx.tenantB)));
+  });
+
+  it('shows a client its own recording and none of anybody else’s', async () => {
+    const rows = await withTenant(clientAdminA(), (tx) => tx.select().from(schema.baselineLeads), app.db);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.tenantId === fx.tenantA)).toBe(true);
+  });
+
+  it('refuses an edit or a delete even from a role that bypasses row level security', async () => {
+    // A recording that could be rewritten would prove whatever it was rewritten to.
+    const edit = await failure(() =>
+      admin.db.update(schema.baselineLeads).set({ counted: false }).where(eq(schema.baselineLeads.tenantId, fx.tenantA)),
+    );
+    expect(edit.message).toMatch(/frozen baseline is not edited/);
+    const remove = await failure(() => admin.db.delete(schema.baselineLeads).where(eq(schema.baselineLeads.tenantId, fx.tenantA)));
+    expect(remove.message).toMatch(/frozen baseline is not edited/);
+  });
+
+  it('refuses a member an insert, and the ingestion role a row in a tenant it does not name', async () => {
+    const member = await failure(() =>
+      withTenant(clientAdminA(), (tx) => tx.insert(schema.baselineLeads).values(recorded(fx.tenantA, '00QX2')), app.db),
+    );
+    expect(member.code).toBe('42501');
+    const job = await failure(() => withJobTenant(fx.tenantA, (tx) => tx.insert(schema.baselineLeads).values(recorded(fx.tenantB, '00QX3'))));
+    expect(job.code).toBe('42501');
+  });
+});
+
 describe('reconciliation_checks', () => {
   it('is written by the ingestion role and read, only in its own tenant, by the application', async () => {
     await withJobTenant(fx.tenantA, (tx) =>

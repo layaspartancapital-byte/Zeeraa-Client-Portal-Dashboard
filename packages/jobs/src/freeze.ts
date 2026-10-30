@@ -14,6 +14,7 @@ import {
   type MonthKey,
 } from '@zeeraa/core';
 import { lastCompletedWatermark } from './sync-runs';
+import { describeLeadMoves, isProvenLeadChange, leadFigureProofs, recordBaselineLeads } from './baseline-leads';
 
 /**
  * Freezing the audited baseline (migration 0032).
@@ -310,6 +311,8 @@ export async function freezeChannelFigures(options: FreezeOptions): Promise<Free
             reason: options.reason,
           })),
         );
+        // Which leads the lead counts were made of, so a later merge can be proven.
+        await recordBaselineLeads(tx, options.tenantId, month, { by: options.by, reason: options.reason, now });
       }
       outcomes.push({
         month,
@@ -424,56 +427,46 @@ export async function correctChannelFigures(options: {
    * the number check reports it as not computed.
    */
   retireMissing?: boolean;
-}): Promise<{ key: string; version: number; before: number | null; after: number | null; retired?: boolean }[]> {
-  const now = options.now ?? new Date();
-  return withJobTenant(options.tenantId, async (tx) => {
-    const context = await freezeContext(tx, options.tenantId, now);
-    const figures = new Map(
-      (await channelFigures(tx, options.tenantId, options.month)).map((f) => [`${f.platform}|${f.metric}`, f.value]),
-    );
-    const rows = await tx
-      .select({
-        platform: schema.baselineSnapshots.platform,
-        metric: schema.baselineSnapshots.metric,
-        version: schema.baselineSnapshots.version,
-        value: schema.baselineSnapshots.value,
-        notMeasuredReason: schema.baselineSnapshots.notMeasuredReason,
-      })
-      .from(schema.baselineSnapshots)
-      .where(and(eq(schema.baselineSnapshots.tenantId, options.tenantId), eq(schema.baselineSnapshots.month, `${options.month}-01`)))
-      .orderBy(sql`${schema.baselineSnapshots.version} desc`);
-    const latest = new Map<string, (typeof rows)[number]>();
-    for (const r of rows) if (!latest.has(`${r.platform}|${r.metric}`)) latest.set(`${r.platform}|${r.metric}`, r);
+}): Promise<ChannelCorrection[]> {
+  return withJobTenant(options.tenantId, (tx) => correctChannelFiguresIn(tx, { ...options, now: options.now ?? new Date() }));
+}
 
-    const out: { key: string; version: number; before: number | null; after: number | null; retired?: boolean }[] = [];
-    for (const [key, current] of latest) {
-      // The ramp's own figures are corrected by `correctBaselineMonth`, from `monthFigures`.
-      if (current.platform === context.platform && (RAMP_METRICS as readonly string[]).includes(current.metric)) continue;
-      if (!figures.has(key)) {
-        if (!options.retireMissing || isRetired(current.notMeasuredReason)) continue;
-        const version = current.version + 1;
-        if (!options.dryRun) {
-          await tx.insert(schema.baselineSnapshots).values({
-            tenantId: options.tenantId,
-            month: `${options.month}-01`,
-            platform: current.platform,
-            metric: current.metric,
-            version,
-            value: null,
-            notMeasuredReason: `${RETIRED_PREFIX}${options.reason}`,
-            frozenAt: now,
-            frozenBy: options.by,
-            reason: options.reason,
-          });
-        }
-        out.push({ key, version, before: current.value === null ? null : Number(current.value), after: null, retired: true });
-        continue;
-      }
-      const after = figures.get(key) ?? null;
-      const before = current.value === null ? null : Number(current.value);
-      // To four places, as the value is stored and as the number check compares it.
-      const same = before === null || after === null ? before === after : Math.abs(Math.round(before * 1e4) - Math.round(after * 1e4)) <= 1;
-      if (same) continue;
+export type ChannelCorrection = { key: string; version: number; before: number | null; after: number | null; retired?: boolean };
+
+async function correctChannelFiguresIn(
+  tx: Database,
+  options: Parameters<typeof correctChannelFigures>[0] & {
+    now: Date;
+    /** Only these `platform|metric` keys; every differing figure when absent. */
+    only?: ReadonlySet<string>;
+  },
+): Promise<ChannelCorrection[]> {
+  const now = options.now;
+  const context = await freezeContext(tx, options.tenantId, now);
+  const figures = new Map(
+    (await channelFigures(tx, options.tenantId, options.month)).map((f) => [`${f.platform}|${f.metric}`, f.value]),
+  );
+  const rows = await tx
+    .select({
+      platform: schema.baselineSnapshots.platform,
+      metric: schema.baselineSnapshots.metric,
+      version: schema.baselineSnapshots.version,
+      value: schema.baselineSnapshots.value,
+      notMeasuredReason: schema.baselineSnapshots.notMeasuredReason,
+    })
+    .from(schema.baselineSnapshots)
+    .where(and(eq(schema.baselineSnapshots.tenantId, options.tenantId), eq(schema.baselineSnapshots.month, `${options.month}-01`)))
+    .orderBy(sql`${schema.baselineSnapshots.version} desc`);
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) if (!latest.has(`${r.platform}|${r.metric}`)) latest.set(`${r.platform}|${r.metric}`, r);
+
+  const out: ChannelCorrection[] = [];
+  for (const [key, current] of latest) {
+    if (options.only && !options.only.has(key)) continue;
+    // The ramp's own figures are corrected by `correctBaselineMonth`, from `monthFigures`.
+    if (current.platform === context.platform && (RAMP_METRICS as readonly string[]).includes(current.metric)) continue;
+    if (!figures.has(key)) {
+      if (!options.retireMissing || isRetired(current.notMeasuredReason)) continue;
       const version = current.version + 1;
       if (!options.dryRun) {
         await tx.insert(schema.baselineSnapshots).values({
@@ -482,15 +475,121 @@ export async function correctChannelFigures(options: {
           platform: current.platform,
           metric: current.metric,
           version,
-          value: after === null ? null : String(after),
-          notMeasuredReason: after === null ? 'Nothing to divide by in this month.' : null,
+          value: null,
+          notMeasuredReason: `${RETIRED_PREFIX}${options.reason}`,
           frozenAt: now,
           frozenBy: options.by,
           reason: options.reason,
         });
       }
-      out.push({ key, version, before, after });
+      out.push({ key, version, before: current.value === null ? null : Number(current.value), after: null, retired: true });
+      continue;
     }
-    return out;
-  });
+    const after = figures.get(key) ?? null;
+    const before = current.value === null ? null : Number(current.value);
+    // To four places, as the value is stored and as the number check compares it.
+    const same = before === null || after === null ? before === after : Math.abs(Math.round(before * 1e4) - Math.round(after * 1e4)) <= 1;
+    if (same) continue;
+    const version = current.version + 1;
+    if (!options.dryRun) {
+      await tx.insert(schema.baselineSnapshots).values({
+        tenantId: options.tenantId,
+        month: `${options.month}-01`,
+        platform: current.platform,
+        metric: current.metric,
+        version,
+        value: after === null ? null : String(after),
+        notMeasuredReason: after === null ? 'Nothing to divide by in this month.' : null,
+        frozenAt: now,
+        frozenBy: options.by,
+        reason: options.reason,
+      });
+    }
+    out.push({ key, version, before, after });
+  }
+  // The leads behind the corrected counts, recorded afresh: refuses, and so
+  // rolls the correction back, if they do not reproduce every frozen count.
+  if (out.length > 0 && !options.dryRun) {
+    await recordBaselineLeads(tx, options.tenantId, options.month, { by: options.by, reason: options.reason, now });
+  }
+  return out;
+}
+
+export type LeadCorrectionOutcome = {
+  month: MonthKey;
+  status: 'corrected' | 'unchanged' | 'deferred';
+  detail: string;
+};
+
+/**
+ * The daily job's half of a Salesforce-proven restatement (30 October 2026).
+ *
+ * For each frozen month: every lead count that now differs from its frozen
+ * value is traced lead by lead (`leadFigureProofs`). When every lead that
+ * moved is proven — Salesforce merged it, deleted it, moved its creation date
+ * or edited its source — the counts are frozen as their next version, with a
+ * reason naming each lead and what changed. When any move is not proven, the
+ * month is left for a person and named. The deploy's number check lets a
+ * proven difference through without writing; this is where it is written,
+ * by the code that is deployed. In one transaction, so a sync cannot move a
+ * lead between the proof and the write.
+ *
+ * Deal stages, spend and the ramp are never restated here.
+ */
+export async function autoCorrectLeadFigures(tenantId: string, now = new Date()): Promise<LeadCorrectionOutcome[]> {
+  const months = await withJobTenant(tenantId, async (tx) =>
+    (
+      await tx
+        .selectDistinct({ month: sql<string>`to_char(${schema.baselineSnapshots.month}, 'YYYY-MM')` })
+        .from(schema.baselineSnapshots)
+        .where(eq(schema.baselineSnapshots.tenantId, tenantId))
+    )
+      .map((r) => r.month)
+      .sort(),
+  );
+  const outcomes: LeadCorrectionOutcome[] = [];
+  for (const month of months) {
+    outcomes.push(
+      await withJobTenant(tenantId, async (tx): Promise<LeadCorrectionOutcome> => {
+        const proofs = await leadFigureProofs(tx, tenantId, month);
+        const computed = new Map((await channelFigures(tx, tenantId, month)).map((f) => [`${f.platform}|${f.metric}`, f.value]));
+        const differing = [...proofs.entries()].filter(
+          ([key, p]) => p.frozen !== null && (computed.get(key) ?? null) !== p.frozen,
+        );
+        if (differing.length === 0) return { month, status: 'unchanged', detail: 'Every frozen lead count agrees.' };
+        const unproven = differing.filter(([key, p]) => !isProvenLeadChange(p, p.frozen, computed.get(key) ?? null));
+        if (unproven.length > 0) {
+          return {
+            month,
+            status: 'deferred',
+            detail: `Not restated: ${unproven
+              .map(([, p]) =>
+                p.recorded === null
+                  ? `${p.platform} ${p.metric} has no lead recording`
+                  : p.recorded !== p.frozen
+                    ? `${p.platform} ${p.metric}'s recording holds ${p.recorded}, frozen ${p.frozen}`
+                    : `${p.platform} ${p.metric} ${p.frozen} → ${computed.get(`${p.platform}|${p.metric}`) ?? 'blank'}: ${describeLeadMoves({
+                        ...p,
+                        moves: p.moves.filter((m) => !m.proven),
+                      })}`,
+              )
+              .join('; ')}.`,
+          };
+        }
+        const reason = `Salesforce changed these leads after the month was frozen (restated by the daily job): ${differing
+          .map(([, p]) => `${p.platform} ${p.metric} ${p.frozen} → ${p.now}: ${describeLeadMoves(p)}`)
+          .join('. ')}.`;
+        const written = await correctChannelFiguresIn(tx, {
+          tenantId,
+          month,
+          by: 'daily-job',
+          reason,
+          now,
+          only: new Set(differing.map(([key]) => key)),
+        });
+        return { month, status: 'corrected', detail: written.map((w) => `${w.key} v${w.version}: ${w.before} → ${w.after}`).join(', ') };
+      }),
+    );
+  }
+  return outcomes;
 }
