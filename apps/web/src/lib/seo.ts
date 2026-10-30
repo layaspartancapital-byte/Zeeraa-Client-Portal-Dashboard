@@ -493,3 +493,57 @@ export async function seoView(session: TenantSession, range: DateRange): Promise
     };
   });
 }
+
+/**
+ * The three SEO figures Comparison shows, for any range (30 October 2026):
+ * the Semrush monthly snapshots and the tracked visibility by day, read once
+ * per data version and cut to each period by the caller. `seoView` reads all
+ * of the SEO page for one range — positions, backlinks, audits, competitors —
+ * and cost Comparison a second per period for three numbers.
+ */
+export type SeoFigures = {
+  connected: boolean;
+  /** The latest thirteen snapshots, newest first, as `seoView` reads them. */
+  months: Pick<SeoMonth, 'month' | 'organicKeywords' | 'positions1to3' | 'positions4to10'>[];
+  /** Every tracked day's visibility, oldest first. */
+  visibility: { day: string; value: number }[];
+};
+
+export async function seoFigures(session: TenantSession): Promise<SeoFigures> {
+  return queryTenant(session, async (tx) => {
+    const tenantId = session.tenant.id;
+    const [connection] = await tx
+      .select({ config: schema.connections.config })
+      .from(schema.connections)
+      .where(and(eq(schema.connections.tenantId, tenantId), eq(schema.connections.platform, 'semrush')))
+      .limit(1);
+    if (!connection) return { connected: false, months: [], visibility: [] };
+    const config = (connection.config ?? {}) as { database?: string; trackingCampaignId?: string | null };
+    const campaignId = config.trackingCampaignId ?? null;
+    const [monthRows, visibility] = await Promise.all([
+      tx
+        .select({
+          month: schema.seoDomainMonths.month,
+          organicKeywords: schema.seoDomainMonths.organicKeywords,
+          positions1to3: schema.seoDomainMonths.positions1to3,
+          positions4to10: schema.seoDomainMonths.positions4to10,
+        })
+        .from(schema.seoDomainMonths)
+        .where(and(eq(schema.seoDomainMonths.tenantId, tenantId), eq(schema.seoDomainMonths.database, config.database ?? 'us')))
+        .orderBy(desc(schema.seoDomainMonths.month))
+        .limit(13),
+      campaignId
+        ? tx
+            .select({ day: schema.seoTrackingVisibility.day, value: schema.seoTrackingVisibility.visibility })
+            .from(schema.seoTrackingVisibility)
+            .where(and(eq(schema.seoTrackingVisibility.tenantId, tenantId), eq(schema.seoTrackingVisibility.campaignId, campaignId)))
+            .orderBy(asc(schema.seoTrackingVisibility.day))
+        : Promise.resolve([] as { day: string; value: string | null }[]),
+    ]);
+    return {
+      connected: true,
+      months: monthRows,
+      visibility: visibility.map((v) => ({ day: v.day, value: Number(v.value) })),
+    };
+  });
+}

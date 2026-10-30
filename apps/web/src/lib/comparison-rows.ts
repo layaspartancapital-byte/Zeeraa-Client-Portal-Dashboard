@@ -366,9 +366,6 @@ export function compareRows(a: PeriodRows, b: PeriodRows): ComparisonRow[] {
     const spec = (ra ?? rb)!;
     const ca = ra?.cell ?? cell(null, 'No figure for this period.');
     const cb = rb?.cell ?? cell(null, 'No figure for this period.');
-    const both = ca.value !== null && cb.value !== null;
-    const direction = improvementDirectionFor(spec.formulaKey);
-    const d = both ? delta(ca.value!, cb.value!, direction ?? 'up') : null;
     return {
       section: spec.section,
       key,
@@ -377,11 +374,25 @@ export function compareRows(a: PeriodRows, b: PeriodRows): ComparisonRow[] {
       formulaKey: spec.formulaKey,
       a: ca,
       b: cb,
-      change: d ? d.absolute : null,
-      pct: d ? d.relative : null,
-      assessment: d ? (direction === null ? 'level' : d.assessment) : null,
+      ...changeBetween(spec.formulaKey, ca.value, cb.value),
     };
   });
+}
+
+/**
+ * A minus B, its proportion of B, and whether that is an improvement — read
+ * from the metric's formula (`improvementDirectionFor`), `level` where it
+ * declares no direction. Nulls where either period has no figure.
+ */
+export function changeBetween(
+  formulaKey: string,
+  a: number | null,
+  b: number | null,
+): Pick<ComparisonRow, 'change' | 'pct' | 'assessment'> {
+  if (a === null || b === null) return { change: null, pct: null, assessment: null };
+  const direction = improvementDirectionFor(formulaKey);
+  const d = delta(a, b, direction ?? 'up');
+  return { change: d.absolute, pct: d.relative, assessment: direction === null ? 'level' : d.assessment };
 }
 
 /** Said above the table when the periods are not the same length; null when they are. */

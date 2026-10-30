@@ -4186,3 +4186,60 @@ where it was not, as every other frozen read does.
 ceiling was the applied end, so a page opened on September could not pick
 October at all. Both fields now stop at today, and a start picked after the
 end carries the end with it.
+
+## §12 — Comparison restyled and made fast (30 October 2026, the client's second pass)
+
+The first redesign read as heavy and loaded slowly. Client decisions:
+
+- **Compact headline cards** — Period A, the change and % change, "vs B" —
+  **with no chart inside**: an exception to "every KPI card carries a mini
+  chart" for this page, whose cards are themselves a comparison of two
+  figures. **Whole dollars** for every amount on the page
+  (`formatWholeCurrency` in core).
+- **Tables, not bar charts**, in the style of Monthly performance's "All
+  platforms": the funnel (stage | A | B | change, each conversion inline and
+  named by the two stages it joins), the costs, and funded by source (deals
+  and volume for each period, the change in volume, an "All sources" row).
+  **One small chart** — funded volume by source, Period A in the palette's
+  blue and Period B the same blue lighter — loaded only when it scrolls into
+  view (`LazyPairedBars`). The call cards stay; every metric stays folded.
+- **One "Export everything"**, no per-card buttons; the workbook has the
+  table and the by-source sheet.
+
+**Speed.** Measured from this codespace against production (round trip
+about 25 ms; Vercel's us-east-1 to Neon's us-east-2 is roughly half that):
+
+| Comparison report | before | after |
+|---|---|---|
+| everything cold | 4.4 s | 1.35 s |
+| a new pair, other reports warm | — | 0.83–1.09 s |
+| the same pair again | 1.0 s | 0.15 s |
+
+And the page, as a local production build (local database, so this is
+render and query work without network): cold first byte 1.07 s → 0.78 s,
+warm 54 → 65 ms (noise), page JavaScript 262 KB → 159 KB.
+
+What changed, in order of effect:
+
+1. **Every query with parameters cost two round trips, one at a time.**
+   Unprepared, postgres.js describes a parameterised statement before it can
+   bind it, and the describes queue on the connection: ten took 410 ms
+   whether issued in a row or together. The runtime connection now prepares
+   statements (`packages/db/src/client.ts`): described once per connection,
+   then pipelined — ten in a transaction went from 556 to 73 ms. Neon's
+   pooler keeps prepared statements across transaction pooling; probed on the
+   production pooler with interleaved transactions, no errors. Ingestion and
+   maintenance are unchanged.
+2. **Both periods in one statement.** `monthlyPerformances` reads every
+   range's figures as subqueries of one statement returning JSON in the
+   shapes the separate reads had, and assembles each exactly as before;
+   `monthlyPerformance` is one range of it. What no range changes — the
+   funnel, stage membership, the last sync — is `performanceContext`, cached
+   per data version. Two periods: 1.5 s → 0.42 s, uncached. The number checks
+   hold the figures to the frozen baseline and the ingestion side.
+3. **The whole Comparison report is cached** like the other pages' reports
+   (`cached-reports.comparisonReport`, keyed on calls).
+4. **SEO read once, not per period.** `seoView` reads the whole SEO page for
+   a range and cost a second per period for three figures; `seoFigures` reads
+   the snapshots and visibility once per data version.
+5. **Calls beside the funnel read**, not after it.

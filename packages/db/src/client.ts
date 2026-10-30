@@ -4,12 +4,12 @@ import * as schema from './schema/index';
 
 export type Database = PostgresJsDatabase<typeof schema>;
 
-function connect(url: string, max: number) {
+function connect(url: string, max: number, prepare = false) {
   return postgres(url, {
     max,
     // Tenant context is set per transaction with `set_config(..., true)`, so a
     // pooled connection can never carry one request's tenant into the next.
-    prepare: false,
+    prepare,
     onnotice: () => {},
   });
 }
@@ -35,7 +35,18 @@ export function getDb(): Database {
           'RLS-constrained role, never as the database owner.',
       );
     }
-    appSql = connect(url, 10);
+    /*
+     * Named prepared statements on the runtime connection (30 October 2026).
+     * Unprepared, the driver describes every parameterised query before it
+     * can bind it: two round trips each, one query at a time on a connection,
+     * so a report's reads queued however they were issued — ten took 556 ms
+     * in a transaction from here. Prepared, a statement is described once per
+     * connection and the rest go out together: 73 ms. Neon's pooler keeps
+     * prepared statements across transaction-mode pooling; probed on the
+     * production pooler with interleaved transactions, no errors. Prepare
+     * changes nothing about tenant context, which stays transaction-local.
+     */
+    appSql = connect(url, 10, true);
     appDb = drizzle(appSql, { schema });
   }
   return appDb;

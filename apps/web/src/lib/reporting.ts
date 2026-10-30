@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
 import { platformLabel } from '@/lib/platform-labels';
 import {
   callsIn,
@@ -338,651 +338,599 @@ export async function monthlyPerformance(
   session: TenantSession,
   range: DateRange,
   model: AttributionModel = 'last_touch',
-  /** From `stageMembership`, when the caller already has it for this data version. */
-  membership?: StageMembership,
+  /** From `performanceContext`, when the caller already has it for this data version. */
+  context?: PerformanceContext,
 ): Promise<MonthlyPerformance> {
+  const [report] = await monthlyPerformances(session, [range], model, context);
+  return report!;
+}
+
+/**
+ * Several ranges at once (30 October 2026): every figure of every range in
+ * one statement, so two periods cost one round trip, not two dozen.
+ *
+ * Unprepared, the driver describes each parameterised query before it can
+ * bind it, one query at a time on a connection; a report of seventeen reads
+ * waited for thirty-four round trips in a row, and Comparison's two periods
+ * for twice that. Here each range's reads are subqueries of one statement,
+ * returned as JSON in the shapes the separate reads had, and assembled
+ * below exactly as before. What does not depend on the range is
+ * `performanceContext`, read once per data version.
+ */
+export async function monthlyPerformances(
+  session: TenantSession,
+  ranges: readonly DateRange[],
+  model: AttributionModel = 'last_touch',
+  context?: PerformanceContext,
+): Promise<MonthlyPerformance[]> {
   return queryTenant(session, async (tx) => {
-    const tenantId = session.tenant.id;
+    const ctx = context ?? (await readPerformanceContext(tx, session.tenant.id));
+    const periods = await readPeriods(tx, session.tenant.id, ranges, model, ctx);
+    return ranges.map((range, i) => assembleMonthlyPerformance(session, range, model, ctx, periods[i]!));
+  });
+}
 
-    const stages = await tx
-      .select()
-      .from(schema.funnelStages)
-      .where(eq(schema.funnelStages.tenantId, tenantId))
-      .orderBy(asc(schema.funnelStages.position));
+/**
+ * What every range's report reads that no range changes: the funnel, its
+ * blocked and computed stages, which deals ever reached each stage, the
+ * windowed sources, the lead-source rule and the last sync. The same until
+ * the data version moves, so cached per data version (`cached-reports.ts`).
+ */
+export type PerformanceContext = Awaited<ReturnType<typeof readPerformanceContext>>;
 
-    const valueStage = stages.find((s) => s.countsValue)?.key ?? null;
+export async function performanceContext(session: TenantSession): Promise<PerformanceContext> {
+  return queryTenant(session, (tx) => readPerformanceContext(tx, session.tenant.id));
+}
 
-    const blockedRows = await tx
+async function readPerformanceContext(tx: Database, tenantId: string) {
+  const [stages, blockedRows, originRows, membership, windowRows, [organicRule], [latestSync]] = await Promise.all([
+    tx.select().from(schema.funnelStages).where(eq(schema.funnelStages.tenantId, tenantId)).orderBy(asc(schema.funnelStages.position)),
+    tx
       .select()
       .from(schema.blockedDependencies)
-      .where(
-        and(
-          eq(schema.blockedDependencies.tenantId, tenantId),
-          eq(schema.blockedDependencies.subjectKind, 'funnel_stage'),
-        ),
-      );
-    const blockedByStage = new Map(blockedRows.map((b) => [b.subjectKey, b]));
-
+      .where(and(eq(schema.blockedDependencies.tenantId, tenantId), eq(schema.blockedDependencies.subjectKind, 'funnel_stage'))),
     // How each stage's timestamps were established. A stage whose events are
     // computed is marked as computed everywhere it renders.
-    const originRows = await tx
+    tx
       .select({ stage: schema.stageEvents.stage, origin: schema.stageEvents.origin })
       .from(schema.stageEvents)
       .where(eq(schema.stageEvents.tenantId, tenantId))
-      .groupBy(schema.stageEvents.stage, schema.stageEvents.origin);
-    const computedStages = new Set(
-      originRows.filter((r) => r.origin === 'computed').map((r) => r.stage),
-    );
-
-    /**
-     * Stages measured at lead grain, counted from `leads` rather than from
-     * stage events.
-     *
-     * A lead that never became an opportunity has no opportunity to attribute
-     * through, so the channel comes from the lead itself (`leadChannel()`). The
-     * population is already inbound — cold outreach is excluded at ingest — so
-     * nothing here re-filters it.
-     */
-    const leadStages = stages.filter(
-      (s) => s.source === 'leads' || s.source === 'qualified_leads',
-    );
-    /** Per lead-grain stage: attributed counts by platform, and the rest. */
-    const leadCounts = new Map<
-      string,
-      { byPlatform: Map<string, number>; unattributed: number }
-    >();
-
-    for (const stage of leadStages) {
-      /*
-       * `qualified_leads` is the same population narrowed to leads that pass
-       * the bar. It is a separate source rather than a filter applied later
-       * because the grain is the point: a qualified lead is a property of a
-       * *lead*, and counting it from `stage_events` would count only the ones
-       * that went on to become opportunities — a different, much smaller
-       * number wearing the name MQL, and the numerator of a rate whose
-       * denominator is every lead.
-       */
-      const rows = await tx
-        .select({
-          clickIdType: leadChannel(),
-          count: sql<number>`count(*)::int`,
-        })
-        .from(schema.leads)
-        .where(
-          and(
-            eq(schema.leads.tenantId, tenantId),
-            leadsCreatedIn(range),
-            ...(stage.source === 'qualified_leads'
-              ? [eq(schema.leads.mqlVerdict, 'qualified')]
-              : []),
-          ),
-        )
-        .groupBy(leadChannel());
-
-      const byPlatformCounts = new Map<string, number>();
-      let unattributed = 0;
-      for (const row of rows) {
-        if (row.clickIdType) {
-          byPlatformCounts.set(
-            row.clickIdType,
-            (byPlatformCounts.get(row.clickIdType) ?? 0) + Number(row.count),
-          );
-        } else {
-          unattributed += Number(row.count);
-        }
-      }
-      leadCounts.set(stage.key, { byPlatform: byPlatformCounts, unattributed });
-    }
-
+      .groupBy(schema.stageEvents.stage, schema.stageEvents.origin),
     /*
-     * The same leads one by one, for the cohort rates: which were qualified,
-     * and which opportunity each became, so a lead-grain cohort can be asked
-     * whether it has reached an opportunity stage since.
+     * Stage membership, for the progression check. Unbounded by window on
+     * purpose: whether a deal reached the previous stage is a fact about the
+     * deal rather than about the window — a deal approved in May and offered
+     * in July did reach approval, and a 90-day window that excludes May must
+     * not report otherwise.
      */
-    // Grouped, with a count: only the combination matters to a cohort, and
-    // the leads that never converted — most of them — collapse to a handful
-    // of rows rather than one each. Each is given a key of its own below.
-    const cohortLeadGroups =
-      leadStages.length === 0
-        ? []
-        : await tx
-            .select({
-              channel: leadChannel(),
-              qualified: sql<boolean>`${schema.leads.mqlVerdict} is not distinct from 'qualified'`,
-              opportunity: schema.leads.convertedOpportunityId,
-              count: sql<number>`count(*)::int`,
-            })
-            .from(schema.leads)
-            .where(and(eq(schema.leads.tenantId, tenantId), leadsCreatedIn(range)))
-            .groupBy(sql`1`, sql`2`, schema.leads.convertedOpportunityId);
-    // A lead is only ever a member of a set here, so any key unique within
-    // this call will do; the prefix keeps it apart from opportunity ids.
-    let leadKey = 0;
-    const cohortLeads = cohortLeadGroups.flatMap((g) =>
-      Array.from({ length: Number(g.count) }, () => ({
-        id: `\u0001lead:${(leadKey += 1)}`,
-        channel: g.channel,
-        qualified: g.qualified,
-        opportunity: g.opportunity,
-      })),
-    );
-
-    const spendRows = await tx
-      .select({
-        platform: schema.dailyMetrics.platform,
-        spend: sql<string>`coalesce(sum(${schema.dailyMetrics.spend}), 0)`,
-        impressions: sql<string>`coalesce(sum(${schema.dailyMetrics.impressions}), 0)`,
-        clicks: sql<string>`coalesce(sum(${schema.dailyMetrics.clicks}), 0)`,
-      })
-      .from(schema.dailyMetrics)
-      .where(
-        and(
-          eq(schema.dailyMetrics.tenantId, tenantId),
-          gte(schema.dailyMetrics.date, range.start),
-          lte(schema.dailyMetrics.date, range.end),
-        ),
-      )
-      .groupBy(schema.dailyMetrics.platform);
-
-    // One row per (stage, opportunity, attributed platform). Distinct because a
-    // stage can recur — a deal that funds twice is one deal.
-    // Read as one row per (stage, platform) with its deals joined, and
-    // unpacked here: the same pairs at a third of the bytes.
-    const stageGroups = await tx
-      .select({
-        stage: schema.stageEvents.stage,
-        platform: schema.attribution.platform,
-        ids: sql<string>`string_agg(distinct ${schema.stageEvents.opportunityExternalId}, chr(31))`,
-      })
-      .from(schema.stageEvents)
-      .leftJoin(
-        schema.attribution,
-        and(
-          eq(schema.attribution.tenantId, schema.stageEvents.tenantId),
-          eq(schema.attribution.opportunityExternalId, schema.stageEvents.opportunityExternalId),
-          eq(schema.attribution.model, model),
-        ),
-      )
-      .where(
-        and(
-          eq(schema.stageEvents.tenantId, tenantId),
-          stageEventsIn(range),
-        ),
-      )
-      .groupBy(schema.stageEvents.stage, schema.attribution.platform);
-    const stageRows = stageGroups.flatMap((g) =>
-      g.ids.split(ID_SEPARATOR).map((opportunityExternalId) => ({
-        stage: g.stage,
-        opportunityExternalId,
-        platform: g.platform,
-      })),
-    );
-
-    /*
-     * Stage membership and the last decline per deal, for the progression
-     * check. Read unbounded by window on purpose: whether a deal reached the
-     * previous stage, and whether it was later declined, are facts about the
-     * deal rather than about the window — a deal approved in May and offered in
-     * July did reach approval, and a 90-day window that excludes May must not
-     * report otherwise.
-     */
-    const reached = membership ?? (await readStageMembership(tx, tenantId));
-    const reachedStages = new Map(Object.entries(reached).map(([stage, ids]) => [stage, new Set(ids)]));
-
-    /*
-     * Per event stage, counted in the database: the deals reaching it in the
-     * window, those of them that ever reached the stage before it, and those
-     * declined after their last arrival at it. Three integers per stage where
-     * this read every (stage, deal) pair of the window and every deal's last
-     * decline to count them here (30 October 2026). "After" compares
-     * milliseconds, as the comparison in JavaScript it replaces did.
-     *
-     * A previous stage nobody has ever reached leaves the count at every deal,
-     * as before: there is no population to narrow by.
-     */
-    const progression: MonthlyPerformance['progression'] = {};
-    const eventStages = stages.filter((st) => (st.source ?? 'stage_events') === 'stage_events');
-    if (eventStages.length > 0) {
-      const se = schema.stageEvents;
-      const keys = eventStages.map((st) => st.key);
-      const previousKeys = eventStages.map((_, i) => (i === 0 ? null : (eventStages[i - 1]?.key ?? null)));
-      const rows = await tx.execute<{ stage: string; reached: number; also_previous: number; later_lost: number }>(sql`
-        with p as (
-          select * from unnest(${textArray(keys)}, ${textArray(previousKeys)}) as p(stage, prev)
-        ),
-        r as (
-          select ${se.stage} as stage, ${se.opportunityExternalId} as id, max(${se.occurredAt}) as at
-          from ${se}
-          where ${and(eq(se.tenantId, tenantId), stageEventsIn(range))}
-          group by 1, 2
-        ),
-        m as (
-          select distinct ${se.stage} as stage, ${se.opportunityExternalId} as id
-          from ${se}
-          where ${and(eq(se.tenantId, tenantId), countedStageEvent())}
-        ),
-        d as (
-          select ${se.opportunityExternalId} as id, max(${se.occurredAt}) as at
-          from ${se}
-          where ${and(eq(se.tenantId, tenantId), eq(se.stage, 'declined'))}
-          group by 1
-        )
-        select
-          p.stage,
-          count(r.id)::int as reached,
-          (case
-            when p.prev is null or not exists (select 1 from m where m.stage = p.prev) then count(r.id)
-            else count(r.id) filter (where exists (select 1 from m where m.stage = p.prev and m.id = r.id))
-          end)::int as also_previous,
-          (case
-            when p.stage = 'declined' then 0
-            else count(r.id) filter (where exists (
-              select 1 from d
-              where d.id = r.id and date_trunc('milliseconds', d.at) > date_trunc('milliseconds', r.at)
-            ))
-          end)::int as later_lost
-        from p
-        left join r on r.stage = p.stage
-        group by p.stage, p.prev`);
-      const byStage = new Map(rows.map((r) => [r.stage, r]));
-      for (const [index, stage] of eventStages.entries()) {
-        const row = byStage.get(stage.key);
-        progression[stage.key] = {
-          reached: Number(row?.reached ?? 0),
-          previous: previousKeys[index] ?? null,
-          alsoPrevious: Number(row?.also_previous ?? 0),
-          laterLost: Number(row?.later_lost ?? 0),
-        };
-      }
-    }
-
-    // Funded amount per opportunity, for the value-volume column.
-    const valueIds = valueStage
-      ? [
-          ...new Set(
-            stageRows.filter((r) => r.stage === valueStage).map((r) => r.opportunityExternalId),
-          ),
-        ]
-      : [];
-    const amounts = new Map<string, number>();
-    if (valueIds.length > 0) {
-      const rows = await tx
-        .select({
-          externalId: schema.opportunities.externalId,
-          fundedAmount: schema.opportunities.fundedAmount,
-          amount: schema.opportunities.amount,
-        })
-        .from(schema.opportunities)
-        .where(
-          and(
-            eq(schema.opportunities.tenantId, tenantId),
-            inArray(schema.opportunities.externalId, valueIds),
-          ),
-        );
-      for (const row of rows) {
-        amounts.set(row.externalId, Number(row.fundedAmount ?? row.amount ?? 0));
-      }
-    }
-
-    // The highest offer per deal at the stage before value, for the offered
-    // amount beside the deals reaching it.
-    const offeredStage = stageBeforeValue(stages)?.key ?? null;
-    const offeredIds = offeredStage
-      ? [...new Set(stageRows.filter((r) => r.stage === offeredStage).map((r) => r.opportunityExternalId))]
-      : [];
-    const offers = new Map<string, number>();
-    if (offeredIds.length > 0) {
-      const rows = await tx
-        .select({ externalId: schema.opportunities.externalId, maxOfferAmount: schema.opportunities.maxOfferAmount })
-        .from(schema.opportunities)
-        .where(and(eq(schema.opportunities.tenantId, tenantId), inArray(schema.opportunities.externalId, offeredIds)));
-      for (const row of rows) if (row.maxOfferAmount !== null) offers.set(row.externalId, Number(row.maxOfferAmount));
-    }
-    const offeredOf = (platform: string | null | typeof ANY): OfferedAmount => {
-      const ids = new Set(
-        stageRows
-          .filter((r) => r.stage === offeredStage && (platform === ANY || (r.platform ?? null) === platform))
-          .map((r) => r.opportunityExternalId),
-      );
-      let amount = 0;
-      let deals = 0;
-      for (const id of ids) {
-        const offer = offers.get(id);
-        if (offer === undefined) continue;
-        amount += offer;
-        deals += 1;
-      }
-      return { amount, deals };
-    };
-
+    readStageMembership(tx, tenantId),
     // The window each windowed source can speak for, keyed as `window:*` by
     // `recordSourceWindow`.
-    const windowRows = await tx
+    tx
       .select({ factKey: schema.dataSources.factKey, asOf: schema.dataSources.asOf })
       .from(schema.dataSources)
-      .where(eq(schema.dataSources.tenantId, tenantId));
-    const stageHistoryWindow =
-      windowRows.find((r) => r.factKey === 'window:salesforce:stage_history')?.asOf ?? null;
-
-    /**
-     * The bar's verdicts over the leads created in this window.
-     *
-     * Lead grain on purpose: this is the share of the *population* the bar
-     * could be evaluated against, which is what qualifies the MQL count. The
-     * stage count itself is opportunity grain, and mixing the two would be the
-     * denominator error this codebase keeps guarding against — so they render
-     * as two facts, not as one ratio.
-     */
-    const verdictRows = await tx
-      .select({
-        verdict: schema.leads.mqlVerdict,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.leads)
-      .where(
-        and(
-          eq(schema.leads.tenantId, tenantId),
-          leadsCreatedIn(range),
-        ),
-      )
-      .groupBy(schema.leads.mqlVerdict);
-
-    const [declineRow] = await tx
-      .select({
-        deals: sql<number>`count(distinct ${schema.stageEvents.opportunityExternalId})::int`,
-        events: sql<number>`count(*)::int`,
-      })
-      .from(schema.stageEvents)
-      .where(
-        and(
-          eq(schema.stageEvents.tenantId, tenantId),
-          eq(schema.stageEvents.stage, 'declined'),
-          stageEventsIn(range),
-        ),
-      );
-
-    // The same deals, each placed once: in the month of its first decline in
-    // the window. A deal declined in June and again in August is one deal, and
-    // one bar, rather than a bar in each — which is how the bars came to sum to
-    // 574 under a headline of 394 (24 September 2026).
-    const declineMonths = await tx.execute<{ month: string; deals: number }>(sql`
-      select to_char(first_on, 'YYYY-MM') as month, count(*)::int as deals
-      from (
-        select ${schema.stageEvents.opportunityExternalId}, min(${schema.stageEvents.occurredOn}) as first_on
-        from ${schema.stageEvents}
-        where ${and(
-          eq(schema.stageEvents.tenantId, tenantId),
-          eq(schema.stageEvents.stage, 'declined'),
-          stageEventsIn(range),
-        )}
-        group by 1
-      ) firsts
-      group by 1
-      order by 1`);
-
-    const [topReasonRow] = await tx
-      .select({
-        reason: schema.leads.mqlUndeterminableReason,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.leads)
-      .where(
-        and(
-          eq(schema.leads.tenantId, tenantId),
-          eq(schema.leads.mqlVerdict, 'undeterminable'),
-          leadsCreatedIn(range),
-        ),
-      )
-      .groupBy(schema.leads.mqlUndeterminableReason)
-      .orderBy(sql`count(*) desc`)
-      .limit(1);
-
-    const verdictCount = (key: string) =>
-      Number(verdictRows.find((r) => r.verdict === key)?.count ?? 0);
-    const qualified = verdictCount('qualified');
-    const unqualified = verdictCount('unqualified');
-    const undeterminable = verdictCount('undeterminable');
-    const verdictTotal = verdictRows.reduce((sum, r) => sum + Number(r.count), 0);
-
-    const [organicRule] = await tx
+      .where(eq(schema.dataSources.tenantId, tenantId)),
+    tx
       .select({ value: schema.tenantConfig.value })
       .from(schema.tenantConfig)
       .where(and(eq(schema.tenantConfig.tenantId, tenantId), eq(schema.tenantConfig.key, 'lead_source_rules')))
-      .limit(1);
-
-    const [latestSync] = await tx
+      .limit(1),
+    tx
       .select({ finishedAt: schema.syncRuns.finishedAt })
       .from(schema.syncRuns)
       .where(and(eq(schema.syncRuns.tenantId, tenantId), eq(schema.syncRuns.status, 'succeeded')))
       .orderBy(sql`${schema.syncRuns.finishedAt} desc nulls last`)
-      .limit(1);
+      .limit(1),
+  ]);
+  return { stages, blockedRows, originRows, membership, windowRows, organicRule, latestSync };
+}
 
-    // --- Fold the stage rows into populations -------------------------------
-    // A deal belongs to exactly one bucket per stage: a named channel, or
-    // nobody. There is deliberately no path that puts it in both.
-    const byPlatform = new Map<string, StageCounts>();
-    const unattributedStages: StageCounts = {};
-    const valueDealsByPlatform = new Map<string, Set<string>>();
-    const unattributedValueDeals = new Set<string>();
+/** One range's reads, in the shapes the separate queries returned. */
+type PeriodReads = {
+  /** Leads created in the range by channel, verdict and the opportunity each became. */
+  cohort: { channel: string | null; qualified: boolean; opportunity: string | null; count: number }[];
+  spend: { platform: string; spend: string; impressions: string; clicks: string }[];
+  /** One row per (stage, platform), the deals joined by a unit separator. */
+  stageGroups: { stage: string; platform: string | null; ids: string }[];
+  verdicts: { verdict: string | null; count: number }[];
+  decline: { deals: number; events: number };
+  declineMonths: { month: string; deals: number }[];
+  topReason: { reason: string | null; count: number } | null;
+  progression: { stage: string; reached: number; also_previous: number; later_lost: number }[];
+  amounts: { externalId: string; fundedAmount: string | null; amount: string | null }[];
+  offers: { externalId: string; maxOfferAmount: string | null }[];
+};
 
-    for (const row of stageRows) {
-      const target = row.platform
-        ? (byPlatform.get(row.platform) ?? byPlatform.set(row.platform, {}).get(row.platform)!)
-        : unattributedStages;
-      target[row.stage] = (target[row.stage] ?? 0) + 1;
+/** Every range's reads, as one statement returning one JSON object per range. */
+async function readPeriods(
+  tx: Database,
+  tenantId: string,
+  ranges: readonly DateRange[],
+  model: AttributionModel,
+  ctx: PerformanceContext,
+): Promise<PeriodReads[]> {
+  const L = schema.leads;
+  const SE = schema.stageEvents;
+  const A = schema.attribution;
+  const O = schema.opportunities;
+  const DM = schema.dailyMetrics;
+  const rows = (q: SQL, order: SQL = sql``) => sql`(select coalesce(json_agg(x ${order}), '[]'::json) from (${q}) x)`;
 
-      if (valueStage && row.stage === valueStage) {
-        if (row.platform) {
-          const set = valueDealsByPlatform.get(row.platform) ?? new Set<string>();
-          set.add(row.opportunityExternalId);
-          valueDealsByPlatform.set(row.platform, set);
-        } else {
-          unattributedValueDeals.add(row.opportunityExternalId);
-        }
-      }
-    }
+  const valueStage = ctx.stages.find((s) => s.countsValue)?.key ?? null;
+  const offeredStage = stageBeforeValue(ctx.stages)?.key ?? null;
+  const eventStages = ctx.stages.filter((st) => (st.source ?? 'stage_events') === 'stage_events');
+  const keys = eventStages.map((st) => st.key);
+  const previousKeys = eventStages.map((_, i) => (i === 0 ? null : (eventStages[i - 1]?.key ?? null)));
+  // The deals reaching a stage in the range, as the stage rows count them.
+  const dealsAt = (stage: string, range: DateRange) =>
+    sql`select distinct ${SE.opportunityExternalId} from ${SE} where ${and(eq(SE.tenantId, tenantId), eq(SE.stage, stage), stageEventsIn(range))}`;
 
-    for (const stage of leadStages) {
-      const counts = leadCounts.get(stage.key);
-      if (!counts) continue;
-      for (const [platform, count] of counts.byPlatform) {
-        const target = byPlatform.get(platform) ?? byPlatform.set(platform, {}).get(platform)!;
-        target[stage.key] = count;
-      }
-      unattributedStages[stage.key] = counts.unattributed;
-    }
-
-    /*
-     * Cohorts, per population: the records at each stage in the window, and
-     * whether each has reached every later stage at any time so far. A lead
-     * answers for an opportunity stage through the opportunity it became. The
-     * population is fixed by the earlier stage's record, so a channel's rate
-     * is its own records throughout.
-     */
-    const ALL = '\u0000all';
-    const NONE = '\u0000none';
-    const inWindowBy = new Map<string, Map<string, Set<string>>>();
-    const add = (population: string, stage: string, id: string) => {
-      for (const key of [population, ALL]) {
-        const byStage = inWindowBy.get(key) ?? inWindowBy.set(key, new Map()).get(key)!;
-        (byStage.get(stage) ?? byStage.set(stage, new Set()).get(stage)!).add(id);
-      }
-    };
-    const sourceOf = new Map(stages.map((st) => [st.key, st.source ?? 'stage_events']));
-    // A lead-grain stage is counted from `leads` alone, as its card is: MQL
-    // also has computed stage events, and folding those in counted it twice.
-    for (const row of stageRows) {
-      if (sourceOf.get(row.stage) !== 'stage_events') continue;
-      add(row.platform ?? NONE, row.stage, row.opportunityExternalId);
-    }
-    const leadOpportunity = new Map<string, string | null>();
-    const qualifiedLeads = new Set<string>();
-    for (const lead of cohortLeads) {
-      leadOpportunity.set(lead.id, lead.opportunity);
-      if (lead.qualified) qualifiedLeads.add(lead.id);
-      for (const stage of leadStages) {
-        if (stage.source === 'qualified_leads' && !lead.qualified) continue;
-        add(lead.channel || NONE, stage.key, lead.id);
-      }
-    }
-    const hasReached = (stage: string, id: string) => {
-      const source = sourceOf.get(stage);
-      if (source === 'leads') return leadOpportunity.has(id);
-      if (source === 'qualified_leads') return qualifiedLeads.has(id);
-      const opportunity = leadOpportunity.has(id) ? leadOpportunity.get(id) : id;
-      return opportunity ? (reachedStages.get(stage)?.has(opportunity) ?? false) : false;
-    };
-    const cohortsFor = (population: string) =>
-      stageCohorts(stages, inWindowBy.get(population) ?? new Map(), hasReached);
-
-    const sumAmounts = (ids: Iterable<string>) =>
-      [...ids].reduce((sum, id) => sum + (amounts.get(id) ?? 0), 0);
-
-    // Every platform that has either spend or attributed deals in the window.
-    const platforms = [
-      ...new Set([
-        ...spendRows.map((r) => r.platform),
-        ...byPlatform.keys(),
-        ...[...leadCounts.values()].flatMap((c) => [...c.byPlatform.keys()]),
-      ]),
-    ]
-      // Ad channels first, so they keep the first chart colours whatever
-      // vendors a period happens to have; then the sources with no spend.
-      .sort((a, b) => sourceRank(a) - sourceRank(b) || platformLabel(a).localeCompare(platformLabel(b)));
-
-    const unattributedDealCount = unattributedValueDeals.size;
-
-    const channels: ChannelRow[] = platforms.map((platform) => {
-      const spendRow = spendRows.find((r) => r.platform === platform);
-      const spend = Number(spendRow?.spend ?? 0);
-      const impressions = Number(spendRow?.impressions ?? 0);
-      const clicks = Number(spendRow?.clicks ?? 0);
-      const attributedDeals = valueDealsByPlatform.get(platform)?.size ?? 0;
-      const dealsElsewhere = [...valueDealsByPlatform.entries()]
-        .filter(([key]) => key !== platform)
-        .reduce((sum, [, set]) => sum + set.size, 0);
-
-      const paid = isPaidChannel(platform);
-      const cost = channelCostPerDeal({
-        channelSpend: spend,
-        attributedDeals,
-        unattributedDeals: unattributedDealCount,
-        dealsAttributedElsewhere: dealsElsewhere,
-      });
-      return {
-        kind: 'channel',
-        platform,
-        label: platformLabel(platform),
-        paid,
-        spend,
-        impressions,
-        clicks,
-        ctr: impressions === 0 ? null : clicks / impressions,
-        cpc: clicks === 0 ? null : spend / clicks,
-        stages: byPlatform.get(platform) ?? {},
-        cohorts: cohortsFor(platform),
-        valueVolume: sumAmounts(valueDealsByPlatform.get(platform) ?? []),
-        offered: offeredOf(platform),
-        // An unpaid channel keeps its deal counts and has no cost: a value of
-        // $0 would read as the cheapest channel in the table.
-        costPerDeal: paid ? cost : { ...cost, value: null, plausibleRange: { low: null, high: null } },
-      };
-    });
-
-    const totalSpend = channels.reduce((sum, c) => sum + c.spend, 0);
-    const totalImpressions = channels.reduce((sum, c) => sum + c.impressions, 0);
-    const totalClicks = channels.reduce((sum, c) => sum + c.clicks, 0);
-
-    const totalStages: StageCounts = {};
-    for (const stage of stages) {
-      totalStages[stage.key] =
-        channels.reduce((sum, c) => sum + (c.stages[stage.key] ?? 0), 0) +
-        (unattributedStages[stage.key] ?? 0);
-    }
-
-    return {
-      range,
-      model,
-      stages: stages.map((s) => ({
-        key: s.key,
-        label: s.label,
-        position: s.position,
-        isOptimizationTarget: s.isOptimizationTarget,
-        countsValue: s.countsValue,
-        source: s.source,
-      })),
-      stageStatus: Object.fromEntries(
-        stages.map((stage) => {
-          const block = blockedByStage.get(stage.key);
-          return [
-            stage.key,
-            {
-              key: stage.key,
-              blocked: block
-                ? {
-                    label: block.label,
-                    reason: block.reason,
-                    needed: block.needed,
-                    since: block.blockedSince,
-                  }
-                : null,
-              origin: computedStages.has(stage.key) ? 'computed' : 'observed',
-              // Only the stages with no stamped field of their own are read
-              // from history, so only they carry its horizon.
-              coverage:
-                stageHistoryWindow && HISTORY_SOURCED_STAGES.has(stage.key)
-                  ? { from: stageHistoryWindow, source: 'Salesforce field history' }
-                  : null,
-            } satisfies StageStatus,
-          ];
-        }),
+  const period = (range: DateRange) => sql`json_build_object(
+    'cohort', ${rows(sql`
+      select ${leadChannel()} as channel, ${L.mqlVerdict} is not distinct from 'qualified' as qualified,
+             ${L.convertedOpportunityId} as opportunity, count(*)::int as count
+      from ${L} where ${and(eq(L.tenantId, tenantId), leadsCreatedIn(range))}
+      group by 1, 2, 3`)},
+    'spend', ${rows(sql`
+      select ${DM.platform} as platform, coalesce(sum(${DM.spend}), 0)::text as spend,
+             coalesce(sum(${DM.impressions}), 0)::text as impressions, coalesce(sum(${DM.clicks}), 0)::text as clicks
+      from ${DM} where ${and(eq(DM.tenantId, tenantId), gte(DM.date, range.start), lte(DM.date, range.end))}
+      group by 1`)},
+    'stageGroups', ${rows(sql`
+      select ${SE.stage} as stage, ${A.platform} as platform,
+             string_agg(distinct ${SE.opportunityExternalId}, chr(31)) as ids
+      from ${SE}
+      left join ${A} on ${and(eq(A.tenantId, SE.tenantId), eq(A.opportunityExternalId, SE.opportunityExternalId), eq(A.model, model))}
+      where ${and(eq(SE.tenantId, tenantId), stageEventsIn(range))}
+      group by 1, 2`)},
+    'verdicts', ${rows(sql`
+      select ${L.mqlVerdict} as verdict, count(*)::int as count
+      from ${L} where ${and(eq(L.tenantId, tenantId), leadsCreatedIn(range))}
+      group by 1`)},
+    'decline', (
+      select json_build_object('deals', count(distinct ${SE.opportunityExternalId})::int, 'events', count(*)::int)
+      from ${SE} where ${and(eq(SE.tenantId, tenantId), eq(SE.stage, 'declined'), stageEventsIn(range))}),
+    -- The same deals, each placed once: in the month of its first decline in
+    -- the window. A deal declined in June and again in August is one deal, and
+    -- one bar, rather than a bar in each — which is how the bars came to sum
+    -- to 574 under a headline of 394 (24 September 2026).
+    'declineMonths', ${rows(
+      sql`
+      select to_char(first_on, 'YYYY-MM') as month, count(*)::int as deals
+      from (
+        select ${SE.opportunityExternalId}, min(${SE.occurredOn}) as first_on
+        from ${SE} where ${and(eq(SE.tenantId, tenantId), eq(SE.stage, 'declined'), stageEventsIn(range))}
+        group by 1
+      ) firsts
+      group by 1`,
+      sql`order by x.month`,
+    )},
+    'topReason', (
+      select row_to_json(x) from (
+        select ${L.mqlUndeterminableReason} as reason, count(*)::int as count
+        from ${L} where ${and(eq(L.tenantId, tenantId), eq(L.mqlVerdict, 'undeterminable'), leadsCreatedIn(range))}
+        group by 1 order by count(*) desc limit 1
+      ) x),
+    'progression', ${
+      eventStages.length === 0
+        ? sql`'[]'::json`
+        : rows(sql`
+      with p as (
+        select * from unnest(${textArray(keys)}, ${textArray(previousKeys)}) as p(stage, prev)
       ),
-      valueStageKey: valueStage,
-      channels,
-      unattributed: {
-        kind: 'unattributed',
-        label: 'Direct & other',
-        stages: unattributedStages,
-        cohorts: cohortsFor(NONE),
-        valueVolume: sumAmounts(unattributedValueDeals),
-        offered: offeredOf(null),
-        reason: UNATTRIBUTED_REASON,
-      },
-      total: {
-        kind: 'total',
-        label: 'Total',
-        spend: totalSpend,
-        impressions: totalImpressions,
-        clicks: totalClicks,
-        ctr: totalImpressions === 0 ? null : totalClicks / totalImpressions,
-        cpc: totalClicks === 0 ? null : totalSpend / totalClicks,
-        stages: totalStages,
-        cohorts: cohortsFor(ALL),
-        valueVolume:
-          channels.reduce((sum, c) => sum + c.valueVolume, 0) + sumAmounts(unattributedValueDeals),
-        offered: offeredOf(ANY),
-        costPerDeal: null,
-        costPerDealAbsentBecause: ALL_SOURCES_ELSEWHERE,
-      },
-      organicMeasured: parseLeadSourceRules(organicRule?.value) !== null,
-      dataThrough: latestSync?.finishedAt ?? null,
-      declines: {
-        deals: Number(declineRow?.deals ?? 0),
-        events: Number(declineRow?.events ?? 0),
-        byMonth: declineMonths.map((r) => ({ month: r.month, deals: Number(r.deals) })),
-      },
-      progression,
-      qualification: {
-        total: verdictTotal,
-        qualified,
-        unqualified,
-        undeterminable,
-        unevaluated: verdictTotal - qualified - unqualified - undeterminable,
-        coverage: verdictTotal === 0 ? null : (qualified + unqualified) / verdictTotal,
-        topReason: topReasonRow?.reason ?? null,
-      },
+      r as (
+        select ${SE.stage} as stage, ${SE.opportunityExternalId} as id, max(${SE.occurredAt}) as at
+        from ${SE}
+        where ${and(eq(SE.tenantId, tenantId), stageEventsIn(range))}
+        group by 1, 2
+      ),
+      m as (
+        select distinct ${SE.stage} as stage, ${SE.opportunityExternalId} as id
+        from ${SE}
+        where ${and(eq(SE.tenantId, tenantId), countedStageEvent())}
+      ),
+      d as (
+        select ${SE.opportunityExternalId} as id, max(${SE.occurredAt}) as at
+        from ${SE}
+        where ${and(eq(SE.tenantId, tenantId), eq(SE.stage, 'declined'))}
+        group by 1
+      )
+      select
+        p.stage,
+        count(r.id)::int as reached,
+        (case
+          when p.prev is null or not exists (select 1 from m where m.stage = p.prev) then count(r.id)
+          else count(r.id) filter (where exists (select 1 from m where m.stage = p.prev and m.id = r.id))
+        end)::int as also_previous,
+        (case
+          when p.stage = 'declined' then 0
+          else count(r.id) filter (where exists (
+            select 1 from d
+            where d.id = r.id and date_trunc('milliseconds', d.at) > date_trunc('milliseconds', r.at)
+          ))
+        end)::int as later_lost
+      from p
+      left join r on r.stage = p.stage
+      group by p.stage, p.prev`)
+    },
+    'amounts', ${
+      valueStage
+        ? rows(sql`
+      select ${O.externalId} as "externalId", ${O.fundedAmount}::text as "fundedAmount", ${O.amount}::text as "amount"
+      from ${O}
+      where ${eq(O.tenantId, tenantId)} and ${O.externalId} in (${dealsAt(valueStage, range)})`)
+        : sql`'[]'::json`
+    },
+    'offers', ${
+      offeredStage
+        ? rows(sql`
+      select ${O.externalId} as "externalId", ${O.maxOfferAmount}::text as "maxOfferAmount"
+      from ${O}
+      where ${eq(O.tenantId, tenantId)} and ${O.externalId} in (${dealsAt(offeredStage, range)})`)
+        : sql`'[]'::json`
+    }
+  )`;
+
+  const [row] = await tx.execute<{ periods: PeriodReads[] }>(
+    sql`select json_build_array(${sql.join(ranges.map(period), sql`, `)}) as periods`,
+  );
+  return row!.periods;
+}
+
+/** One range's report from its reads: the arithmetic every screen shares. */
+function assembleMonthlyPerformance(
+  session: TenantSession,
+  range: DateRange,
+  model: AttributionModel,
+  ctx: PerformanceContext,
+  period: PeriodReads,
+): MonthlyPerformance {
+  const { stages, blockedRows, originRows, windowRows, organicRule, latestSync } = ctx;
+  const cohortLeadGroups = period.cohort;
+  const spendRows = period.spend;
+  const verdictRows = period.verdicts;
+  const declineRow = period.decline;
+  const declineMonths = period.declineMonths;
+  const topReasonRow = period.topReason ?? undefined;
+
+  const valueStage = stages.find((s) => s.countsValue)?.key ?? null;
+  const blockedByStage = new Map(blockedRows.map((b) => [b.subjectKey, b]));
+  const computedStages = new Set(originRows.filter((r) => r.origin === 'computed').map((r) => r.stage));
+
+  /**
+   * Stages measured at lead grain, counted from `leads` rather than from
+   * stage events.
+   *
+   * A lead that never became an opportunity has no opportunity to attribute
+   * through, so the channel comes from the lead itself (`leadChannel()`). The
+   * population is already inbound — cold outreach is excluded at ingest — so
+   * nothing here re-filters it.
+   *
+   * `qualified_leads` is the same population narrowed to leads that pass the
+   * bar. It is a separate source rather than a filter applied later because
+   * the grain is the point: a qualified lead is a property of a *lead*, and
+   * counting it from `stage_events` would count only the ones that went on to
+   * become opportunities — a different, much smaller number wearing the name
+   * MQL, and the numerator of a rate whose denominator is every lead.
+   */
+  const leadStages = stages.filter((s) => s.source === 'leads' || s.source === 'qualified_leads');
+  /** Per lead-grain stage: attributed counts by platform, and the rest. */
+  const leadCounts = new Map<string, { byPlatform: Map<string, number>; unattributed: number }>();
+  for (const stage of leadStages) {
+    const byPlatformCounts = new Map<string, number>();
+    let unattributed = 0;
+    for (const g of cohortLeadGroups) {
+      if (stage.source === 'qualified_leads' && !g.qualified) continue;
+      if (g.channel) byPlatformCounts.set(g.channel, (byPlatformCounts.get(g.channel) ?? 0) + Number(g.count));
+      else unattributed += Number(g.count);
+    }
+    leadCounts.set(stage.key, { byPlatform: byPlatformCounts, unattributed });
+  }
+
+  // A lead is only ever a member of a set here, so any key unique within
+  // this call will do; the prefix keeps it apart from opportunity ids.
+  let leadKey = 0;
+  const cohortLeads = (leadStages.length === 0 ? [] : cohortLeadGroups).flatMap((g) =>
+    Array.from({ length: Number(g.count) }, () => ({
+      id: `\u0001lead:${(leadKey += 1)}`,
+      channel: g.channel,
+      qualified: g.qualified,
+      opportunity: g.opportunity,
+    })),
+  );
+
+  const stageRows = period.stageGroups.flatMap((g) =>
+    g.ids.split(ID_SEPARATOR).map((opportunityExternalId) => ({
+      stage: g.stage,
+      opportunityExternalId,
+      platform: g.platform,
+    })),
+  );
+  const reachedStages = new Map(Object.entries(ctx.membership).map(([stage, ids]) => [stage, new Set(ids)]));
+
+  /*
+   * Per event stage, counted in the database: the deals reaching it in the
+   * window, those of them that ever reached the stage before it, and those
+   * declined after their last arrival at it. Three integers per stage where
+   * this read every (stage, deal) pair of the window and every deal's last
+   * decline to count them here (30 October 2026). "After" compares
+   * milliseconds, as the comparison in JavaScript it replaces did.
+   *
+   * A previous stage nobody has ever reached leaves the count at every deal,
+   * as before: there is no population to narrow by.
+   */
+  const progression: MonthlyPerformance['progression'] = {};
+  const eventStages = stages.filter((st) => (st.source ?? 'stage_events') === 'stage_events');
+  const previousKeys = eventStages.map((_, i) => (i === 0 ? null : (eventStages[i - 1]?.key ?? null)));
+  const byStage = new Map(period.progression.map((r) => [r.stage, r]));
+  for (const [index, stage] of eventStages.entries()) {
+    const row = byStage.get(stage.key);
+    progression[stage.key] = {
+      reached: Number(row?.reached ?? 0),
+      previous: previousKeys[index] ?? null,
+      alsoPrevious: Number(row?.also_previous ?? 0),
+      laterLost: Number(row?.later_lost ?? 0),
+    };
+  }
+
+  // Funded amount per opportunity, for the value-volume column; and the
+  // highest offer per deal at the stage before value, for the offered amount
+  // beside the deals reaching it.
+  const amounts = new Map<string, number>();
+  for (const row of period.amounts) amounts.set(row.externalId, Number(row.fundedAmount ?? row.amount ?? 0));
+  const offeredStage = stageBeforeValue(stages)?.key ?? null;
+  const offers = new Map<string, number>();
+  for (const row of period.offers) if (row.maxOfferAmount !== null) offers.set(row.externalId, Number(row.maxOfferAmount));
+  const offeredOf = (platform: string | null | typeof ANY): OfferedAmount => {
+    const ids = new Set(
+      stageRows
+        .filter((r) => r.stage === offeredStage && (platform === ANY || (r.platform ?? null) === platform))
+        .map((r) => r.opportunityExternalId),
+    );
+    let amount = 0;
+    let deals = 0;
+    for (const id of ids) {
+      const offer = offers.get(id);
+      if (offer === undefined) continue;
+      amount += offer;
+      deals += 1;
+    }
+    return { amount, deals };
+  };
+
+  const stageHistoryWindow = windowRows.find((r) => r.factKey === 'window:salesforce:stage_history')?.asOf ?? null;
+
+  const verdictCount = (key: string) => Number(verdictRows.find((r) => r.verdict === key)?.count ?? 0);
+  const qualified = verdictCount('qualified');
+  const unqualified = verdictCount('unqualified');
+  const undeterminable = verdictCount('undeterminable');
+  const verdictTotal = verdictRows.reduce((sum, r) => sum + Number(r.count), 0);
+
+  // --- Fold the stage rows into populations -------------------------------
+  // A deal belongs to exactly one bucket per stage: a named channel, or
+  // nobody. There is deliberately no path that puts it in both.
+  const byPlatform = new Map<string, StageCounts>();
+  const unattributedStages: StageCounts = {};
+  const valueDealsByPlatform = new Map<string, Set<string>>();
+  const unattributedValueDeals = new Set<string>();
+
+  for (const row of stageRows) {
+    const target = row.platform
+      ? (byPlatform.get(row.platform) ?? byPlatform.set(row.platform, {}).get(row.platform)!)
+      : unattributedStages;
+    target[row.stage] = (target[row.stage] ?? 0) + 1;
+
+    if (valueStage && row.stage === valueStage) {
+      if (row.platform) {
+        const set = valueDealsByPlatform.get(row.platform) ?? new Set<string>();
+        set.add(row.opportunityExternalId);
+        valueDealsByPlatform.set(row.platform, set);
+      } else {
+        unattributedValueDeals.add(row.opportunityExternalId);
+      }
+    }
+  }
+
+  for (const stage of leadStages) {
+    const counts = leadCounts.get(stage.key);
+    if (!counts) continue;
+    for (const [platform, count] of counts.byPlatform) {
+      const target = byPlatform.get(platform) ?? byPlatform.set(platform, {}).get(platform)!;
+      target[stage.key] = count;
+    }
+    unattributedStages[stage.key] = counts.unattributed;
+  }
+
+  /*
+   * Cohorts, per population: the records at each stage in the window, and
+   * whether each has reached every later stage at any time so far. A lead
+   * answers for an opportunity stage through the opportunity it became. The
+   * population is fixed by the earlier stage's record, so a channel's rate
+   * is its own records throughout.
+   */
+  const ALL = '\u0000all';
+  const NONE = '\u0000none';
+  const inWindowBy = new Map<string, Map<string, Set<string>>>();
+  const add = (population: string, stage: string, id: string) => {
+    for (const key of [population, ALL]) {
+      const byStage = inWindowBy.get(key) ?? inWindowBy.set(key, new Map()).get(key)!;
+      (byStage.get(stage) ?? byStage.set(stage, new Set()).get(stage)!).add(id);
+    }
+  };
+  const sourceOf = new Map(stages.map((st) => [st.key, st.source ?? 'stage_events']));
+  // A lead-grain stage is counted from `leads` alone, as its card is: MQL
+  // also has computed stage events, and folding those in counted it twice.
+  for (const row of stageRows) {
+    if (sourceOf.get(row.stage) !== 'stage_events') continue;
+    add(row.platform ?? NONE, row.stage, row.opportunityExternalId);
+  }
+  const leadOpportunity = new Map<string, string | null>();
+  const qualifiedLeads = new Set<string>();
+  for (const lead of cohortLeads) {
+    leadOpportunity.set(lead.id, lead.opportunity);
+    if (lead.qualified) qualifiedLeads.add(lead.id);
+    for (const stage of leadStages) {
+      if (stage.source === 'qualified_leads' && !lead.qualified) continue;
+      add(lead.channel || NONE, stage.key, lead.id);
+    }
+  }
+  const hasReached = (stage: string, id: string) => {
+    const source = sourceOf.get(stage);
+    if (source === 'leads') return leadOpportunity.has(id);
+    if (source === 'qualified_leads') return qualifiedLeads.has(id);
+    const opportunity = leadOpportunity.has(id) ? leadOpportunity.get(id) : id;
+    return opportunity ? (reachedStages.get(stage)?.has(opportunity) ?? false) : false;
+  };
+  const cohortsFor = (population: string) =>
+    stageCohorts(stages, inWindowBy.get(population) ?? new Map(), hasReached);
+
+  const sumAmounts = (ids: Iterable<string>) =>
+    [...ids].reduce((sum, id) => sum + (amounts.get(id) ?? 0), 0);
+
+  // Every platform that has either spend or attributed deals in the window.
+  const platforms = [
+    ...new Set([
+      ...spendRows.map((r) => r.platform),
+      ...byPlatform.keys(),
+      ...[...leadCounts.values()].flatMap((c) => [...c.byPlatform.keys()]),
+    ]),
+  ]
+    // Ad channels first, so they keep the first chart colours whatever
+    // vendors a period happens to have; then the sources with no spend.
+    .sort((a, b) => sourceRank(a) - sourceRank(b) || platformLabel(a).localeCompare(platformLabel(b)));
+
+  const unattributedDealCount = unattributedValueDeals.size;
+
+  const channels: ChannelRow[] = platforms.map((platform) => {
+    const spendRow = spendRows.find((r) => r.platform === platform);
+    const spend = Number(spendRow?.spend ?? 0);
+    const impressions = Number(spendRow?.impressions ?? 0);
+    const clicks = Number(spendRow?.clicks ?? 0);
+    const attributedDeals = valueDealsByPlatform.get(platform)?.size ?? 0;
+    const dealsElsewhere = [...valueDealsByPlatform.entries()]
+      .filter(([key]) => key !== platform)
+      .reduce((sum, [, set]) => sum + set.size, 0);
+
+    const paid = isPaidChannel(platform);
+    const cost = channelCostPerDeal({
+      channelSpend: spend,
+      attributedDeals,
+      unattributedDeals: unattributedDealCount,
+      dealsAttributedElsewhere: dealsElsewhere,
+    });
+    return {
+      kind: 'channel',
+      platform,
+      label: platformLabel(platform),
+      paid,
+      spend,
+      impressions,
+      clicks,
+      ctr: impressions === 0 ? null : clicks / impressions,
+      cpc: clicks === 0 ? null : spend / clicks,
+      stages: byPlatform.get(platform) ?? {},
+      cohorts: cohortsFor(platform),
+      valueVolume: sumAmounts(valueDealsByPlatform.get(platform) ?? []),
+      offered: offeredOf(platform),
+      // An unpaid channel keeps its deal counts and has no cost: a value of
+      // $0 would read as the cheapest channel in the table.
+      costPerDeal: paid ? cost : { ...cost, value: null, plausibleRange: { low: null, high: null } },
     };
   });
+
+  const totalSpend = channels.reduce((sum, c) => sum + c.spend, 0);
+  const totalImpressions = channels.reduce((sum, c) => sum + c.impressions, 0);
+  const totalClicks = channels.reduce((sum, c) => sum + c.clicks, 0);
+
+  const totalStages: StageCounts = {};
+  for (const stage of stages) {
+    totalStages[stage.key] =
+      channels.reduce((sum, c) => sum + (c.stages[stage.key] ?? 0), 0) +
+      (unattributedStages[stage.key] ?? 0);
+  }
+
+  return {
+    range,
+    model,
+    stages: stages.map((s) => ({
+      key: s.key,
+      label: s.label,
+      position: s.position,
+      isOptimizationTarget: s.isOptimizationTarget,
+      countsValue: s.countsValue,
+      source: s.source,
+    })),
+    stageStatus: Object.fromEntries(
+      stages.map((stage) => {
+        const block = blockedByStage.get(stage.key);
+        return [
+          stage.key,
+          {
+            key: stage.key,
+            blocked: block
+              ? {
+                  label: block.label,
+                  reason: block.reason,
+                  needed: block.needed,
+                  since: block.blockedSince,
+                }
+              : null,
+            origin: computedStages.has(stage.key) ? 'computed' : 'observed',
+            // Only the stages with no stamped field of their own are read
+            // from history, so only they carry its horizon.
+            coverage:
+              stageHistoryWindow && HISTORY_SOURCED_STAGES.has(stage.key)
+                ? { from: stageHistoryWindow, source: 'Salesforce field history' }
+                : null,
+          } satisfies StageStatus,
+        ];
+      }),
+    ),
+    valueStageKey: valueStage,
+    channels,
+    unattributed: {
+      kind: 'unattributed',
+      label: 'Direct & other',
+      stages: unattributedStages,
+      cohorts: cohortsFor(NONE),
+      valueVolume: sumAmounts(unattributedValueDeals),
+      offered: offeredOf(null),
+      reason: UNATTRIBUTED_REASON,
+    },
+    total: {
+      kind: 'total',
+      label: 'Total',
+      spend: totalSpend,
+      impressions: totalImpressions,
+      clicks: totalClicks,
+      ctr: totalImpressions === 0 ? null : totalClicks / totalImpressions,
+      cpc: totalClicks === 0 ? null : totalSpend / totalClicks,
+      stages: totalStages,
+      cohorts: cohortsFor(ALL),
+      valueVolume:
+        channels.reduce((sum, c) => sum + c.valueVolume, 0) + sumAmounts(unattributedValueDeals),
+      offered: offeredOf(ANY),
+      costPerDeal: null,
+      costPerDealAbsentBecause: ALL_SOURCES_ELSEWHERE,
+    },
+    organicMeasured: parseLeadSourceRules(organicRule?.value) !== null,
+    dataThrough: latestSync?.finishedAt ?? null,
+    declines: {
+      deals: Number(declineRow?.deals ?? 0),
+      events: Number(declineRow?.events ?? 0),
+      byMonth: declineMonths.map((r) => ({ month: r.month, deals: Number(r.deals) })),
+    },
+    progression,
+    qualification: {
+      total: verdictTotal,
+      qualified,
+      unqualified,
+      undeterminable,
+      unevaluated: verdictTotal - qualified - unqualified - undeterminable,
+      coverage: verdictTotal === 0 ? null : (qualified + unqualified) / verdictTotal,
+      topReason: topReasonRow?.reason ?? null,
+    },
+  };
 }
 
 /**

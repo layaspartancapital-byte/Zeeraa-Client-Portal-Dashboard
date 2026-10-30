@@ -70,6 +70,16 @@ that window through `import-aloware-calls` would fill them.
 periods, one source, every KPI with change and % change. See
 `docs/brief-amendments.md`, "§12 — a Comparison page".
 
+**30 October 2026: Comparison restyled and fast.** Compact cards, tables
+(funnel, cost, by source), one lazy chart, one "Export everything", whole
+dollars. The runtime connection prepares statements; `monthlyPerformances`
+reads several ranges in one statement over a cached `performanceContext`;
+the Comparison report is cached; SEO is `seoFigures`. Comparison report
+against production from here: cold 4.4 s → 1.35 s, a new pair ~0.9 s,
+repeat 1.0 s → 0.15 s. See `docs/brief-amendments.md`, "§12 — Comparison
+restyled and made fast". Not yet measured on the deployed site: that needs a
+signed-in load on zeeraa.cloud.
+
 **30 October 2026: Comparison redesigned; date fields reach today.**
 Cards, funnel, costs, by source, calls, and the table folded under "All
 metrics"; every date field on every page now reaches today (the start was

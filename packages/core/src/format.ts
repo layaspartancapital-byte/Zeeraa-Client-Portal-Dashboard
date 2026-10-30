@@ -45,6 +45,15 @@ export function formatTargetCurrency(value: number, currency = 'USD', locale = '
   }).format(Math.round(value));
 }
 
+/**
+ * Whole dollars, whatever the size: the Comparison page's money (30 October
+ * 2026, client decision), where cents on a $26 cost per lead beside a
+ * $34,034 spend read as false precision.
+ */
+export function formatWholeCurrency(value: number, currency = 'USD', locale = 'en-US'): string {
+  return formatTargetCurrency(value, currency, locale);
+}
+
 /** Single figure outside a column context (e.g. the north-star number). */
 export function formatCurrency(value: number, currency = 'USD', locale = 'en-US'): string {
   return currencyFormatterFor([value], currency, locale)(value);

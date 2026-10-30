@@ -4,9 +4,15 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { AXIS, BORDER, ChartTable, Legend, SERIES, TooltipCard, useFirstLoad } from '@/components/charts/chart-kit';
 import { axisFormatter, formatter, type FormatSpec } from '@/components/charts/format-spec';
 
-/** Period A in the lead slot, Period B in a lighter one far from it in every vision. */
-export const PERIOD_A = SERIES[0];
-export const PERIOD_B = SERIES[4];
+/**
+ * Both periods in the palette's soft blue: Period A solid, Period B the same
+ * blue at a third of the fill with a solid edge, so the edge still clears 3:1
+ * and the pair reads as one series then and now — not two heavy colours
+ * (30 October 2026).
+ */
+export const PERIOD_A = SERIES[2];
+export const PERIOD_B = SERIES[2];
+const B_FILL_OPACITY = 0.35;
 
 export type PairedRow = {
   label: string;
@@ -49,7 +55,7 @@ export function PairedBars({
       <Legend
         items={[
           { label: names.a, color: PERIOD_A },
-          { label: names.b, color: PERIOD_B },
+          { label: names.b, color: `${PERIOD_B}59` },
         ]}
       />
       <div className="mt-3" style={{ height }}>
@@ -58,8 +64,9 @@ export function PairedBars({
             data={data}
             layout={horizontal ? 'vertical' : 'horizontal'}
             margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-            barCategoryGap={horizontal ? 10 : '20%'}
+            barCategoryGap={horizontal ? 8 : '20%'}
             barGap={2}
+            barSize={10}
           >
             <CartesianGrid stroke={BORDER} vertical={horizontal} horizontal={!horizontal} />
             {/* Each axis a direct child: a fragment hides it from the library's scan. */}
@@ -93,6 +100,9 @@ export function PairedBars({
             <Bar
               dataKey="b"
               fill={PERIOD_B}
+              fillOpacity={B_FILL_OPACITY}
+              stroke={PERIOD_B}
+              strokeWidth={1}
               isAnimationActive={animate}
               animationDuration={400}
               radius={horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}

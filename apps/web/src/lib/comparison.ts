@@ -1,9 +1,11 @@
 import 'server-only';
 import { contractTarget, isVendorChannel, monthRange, platformLabel, sourceRank, type AttributionModel, type DateRange } from '@zeeraa/core';
 import type { TenantSession } from '@/lib/tenant';
+import type { MonthlyPerformance } from '@/lib/reporting';
 import * as cached from '@/lib/cached-reports';
 import { coverageFor, isUnmeasured, notMeasuredReason } from '@/lib/coverage';
 import {
+  changeBetween,
   compareRows,
   funnelSteps,
   hasAdSpend,
@@ -37,7 +39,14 @@ export type Comparison = {
    * Funded deals and volume per source, each period read exactly as the
    * table reads that source. Only sources with a deal in either period.
    */
-  bySource: { key: string; label: string; deals: [ComparisonCell, ComparisonCell]; volume: [ComparisonCell, ComparisonCell] }[];
+  bySource: {
+    key: string;
+    label: string;
+    deals: [ComparisonCell, ComparisonCell];
+    volume: [ComparisonCell, ComparisonCell];
+    /** Funded volume, A against B. */
+    volumeChange: Pick<ComparisonRow, 'change' | 'pct' | 'assessment'>;
+  }[];
 };
 
 export type PeriodMeta = {
@@ -55,19 +64,23 @@ export function wholeMonth(range: DateRange): string | null {
   return m.start === range.start && m.end === range.end ? month : null;
 }
 
-async function periodInput(
-  session: TenantSession,
+type Shared = {
+  through: Awaited<ReturnType<typeof cached.sourcesThrough>>;
+  frozenAll: Awaited<ReturnType<typeof cached.frozenBaseline>>;
+  ramp: Awaited<ReturnType<typeof cached.engagementRamp>>;
+  metrics: Awaited<ReturnType<typeof cached.loadMetrics>>;
+};
+
+/** One period's inputs, from what was read for both. Pure. */
+function periodInput(
   range: DateRange,
+  mp: MonthlyPerformance,
   source: string,
-  model: AttributionModel,
-): Promise<{ input: PeriodInput; meta: PeriodMeta; channels: string[] }> {
-  const [mp, through, frozenAll, ramp, metrics] = await Promise.all([
-    cached.monthlyPerformance(session, range, model),
-    cached.sourcesThrough(session),
-    cached.frozenBaseline(session),
-    cached.engagementRamp(session),
-    cached.loadMetrics(session),
-  ]);
+  shared: Shared,
+  callsRead: Awaited<ReturnType<typeof cached.callReport>> | null,
+  seoRead: Awaited<ReturnType<typeof cached.seoFigures>> | null,
+): { input: PeriodInput; meta: PeriodMeta; channels: string[] } {
+  const { through, frozenAll, ramp, metrics } = shared;
   const cover = coverageFor(through, range);
   const month = wholeMonth(range);
 
@@ -83,23 +96,18 @@ async function periodInput(
     if (figures.size > 0) frozen = figures;
   }
 
-  const all = source === 'all';
-  const calls = all ? await cached.callReport(session, range, await cached.alowareConnectedThreshold(session)) : null;
+  const calls = callsRead;
   let seo: PeriodInput['seo'] = null;
-  if (all || source === 'organic_search') {
-    const view = await cached.seoView(session, range);
-    if (view.connection) {
-      const endMonth = range.end.slice(0, 7);
-      const snapshot = [...view.months].filter((m) => m.month <= endMonth).sort((x, y) => x.month.localeCompare(y.month)).at(-1) ?? null;
-      const visibility = (view.tracking?.visibility ?? []).filter((v) => v.day >= range.start && v.day <= range.end).at(-1) ?? null;
-      seo = {
-        organicKeywords: snapshot && snapshot.month >= range.start.slice(0, 7) ? snapshot.organicKeywords : null,
-        top10: snapshot && snapshot.month >= range.start.slice(0, 7) ? snapshot.positions1to3 + snapshot.positions4to10 : null,
-        visibility: visibility?.value ?? null,
-      };
-    }
+  if (seoRead?.connected) {
+    const endMonth = range.end.slice(0, 7);
+    const snapshot = [...seoRead.months].filter((m) => m.month <= endMonth).sort((x, y) => x.month.localeCompare(y.month)).at(-1) ?? null;
+    const visibility = seoRead.visibility.filter((v) => v.day >= range.start && v.day <= range.end).at(-1) ?? null;
+    seo = {
+      organicKeywords: snapshot && snapshot.month >= range.start.slice(0, 7) ? snapshot.organicKeywords : null,
+      top10: snapshot && snapshot.month >= range.start.slice(0, 7) ? snapshot.positions1to3 + snapshot.positions4to10 : null,
+      visibility: visibility?.value ?? null,
+    };
   }
-
   const input: PeriodInput = {
     range,
     mp,
@@ -136,10 +144,28 @@ export async function comparisonReport(
   session: TenantSession,
   options: { a: DateRange; b: DateRange; source: string; model: AttributionModel },
 ): Promise<Comparison> {
-  const [a, b] = await Promise.all([
-    periodInput(session, options.a, options.source, options.model),
-    periodInput(session, options.b, options.source, options.model),
+  const all = options.source === 'all';
+  const seoToo = all || options.source === 'organic_search';
+  // Both periods' funnels in one statement; the reads the periods share,
+  // once; calls beside them rather than after, since they wait only on the
+  // connected threshold.
+  const calls = all
+    ? cached
+        .alowareConnectedThreshold(session)
+        .then((threshold) => Promise.all([cached.callReport(session, options.a, threshold), cached.callReport(session, options.b, threshold)]))
+    : Promise.resolve([null, null] as const);
+  const [[mpA, mpB], through, frozenAll, ramp, metrics, seoRead, [callsA, callsB]] = await Promise.all([
+    cached.monthlyPerformances(session, [options.a, options.b], options.model),
+    cached.sourcesThrough(session),
+    cached.frozenBaseline(session),
+    cached.engagementRamp(session),
+    cached.loadMetrics(session),
+    seoToo ? cached.seoFigures(session) : null,
+    calls,
   ]);
+  const shared = { through, frozenAll, ramp, metrics };
+  const a = periodInput(options.a, mpA!, options.source, shared, callsA, seoRead);
+  const b = periodInput(options.b, mpB!, options.source, shared, callsB, seoRead);
   const channels = [...new Set(['google_ads', 'meta', 'organic_search', ...a.channels, ...b.channels])].sort(
     (x, y) => sourceRank(x) - sourceRank(y) || (isVendorChannel(x) ? 1 : 0) - (isVendorChannel(y) ? 1 : 0) || platformLabel(x).localeCompare(platformLabel(y)),
   );
@@ -159,6 +185,7 @@ export async function comparisonReport(
         label: s.label,
         deals: [pick(ra, 'funded_deals'), pick(rb, 'funded_deals')] as [ComparisonCell, ComparisonCell],
         volume: [pick(ra, 'funded_volume'), pick(rb, 'funded_volume')] as [ComparisonCell, ComparisonCell],
+        volumeChange: changeBetween('funded_volume', pick(ra, 'funded_volume').value, pick(rb, 'funded_volume').value),
       };
     })
     .filter((s) => s.deals.some((c) => (c.value ?? 0) > 0));

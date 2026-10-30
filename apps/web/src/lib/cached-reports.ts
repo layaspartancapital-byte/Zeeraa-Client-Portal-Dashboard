@@ -32,19 +32,43 @@ export const alowareConnectedThreshold = cached('alowareConnectedThreshold', das
 export const sourcesThrough = cached('sourcesThrough', coverage.sourcesThrough, 'calls');
 
 /**
- * Which deals have ever reached each stage: the same for every range, so read
- * once per data version and handed to each `monthlyPerformance` (5 calls on
- * one Executive load) rather than read by each.
+ * What every range's report reads that no range changes — the funnel, which
+ * deals ever reached each stage, the last sync — the same for every range, so
+ * read once per data version and handed to each `monthlyPerformance` (5 calls
+ * on one Executive load) rather than read by each.
  */
-const stageMembership = cached('stageMembership', reporting.stageMembership);
+const performanceContext = cached('performanceContext', reporting.performanceContext);
 export async function monthlyPerformance(
   session: tenant.TenantSession,
   range: Parameters<typeof reporting.monthlyPerformance>[1],
   model?: Parameters<typeof reporting.monthlyPerformance>[2],
 ): Promise<reporting.MonthlyPerformance> {
   return cachedReport(session, 'monthlyPerformance', [range, model], async () =>
-    reporting.monthlyPerformance(session, range, model, await stageMembership(session)),
+    reporting.monthlyPerformance(session, range, model, await performanceContext(session)),
   );
+}
+
+/** Several ranges on one transaction (Comparison's two periods), cached as one. */
+export async function monthlyPerformances(
+  session: tenant.TenantSession,
+  ranges: readonly reporting.MonthlyPerformance['range'][],
+  model?: Parameters<typeof reporting.monthlyPerformances>[2],
+): Promise<reporting.MonthlyPerformance[]> {
+  return cachedReport(session, 'monthlyPerformances', [ranges, model], async () => reporting.monthlyPerformances(session, ranges, model, await performanceContext(session)));
+}
+
+/**
+ * The Comparison page's whole report, cached as every other page's reports
+ * are: a reload or a source change that comes back to it costs one lookup.
+ * It reads calls, so it is keyed on the newest delivery. Imported lazily,
+ * since `lib/comparison` reads its inputs from this module.
+ */
+export async function comparisonReport(
+  session: tenant.TenantSession,
+  options: Parameters<typeof import('@/lib/comparison').comparisonReport>[1],
+): Promise<import('@/lib/comparison').Comparison> {
+  const { comparisonReport: report } = await import('@/lib/comparison');
+  return cachedReport(session, 'comparisonReport', [options], () => report(session, options), 'calls');
 }
 
 /**
@@ -76,6 +100,7 @@ export const declineReasonSummary = cached('declineReasonSummary', quality.decli
 export const reportingPlatforms = cached('reportingPlatforms', platforms.reportingPlatforms);
 export const integratingPlatforms = cached('integratingPlatforms', platforms.integratingPlatforms);
 export const seoView = cached('seoView', seo.seoView);
+export const seoFigures = cached('seoFigures', seo.seoFigures);
 /** Keyed on a digest of the images rather than the data version: they change on nobody's sync. */
 export async function tenantLogo(session: tenant.TenantSession) {
   return cachedByDigest(session, 'tenantLogo', await tenant.tenantLogoDigest(session), () => tenant.tenantLogo(session));

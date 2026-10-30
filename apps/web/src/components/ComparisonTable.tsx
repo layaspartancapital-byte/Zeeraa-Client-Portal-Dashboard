@@ -1,7 +1,5 @@
-import { formatCount, formatCurrency, formatDuration, formatRate, formatRangeLabel, formatTargetCurrency, rangeLengthDays } from '@zeeraa/core';
-import { Card, CardHeader } from '@/components/ui/Card';
+import { formatCount, formatDuration, formatRate, formatTargetCurrency, formatWholeCurrency } from '@zeeraa/core';
 import { InfoTip } from '@/components/ui/InfoTip';
-import { ExportButton } from '@/components/export/ExportScope';
 import { toneFor } from '@/components/ui/delta-tone';
 import type { Comparison } from '@/lib/comparison';
 import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comparison-rows';
@@ -16,20 +14,9 @@ import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comp
  * and an arrow, so colour is never the only signal. A rate's change is in
  * percentage points.
  */
-export function ComparisonTable({
-  comparison,
-  currency,
-  bare = false,
-}: {
-  comparison: Comparison;
-  currency: string;
-  /** The table alone, for a card that draws its own header (the folded "All metrics"). */
-  bare?: boolean;
-}) {
+export function ComparisonTable({ comparison, currency }: { comparison: Comparison; currency: string }) {
   const sections = [...new Set(comparison.rows.map((r) => r.section))];
-  const period = (p: Comparison['a'], name: string) =>
-    `${name} · ${formatRangeLabel(p.range)} · ${rangeLengthDays(p.range)} days${p.frozen ? ' · frozen baseline' : ''}`;
-  const table = (
+  return (
     <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
       <table className="w-full min-w-[720px] border-collapse text-[13px]">
         <thead>
@@ -74,23 +61,13 @@ export function ComparisonTable({
       </table>
     </div>
   );
-  if (bare) return table;
-  return (
-    <Card span={12} id="comparison-table">
-      <CardHeader
-        title={comparison.sources.find((s) => s.key === comparison.source)?.label ?? 'All sources'}
-        subtitle={`${period(comparison.a, 'A')}  vs  ${period(comparison.b, 'B')}`}
-        controls={<ExportButton datasets={['comparison']} />}
-      />
-      {table}
-    </Card>
-  );
 }
 
 export function formatValue(value: number, format: ComparisonFormat, currency: string): string {
   switch (format) {
     case 'money':
-      return formatCurrency(value, currency);
+      // Whole dollars on this page (30 October 2026).
+      return formatWholeCurrency(value, currency);
     case 'percent':
       return formatRate(value);
     case 'points':

@@ -231,6 +231,12 @@ commit history and get it wrong.
   rebuilt (`loadMetrics`). `REPORT_CACHE=off` turns it off. The number checks
   call the originals. A section that waits on a slow report streams in its own
   `<Suspense>` with a `SectionSkeleton`.
+- **The runtime connection prepares statements, so a report's reads go out
+  together.** Unprepared, every parameterised query cost two round trips and
+  queued behind the one before (30 October 2026). Issue independent reads
+  with `Promise.all` on one transaction; for several periods, read them as
+  one statement (`monthlyPerformances`). A round trip is ~10 ms from Vercel
+  to Neon — count them.
 - Money is `numeric` in the database and never a float.
 - Workspace packages ship TypeScript source. Relative imports are extensionless
   (Turbopack does not map `.js` specifiers onto `.ts` sources).

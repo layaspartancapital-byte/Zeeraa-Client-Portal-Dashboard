@@ -16,7 +16,7 @@ import { MethodDrawer, MethodNotesForPrint, type MethodNote } from '@/components
 import { PageMeta, TopBar } from '@/components/shell/TopBar';
 import { PrintButton } from '@/components/shell/actions';
 import { ComparisonView } from '@/components/ComparisonView';
-import { comparisonReport } from '@/lib/comparison';
+import { comparisonReport } from '@/lib/cached-reports';
 import { resolvePageRange } from '@/lib/range';
 import { requireTenant } from '@/lib/tenant';
 
