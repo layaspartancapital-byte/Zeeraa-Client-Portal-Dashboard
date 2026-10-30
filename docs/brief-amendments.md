@@ -4250,3 +4250,13 @@ Funnel and Cost (each its own section of the Comparison sheet), and Funded by
 source — and on no headline or call card. Small costs show cents (CPC, cost
 per lead, cost per MQL: the `cents` format); cost per acquisition, cost per
 funded deal and every larger amount stay in whole dollars.
+
+**Periods by name (later the same day, client decision).** Comparison never
+says "A", "B", "Period A" or "Period B" — not in a header, a card, a "based
+on" line, a legend, hover text or an export. A period is its name, from
+`periodName` in core: a whole calendar month is "September"; the current month
+from its first day to today is "October (to date)"; anything else its dates,
+"Oct 1–15" or "Sep 20 – Oct 5"; the year is added outside the current year.
+The pickers are labelled by those names, and the export headers carry the name
+and the dates. `apps/web/test/comparison-period-names.test.ts` reads the
+sources and fails if a letter label returns.

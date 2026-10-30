@@ -70,6 +70,10 @@ that window through `import-aloware-calls` would fill them.
 periods, one source, every KPI with change and % change. See
 `docs/brief-amendments.md`, "§12 — a Comparison page".
 
+**30 October 2026, last: Comparison names its periods** — "September",
+"October (to date)", "Oct 1–15" — never A/B, on screen or in exports
+(`periodName` in core; guarded by `comparison-period-names.test.ts`).
+
 **30 October 2026, last: Comparison defaults and exports.** Period A opens
 on month to date (MTD preset) and B on the previous full month; "Export to
 Excel" on each table (All metrics, Funnel, Cost, Funded by source), none on

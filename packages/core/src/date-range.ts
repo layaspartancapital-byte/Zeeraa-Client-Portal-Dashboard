@@ -335,3 +335,35 @@ export function daySpans(days: readonly string[]): DateRange[] {
   }
   return spans;
 }
+
+/**
+ * A period's name, for a screen that sets two side by side (Comparison, 30
+ * October 2026): never "A" or "B", which say nothing about which days are
+ * meant. A whole calendar month is its name ("September"); the current month
+ * from its first day to today is "October (to date)"; anything else is its
+ * dates ("Oct 1–15", "Sep 20 – Oct 5"). The year is added when the period is
+ * not in the year of `today`.
+ */
+export function periodName(range: DateRange, today: string, locale = 'en-US'): string {
+  const date = (value: string, options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+  const thisYear = today.slice(0, 4);
+  const startYear = range.start.slice(0, 4);
+  const endYear = range.end.slice(0, 4);
+  const elsewhere = startYear !== thisYear || endYear !== thisYear;
+  const month = range.start.slice(0, 7);
+  const whole = monthRange(month);
+  const monthName = date(range.start, { month: 'long', year: startYear !== thisYear ? 'numeric' : undefined });
+
+  if (range.start === whole.start && month === today.slice(0, 7) && range.end === today) return `${monthName} (to date)`;
+  if (range.start === whole.start && range.end === whole.end) return monthName;
+
+  const short = (value: string, withYear: boolean) => date(value, { month: 'short', day: 'numeric', year: withYear ? 'numeric' : undefined });
+  if (range.start === range.end) return short(range.start, elsewhere);
+  if (month === range.end.slice(0, 7)) {
+    // "Oct 1–15", or "Oct 1–15, 2025".
+    return `${short(range.start, false)}–${Number(range.end.slice(8, 10))}${elsewhere ? `, ${endYear}` : ''}`;
+  }
+  if (startYear === endYear) return `${short(range.start, false)} – ${short(range.end, elsewhere)}`;
+  return `${short(range.start, true)} – ${short(range.end, true)}`;
+}

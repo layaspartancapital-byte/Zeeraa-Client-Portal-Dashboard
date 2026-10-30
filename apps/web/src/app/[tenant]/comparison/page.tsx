@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import {
-  formatRangeLabel,
   monthRange,
   previousMonth,
   resolveDateRange,
@@ -61,8 +60,8 @@ export default async function ComparisonPage({
     if (!from && !to && !preset && fallback) return { range: fallback, preset: null as RangePresetKey | null, problem: null };
     return resolveDateRange({ from, to, preset, today, earliest });
   };
-  // By default A is this month to date (the MTD preset, so its pill reads as
-  // chosen) and B the previous full month.
+  // By default the first period is this month to date (the MTD preset, so its
+  // pill reads as chosen) and the second the previous full month.
   const a = query.aFrom || query.aTo || query.aPreset
     ? resolve(query.aFrom, query.aTo, query.aPreset)
     : resolveDateRange({ preset: 'mtd', today, earliest });
@@ -97,8 +96,8 @@ export default async function ComparisonPage({
     {
       heading: 'The two periods',
       body:
-        'Period A and Period B are picked separately; by default A is this month to date and B the previous full month. ' +
-        'Change is A minus B, and % change is that over B.',
+        `The two periods are picked separately; by default this month to date against the previous full month. ` +
+        `Change is ${comparison.names.a} minus ${comparison.names.b}, and % change is that over ${comparison.names.b}.`,
       detail:
         'A count or a total covers its own number of days, so when the periods differ in length the page says so: ' +
         'compare rates and costs first. A rate’s change is in percentage points.',
@@ -141,14 +140,14 @@ export default async function ComparisonPage({
 
       <PageMeta>
         <AutoRefresh />
-        <MethodDrawer notes={notes} title={`Comparison · ${formatRangeLabel(a.range)} vs ${formatRangeLabel(b.range)}`} />
+        <MethodDrawer notes={notes} title={`Comparison · ${comparison.names.a} against ${comparison.names.b}`} />
       </PageMeta>
 
       <Grid>
         <Card span={12} className="gap-4 px-5 py-4">
           <div className="grid min-w-0 gap-4 lg:grid-cols-2">
             <DateRangePicker
-              label="Period A"
+              label={comparison.names.a}
               names={{ from: 'aFrom', to: 'aTo' }}
               range={a.range}
               preset={a.preset}
@@ -159,7 +158,7 @@ export default async function ComparisonPage({
               today={today}
             />
             <DateRangePicker
-              label="Period B"
+              label={comparison.names.b}
               names={{ from: 'bFrom', to: 'bTo' }}
               range={b.range}
               preset={b.preset}

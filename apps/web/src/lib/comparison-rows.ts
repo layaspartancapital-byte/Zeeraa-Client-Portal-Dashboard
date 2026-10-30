@@ -399,10 +399,13 @@ export function changeBetween(
   return { change: d.absolute, pct: d.relative, assessment: direction === null ? 'level' : d.assessment };
 }
 
-/** Said above the table when the periods are not the same length; null when they are. */
-export function lengthNote(a: DateRange, b: DateRange): string | null {
+/**
+ * Said above the table when the periods are not the same length; null when
+ * they are. Each period by its name (`periodName`), never "A" or "B".
+ */
+export function lengthNote(a: DateRange, b: DateRange, names: { a: string; b: string }): string | null {
   const da = rangeLengthDays(a);
   const db = rangeLengthDays(b);
   if (da === db) return null;
-  return `Period A is ${da} days and Period B is ${db}: counts and totals cover different lengths of time, so compare rates and costs first.`;
+  return `${names.a} is ${da} days and ${names.b} is ${db}: counts and totals cover different lengths of time, so compare rates and costs first.`;
 }

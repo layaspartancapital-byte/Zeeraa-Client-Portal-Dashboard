@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRangeLabel,
+  periodName,
   granularityFor,
   isDay,
   matchPreset,
@@ -221,5 +222,31 @@ describe('precedingRange', () => {
     const range = { start: '2026-09-01', end: '2026-09-30' };
     expect(precedingRange(range)).toEqual({ start: '2026-08-02', end: '2026-08-31' });
     expect(rangeLengthDays(precedingRange(range))).toBe(rangeLengthDays(range));
+  });
+});
+
+describe('periodName', () => {
+  const today = '2026-10-30';
+  it('names a whole calendar month by its name', () => {
+    expect(periodName({ start: '2026-09-01', end: '2026-09-30' }, today)).toBe('September');
+  });
+  it('calls the current month from its first day to today "to date"', () => {
+    expect(periodName({ start: '2026-10-01', end: '2026-10-30' }, today)).toBe('October (to date)');
+    expect(periodName({ start: '2026-10-01', end: '2026-10-01' }, '2026-10-01')).toBe('October (to date)');
+  });
+  it('names anything else by its dates', () => {
+    expect(periodName({ start: '2026-10-01', end: '2026-10-15' }, today)).toBe('Oct 1–15');
+    expect(periodName({ start: '2026-09-20', end: '2026-10-05' }, today)).toBe('Sep 20 – Oct 5');
+    expect(periodName({ start: '2026-10-07', end: '2026-10-07' }, today)).toBe('Oct 7');
+  });
+  it('adds the year to a period outside this year', () => {
+    expect(periodName({ start: '2025-09-01', end: '2025-09-30' }, today)).toBe('September 2025');
+    expect(periodName({ start: '2025-10-01', end: '2025-10-15' }, today)).toBe('Oct 1–15, 2025');
+    expect(periodName({ start: '2025-12-20', end: '2026-01-05' }, today)).toBe('Dec 20, 2025 – Jan 5, 2026');
+  });
+  it('never says A or B', () => {
+    for (const range of [{ start: '2026-08-01', end: '2026-08-31' }, { start: '2026-08-03', end: '2026-08-09' }]) {
+      expect(periodName(range, today)).not.toMatch(/\b(A|B|Period)\b/);
+    }
   });
 });

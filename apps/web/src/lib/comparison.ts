@@ -1,5 +1,5 @@
 import 'server-only';
-import { contractTarget, isVendorChannel, monthRange, platformLabel, sourceRank, type AttributionModel, type DateRange } from '@zeeraa/core';
+import { contractTarget, isVendorChannel, monthRange, periodName, platformLabel, sourceRank, tenantDay, type AttributionModel, type DateRange } from '@zeeraa/core';
 import type { TenantSession } from '@/lib/tenant';
 import type { MonthlyPerformance } from '@/lib/reporting';
 import * as cached from '@/lib/cached-reports';
@@ -31,6 +31,11 @@ export type Comparison = {
   rows: ComparisonRow[];
   /** Said above the table when the periods differ in length. */
   lengthNote: string | null;
+  /**
+   * Each period's name — "September", "October (to date)", "Oct 1–15" — the
+   * only way the page and its exports refer to a period, never "A" or "B".
+   */
+  names: { a: string; b: string };
   /** Whether the source has ad spend; without it, no ad or cost figures are drawn. */
   paid: boolean;
   /** The funnel's steps, each naming its rows in `rows`. */
@@ -164,6 +169,8 @@ export async function comparisonReport(
     calls,
   ]);
   const shared = { through, frozenAll, ramp, metrics };
+  const today = tenantDay(new Date(), session.tenant.timezone);
+  const names = { a: periodName(options.a, today), b: periodName(options.b, today) };
   const a = periodInput(options.a, mpA!, options.source, shared, callsA, seoRead);
   const b = periodInput(options.b, mpB!, options.source, shared, callsB, seoRead);
   const channels = [...new Set(['google_ads', 'meta', 'organic_search', ...a.channels, ...b.channels])].sort(
@@ -195,7 +202,8 @@ export async function comparisonReport(
     source: options.source,
     sources,
     rows: compareRows(periodRows(a.input), periodRows(b.input)),
-    lengthNote: lengthNote(options.a, options.b),
+    lengthNote: lengthNote(options.a, options.b, names),
+    names,
     paid: hasAdSpend(options.source),
     funnel: funnelSteps(a.input.mp),
     bySource,

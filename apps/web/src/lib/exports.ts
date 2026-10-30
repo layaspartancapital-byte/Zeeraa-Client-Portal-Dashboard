@@ -700,22 +700,24 @@ async function comparisonSheets(ctx: Ctx, sections?: readonly string[], title?: 
     model: filters.model,
   });
   const label = report.sources.find((s) => s.key === report.source)?.label ?? 'All sources';
+  // Each period by its name and dates, never "A" or "B".
+  const { a, b } = report.names;
   return [
     {
       name: `Comparison · ${title ?? label}`,
       columns: [
         { header: 'Section', type: 'text' },
         { header: 'Metric', type: 'text' },
-        { header: `Period A (${filters.range.start} to ${filters.range.end})`, type: 'number' },
-        { header: 'A target', type: 'money' },
-        { header: 'A based on', type: 'count' },
-        { header: `Period B (${filters.compare.start} to ${filters.compare.end})`, type: 'number' },
-        { header: 'B target', type: 'money' },
-        { header: 'B based on', type: 'count' },
-        { header: 'Change (A − B)', type: 'number' },
+        { header: `${a}, ${filters.range.start} to ${filters.range.end}`, type: 'number' },
+        { header: `${a}: target`, type: 'money' },
+        { header: `${a}: based on`, type: 'count' },
+        { header: `${b}, ${filters.compare.start} to ${filters.compare.end}`, type: 'number' },
+        { header: `${b}: target`, type: 'money' },
+        { header: `${b}: based on`, type: 'count' },
+        { header: `Change (${a} − ${b})`, type: 'number' },
         { header: '% change', type: 'percent' },
-        { header: 'Why no figure (A)', type: 'text' },
-        { header: 'Why no figure (B)', type: 'text' },
+        { header: `Why no figure: ${a}`, type: 'text' },
+        { header: `Why no figure: ${b}`, type: 'text' },
       ],
       rows: report.rows.filter((r) => !sections || sections.includes(r.section)).map((r) => [
         r.section,
@@ -740,17 +742,17 @@ async function comparisonSourceSheets(ctx: Ctx): Promise<XlsxSheet[]> {
   const { filters, session } = ctx;
   if (!filters.compare) return [];
   const report = await comparisonReport(session, { a: filters.range, b: filters.compare, source: 'all', model: filters.model });
-  const a = `${filters.range.start} to ${filters.range.end}`;
-  const b = `${filters.compare.start} to ${filters.compare.end}`;
+  const a = `${report.names.a}, ${filters.range.start} to ${filters.range.end}`;
+  const b = `${report.names.b}, ${filters.compare.start} to ${filters.compare.end}`;
   return [
     {
       name: 'Comparison · funded by source',
       columns: [
         { header: 'Source', type: 'text' },
-        { header: `Funded deals, A (${a})`, type: 'count' },
-        { header: `Funded deals, B (${b})`, type: 'count' },
-        { header: `Funded volume, A (${a})`, type: 'money' },
-        { header: `Funded volume, B (${b})`, type: 'money' },
+        { header: `Funded deals: ${a}`, type: 'count' },
+        { header: `Funded deals: ${b}`, type: 'count' },
+        { header: `Funded volume: ${a}`, type: 'money' },
+        { header: `Funded volume: ${b}`, type: 'money' },
       ],
       rows: report.bySource.map((s) => [s.label, s.deals[0].value, s.deals[1].value, s.volume[0].value, s.volume[1].value]),
     },

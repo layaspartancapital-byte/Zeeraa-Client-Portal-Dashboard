@@ -111,7 +111,10 @@ describe('compareRows', () => {
 
 describe('lengthNote', () => {
   it('says when the periods differ in length, and nothing when they do not', () => {
-    expect(lengthNote({ start: '2026-09-01', end: '2026-09-30' }, { start: '2026-08-01', end: '2026-08-31' })).toMatch(/30 days.*31/);
-    expect(lengthNote({ start: '2026-09-01', end: '2026-09-30' }, { start: '2026-06-01', end: '2026-06-30' })).toBeNull();
+    const names = { a: 'September', b: 'August' };
+    expect(lengthNote({ start: '2026-09-01', end: '2026-09-30' }, { start: '2026-08-01', end: '2026-08-31' }, names)).toBe(
+      'September is 30 days and August is 31: counts and totals cover different lengths of time, so compare rates and costs first.',
+    );
+    expect(lengthNote({ start: '2026-09-01', end: '2026-09-30' }, { start: '2026-06-01', end: '2026-06-30' }, names)).toBeNull();
   });
 });

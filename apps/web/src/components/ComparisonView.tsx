@@ -28,7 +28,10 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
   const row = (key: string) => comparison.rows.find((r) => r.key === key) ?? null;
   const all = comparison.source === 'all';
   const contract = row('funded_volume_contract');
-  const periods = { a: formatRangeLabel(comparison.a.range), b: formatRangeLabel(comparison.b.range) };
+  // Each period by its name ("September", "October (to date)", "Oct 1–15"),
+  // never "A" or "B"; its dates on hover.
+  const names = comparison.names;
+  const periods = { ...names, aDates: formatRangeLabel(comparison.a.range), bDates: formatRangeLabel(comparison.b.range) };
 
   const headline: { key: string; info: string; extra?: ReactNode }[] = [
     ...(comparison.paid ? [{ key: 'spend', info: 'Ad spend across every connected ad platform for the source, in each period.' }] : []),
@@ -38,7 +41,7 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
     {
       key: 'funded_volume',
       info: 'Funded amount on the deals funded in each period.',
-      extra: contract && (contract.a.target || contract.b.target) ? <ContractLine row={contract} currency={currency} /> : undefined,
+      extra: contract && (contract.a.target || contract.b.target) ? <ContractLine row={contract} currency={currency} name={names.a} /> : undefined,
     },
     ...(comparison.paid
       ? [
@@ -69,7 +72,7 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
   return (
     <>
       {cards.map((c, i) => (
-        <CompactKpi key={c.key} row={c.row} info={c.info} currency={currency} span={i < 4 ? 3 : 4} extra={c.extra} />
+        <CompactKpi key={c.key} row={c.row} info={c.info} currency={currency} names={names} span={i < 4 ? 3 : 4} extra={c.extra} />
       ))}
 
       {funnelRows.length > 0 && (
@@ -113,13 +116,17 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
           <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
             <table className="w-full min-w-[620px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
-                  <th scope="col" className="px-5 py-2.5">Source</th>
-                  <th scope="col" className="numeric px-3 py-2.5">Deals A</th>
-                  <th scope="col" className="numeric px-3 py-2.5">Deals B</th>
-                  <th scope="col" className="numeric px-3 py-2.5">Volume A</th>
-                  <th scope="col" className="numeric px-3 py-2.5">Volume B</th>
-                  <th scope="col" className="numeric px-5 py-2.5">Change</th>
+                <tr className="text-left text-[12px] font-semibold text-text-2">
+                  <th scope="col" rowSpan={2} className="border-b border-border px-5 py-2.5 align-bottom">Source</th>
+                  <th scope="colgroup" colSpan={2} className="numeric px-3 pt-2.5">Funded deals</th>
+                  <th scope="colgroup" colSpan={2} className="numeric px-3 pt-2.5">Funded volume</th>
+                  <th scope="col" rowSpan={2} className="numeric border-b border-border px-5 py-2.5 align-bottom">Change</th>
+                </tr>
+                <tr className="border-b border-border text-left text-[12px] font-medium text-text-3">
+                  <th scope="col" className="numeric px-3 pb-2.5" title={periods.aDates}>{names.a}</th>
+                  <th scope="col" className="numeric px-3 pb-2.5" title={periods.bDates}>{names.b}</th>
+                  <th scope="col" className="numeric px-3 pb-2.5" title={periods.aDates}>{names.a}</th>
+                  <th scope="col" className="numeric px-3 pb-2.5" title={periods.bDates}>{names.b}</th>
                 </tr>
               </thead>
               <tbody>
@@ -153,12 +160,12 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
 
       {comparison.bySource.length > 0 && (
         <Card span={4}>
-          <CardHeader title="Funded volume by source" subtitle={`A ${periods.a} · B ${periods.b}`} />
+          <CardHeader title="Funded volume by source" subtitle={`${names.a} against ${names.b}`} />
           <CardBody>
             <LazyPairedBars
               id="comparison-source-volume"
               rows={comparison.bySource.map((s) => ({ label: s.label, a: s.volume[0].value, b: s.volume[1].value }))}
-              names={{ a: 'Period A', b: 'Period B' }}
+              names={names}
               format={{ kind: 'currency', currency }}
               height={36 + comparison.bySource.length * 34}
               layout="horizontal-bars"
@@ -167,12 +174,12 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
         </Card>
       )}
 
-      {all && calls.map((r) => <CompactKpi key={r.key} row={r} currency={currency} span={6} info={callInfo(r.key)} />)}
+      {all && calls.map((r) => <CompactKpi key={r.key} row={r} currency={currency} names={names} span={6} info={callInfo(r.key)} />)}
 
       <Card span={12} id="comparison-table">
         <CardHeader
           title="All metrics"
-          subtitle={`${comparison.rows.length} metrics · ${periodLine(comparison.a, 'A')} vs ${periodLine(comparison.b, 'B')}`}
+          subtitle={`${comparison.rows.length} metrics · ${periodLine(comparison.a, names.a)} against ${periodLine(comparison.b, names.b)}`}
           controls={<ExportButton datasets={['comparison']} />}
         />
         <details className="group border-t border-border">
@@ -188,7 +195,7 @@ export function ComparisonView({ comparison, currency }: { comparison: Compariso
 }
 
 const periodLine = (p: Comparison['a'], name: string) =>
-  `${name} ${formatRangeLabel(p.range)} (${rangeLengthDays(p.range)} days${p.frozen ? ', frozen baseline' : ''})`;
+  `${name} (${rangeLengthDays(p.range)} days${p.frozen ? ', frozen baseline' : ''})`;
 
 const callInfo = (key: string) =>
   key === 'speed'
@@ -202,19 +209,21 @@ function CompactKpi({
   row,
   info,
   currency,
+  names,
   span,
   extra,
 }: {
   row: ComparisonRow;
   info: string;
   currency: string;
+  names: Comparison['names'];
   span: 3 | 4 | 6;
   extra?: ReactNode;
 }) {
   const target = row.a.target ?? row.b.target;
   const sameTarget =
     row.a.target && row.b.target && row.a.target.low === row.b.target.low && row.a.target.high === row.b.target.high;
-  const basis = [basisText(row.a) && `A on ${basisText(row.a)}`, basisText(row.b) && `B on ${basisText(row.b)}`]
+  const basis = [basisText(row.a) && `${basisText(row.a)} in ${names.a}`, basisText(row.b) && `${basisText(row.b)} in ${names.b}`]
     .filter(Boolean)
     .join(' · ');
   return (
@@ -222,6 +231,7 @@ function CompactKpi({
       <p className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
         {row.label}
         <InfoTip label={`How ${row.label} is measured`}>{info}</InfoTip>
+        <span className="ml-auto shrink-0 whitespace-nowrap pl-2 text-[12px] font-normal text-text-3">{names.a}</span>
       </p>
       {row.a.value === null ? (
         <p className="mt-1.5 flex items-center gap-2 text-[24px] font-semibold leading-[1.15] text-text-3">
@@ -234,7 +244,7 @@ function CompactKpi({
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] tabular">
         <Change change={row} currency={currency} />
         <span className="inline-flex items-center gap-1 text-text-3">
-          vs <Figure cell={row.b} format={row.format} currency={currency} />
+          vs <Figure cell={row.b} format={row.format} currency={currency} /> in {names.b}
         </span>
       </p>
       {basis && <p className="mt-1 text-[12px] leading-snug tabular text-text-3">Based on {basis}</p>}
@@ -242,7 +252,7 @@ function CompactKpi({
         <p className="mt-0.5 text-[12px] leading-snug tabular text-text-2">
           {sameTarget || !row.a.target || !row.b.target
             ? targetText(target, currency)
-            : `A ${targetText(row.a.target, currency).toLowerCase()} · B ${targetText(row.b.target, currency).toLowerCase()}`}
+            : `${names.a}: ${targetText(row.a.target, currency).toLowerCase()} · ${names.b}: ${targetText(row.b.target, currency).toLowerCase()}`}
         </p>
       )}
       {extra}
@@ -251,26 +261,34 @@ function CompactKpi({
 }
 
 /** The contract's own volume measure — lead vendors excluded — beside its target. */
-function ContractLine({ row, currency }: { row: ComparisonRow; currency: string }) {
+function ContractLine({ row, currency, name }: { row: ComparisonRow; currency: string; name: string }) {
   const target = row.a.target ?? row.b.target;
   return (
     <p className="mt-0.5 text-[12px] leading-snug tabular text-text-2">
-      Excl. lead vendors <Figure cell={row.a} format="money" currency={currency} />
+      Excl. lead vendors, {name}: <Figure cell={row.a} format="money" currency={currency} />
       {target && <> · {targetText(target, currency).toLowerCase()}</>}
     </p>
   );
 }
 
 /** A table with A, B and the change, styled as Monthly performance's "All platforms". */
-function PairTable({ head, periods, children }: { head: string; periods: { a: string; b: string }; children: ReactNode }) {
+function PairTable({
+  head,
+  periods,
+  children,
+}: {
+  head: string;
+  periods: { a: string; b: string; aDates: string; bDates: string };
+  children: ReactNode;
+}) {
   return (
     <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
       <table className="w-full min-w-[340px] border-collapse text-[13px]">
         <thead>
           <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
             <th scope="col" className="px-5 py-2.5">{head}</th>
-            <th scope="col" className="numeric px-3 py-2.5" title={periods.a}>A</th>
-            <th scope="col" className="numeric px-3 py-2.5" title={periods.b}>B</th>
+            <th scope="col" className="numeric px-3 py-2.5" title={periods.aDates}>{periods.a}</th>
+            <th scope="col" className="numeric px-3 py-2.5" title={periods.bDates}>{periods.b}</th>
             <th scope="col" className="numeric px-5 py-2.5">Change</th>
           </tr>
         </thead>

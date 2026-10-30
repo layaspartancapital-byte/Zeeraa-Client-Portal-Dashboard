@@ -5,7 +5,7 @@ import type { Comparison } from '@/lib/comparison';
 import type { ComparisonCell, ComparisonFormat, ComparisonRow } from '@/lib/comparison-rows';
 
 /**
- * The Comparison table: every KPI as a row, Period A beside Period B, the
+ * The Comparison table: every KPI as a row, each period by its name, the
  * change and the change in per cent (30 October 2026).
  *
  * A figure a source does not have is "—" with its reason on hover, never 0.
@@ -22,8 +22,8 @@ export function ComparisonTable({ comparison, currency }: { comparison: Comparis
         <thead>
           <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
             <th scope="col" className="px-5 py-2.5">Metric</th>
-            <th scope="col" className="numeric px-3 py-2.5">Period A</th>
-            <th scope="col" className="numeric px-3 py-2.5">Period B</th>
+            <th scope="col" className="numeric px-3 py-2.5">{comparison.names.a}</th>
+            <th scope="col" className="numeric px-3 py-2.5">{comparison.names.b}</th>
             <th scope="col" className="numeric px-3 py-2.5">Change</th>
             <th scope="col" className="numeric px-5 py-2.5">% change</th>
           </tr>
