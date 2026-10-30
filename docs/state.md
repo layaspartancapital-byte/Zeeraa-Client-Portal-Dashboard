@@ -16,8 +16,8 @@ card removed from Executive (its figures are on its platform page); one ringed
 deal vs Zeeraa contract target") and Monthly performance's table across
 sources. "Blended" is gone from every screen.
 Direct & other's funded volume was frozen for June–August with the decision
-as the reason. **September is not frozen** (no ramp or channel figures) —
-its baseline point reads live until it is. See `docs/brief-amendments.md`,
+as the reason. September was frozen after its reconciliation came back
+clean (see `docs/brief-amendments.md`, "§7 — September frozen"). See `docs/brief-amendments.md`,
 "§8 — the signed contract governs every target".
 
 **30 October 2026: Neon outage and network transfer.** The Free plan refused

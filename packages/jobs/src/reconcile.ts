@@ -408,7 +408,38 @@ export async function runReconciliation(
                 )
               ).map((r) => r.id),
             );
-            checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections, await derivedIn(stage, w.range)));
+            // A deal at this stage here and not in Salesforce's field, whose
+            // field now holds a later date we also hold: it reached the stage
+            // again, and a field keeps only its latest value (30 October 2026 —
+            // two September offers, approved again in October).
+            const onlyOurs = [...ourIds].filter((id) => !theirIds.has(id));
+            const recurred = new Set<string>();
+            if (field !== 'CreatedDate' && onlyOurs.length > 0) {
+              const current = await context.client.query<Record<string, unknown>>(
+                `SELECT Id, ${field} FROM Opportunity WHERE Id IN (${onlyOurs.map((id) => `'${id.replace(/[^A-Za-z0-9]/g, '')}'`).join(',')})`,
+              );
+              const later = current
+                .map((r) => ({ id: String(r.Id), at: r[field] ? new Date(String(r[field])) : null }))
+                .filter((r): r is { id: string; at: Date } => r.at !== null && r.at.toISOString() >= utcEnd);
+              if (later.length > 0) {
+                const held = await withJobTenant(tenantId, (tx) =>
+                  tx
+                    .select({ id: schema.stageEvents.opportunityExternalId, at: schema.stageEvents.occurredAt })
+                    .from(schema.stageEvents)
+                    .where(
+                      and(
+                        eq(schema.stageEvents.tenantId, tenantId),
+                        eq(schema.stageEvents.stage, stage),
+                        sql`${schema.stageEvents.opportunityExternalId} in (${sql.join(later.map((l) => sql`${l.id}`), sql`, `)})`,
+                      ),
+                    ),
+                );
+                for (const l of later) {
+                  if (held.some((h) => h.id === l.id && h.at.getTime() === l.at.getTime())) recurred.add(l.id);
+                }
+              }
+            }
+            checks.push(classifyIds('salesforce', stage, w.range, ourIds, theirIds, corrections, await derivedIn(stage, w.range), recurred));
           }
 
           // Stages read from field history rather than a field — UW approved
@@ -519,7 +550,7 @@ export async function runReconciliation(
   return results;
 }
 
-function classifyIds(
+export function classifyIds(
   source: string,
   stage: string,
   window: DateRange,
@@ -528,20 +559,24 @@ function classifyIds(
   corrections: { opportunity: string; stage: string; month: string }[],
   /** Deals at this stage only through a `stage_merges` rule. */
   derived: Set<string> = new Set(),
+  /** Deals that reached the stage again later, which a single field cannot show. */
+  recurred: Set<string> = new Set(),
 ): Check {
   const onlyOurs = [...ours].filter((id) => !theirs.has(id));
   const onlyTheirs = [...theirs].filter((id) => !ours.has(id));
   const corrected = new Set(corrections.filter((c) => c.stage === stage).map((c) => c.opportunity));
   // Only ours can be merged: the merge adds a deal, it never removes one.
   const merged = onlyOurs.filter((id) => derived.has(id) && !corrected.has(id));
-  const isExplained = (id: string) => corrected.has(id) || merged.includes(id);
+  const again = onlyOurs.filter((id) => recurred.has(id) && !corrected.has(id) && !merged.includes(id));
+  const isExplained = (id: string) => corrected.has(id) || merged.includes(id) || again.includes(id);
   const unexplained = [...onlyOurs, ...onlyTheirs].filter((id) => !isExplained(id));
   const explained = [...onlyOurs, ...onlyTheirs].filter((id) => corrected.has(id));
   const status: CheckStatus =
-    unexplained.length > 0 ? 'drift' : explained.length + merged.length > 0 ? 'explained' : 'match';
+    unexplained.length > 0 ? 'drift' : explained.length + merged.length + again.length > 0 ? 'explained' : 'match';
   const parts: string[] = [];
   if (explained.length) parts.push(`${explained.length} moved by a recorded correction (${explained.join(', ')})`);
   if (merged.length) parts.push(`${merged.length} approved at their offer (stage merge)`);
+  if (again.length) parts.push(`${again.length} reached it again later; Salesforce keeps only the latest date (${again.join(', ')})`);
   if (onlyTheirs.filter((id) => !corrected.has(id)).length) {
     parts.push(`${onlyTheirs.filter((id) => !corrected.has(id)).length} in Salesforce not counted here`);
   }

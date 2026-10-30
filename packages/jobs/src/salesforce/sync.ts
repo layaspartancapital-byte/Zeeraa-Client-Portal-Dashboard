@@ -22,6 +22,7 @@ import {
 import { qualifyLead, type LeadSourceRules, type QualificationBar } from '@zeeraa/core';
 import { schema, withJobTenant, type Database } from '@zeeraa/db';
 import { resolveCallLeads } from '../aloware/writer';
+import { markLeadsNowExcluded } from './reexclude';
 import {
   closeSyncRun,
   lastSuccessfulWatermark,
@@ -265,6 +266,9 @@ export async function runSalesforceSync(
         leads.map((l) => ({ object: 'lead' as const, externalId: l.externalId, contact: l.contact, phone: l.phone })),
         syncRunId,
       );
+      // A lead modified since the last read that now falls under a rule — a
+      // merge can do it — is never read again by the query above; mark it.
+      await markLeadsNowExcluded(context.client, tx, context.tenantId, exclusion, since);
 
       for (const lead of leads) {
         const q = qualifyLead(

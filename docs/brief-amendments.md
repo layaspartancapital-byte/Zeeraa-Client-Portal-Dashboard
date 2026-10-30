@@ -4036,3 +4036,27 @@ Client decision, the same day as "the signed contract governs every target".
   number checks' "All sources card" source went with it; the contract's
   measures stay held to Monthly performance per month.
 - **The chart** is "Cost per funded deal vs Zeeraa contract target".
+
+## §7 — September frozen; a lead a rule now excludes is marked; a stage reached twice is explained (30 October 2026)
+
+September was due to freeze automatically and had been deferred since 26
+October on two Salesforce differences. Both were traced to the record:
+
+- **A lead that came under an exclusion rule after ingest.** Lead
+  00QVr000012epbdMAA was merged in Salesforce; the merge gave it the earliest
+  record's creation date, 8 September, and left it with no lead source, so it
+  now matches "the cold-list bulk load of 8 September". The sync reads only
+  leads the rules admit, so it never read the lead again and kept counting it.
+  `markLeadsNowExcluded` now runs on every Salesforce sync: leads modified
+  since the last read that now match a rule (or carry no inbound signal) are
+  marked with that rule's key. `reexclude-leads.ts` ran it over every lead:
+  that one lead, in September, was the only one.
+- **Two deals that reached Offer twice.** 006Vr00000raCwzIAE and
+  006Vr00000sV3llIAC were approved in September, closed lost, and approved
+  again in October (Salesforce stage history); the offer-date field keeps only
+  the October date. Our September offers are real. The reconciliation now
+  reads such a difference as `explained` — we hold a later event at exactly
+  the date Salesforce's field holds — rather than drift.
+
+With the reconciliation clean, September's six ramp figures and its channel
+figures were frozen (`freeze-baseline`), with that as the reason.
