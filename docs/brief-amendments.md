@@ -4016,3 +4016,23 @@ program-wide.
   figures.
 - `engagement_targets` (the M1–M8 sheet) stays in the database and is no
   longer read for any target.
+
+## §12 — "Zeeraa contract targets" leads Executive (30 October 2026)
+
+Client decision, the same day as "the signed contract governs every target".
+
+- **One card, first, ringed in chrome ink**: "Zeeraa contract targets", this
+  calendar month — cost per funded deal (target $4,500, verdict, "based on N
+  deals"), cost per acquisition (whole dollars, target $1,000, verdict, "based
+  on N approvals"), funded volume (the month's target: October $100K–$150K,
+  then the ladder; verdict), funded deals (no target) and ad spend (no
+  target). `ContractTargetsCard`, from `contractRows`. It keeps Export to Excel.
+- **Plain labels.** No "(all sources)" or "(all sources except lead
+  vendors)": how each figure is counted — every source; lead vendors out of
+  volume and deals; ad spend only, no vendor costs — is in its ⓘ.
+- **Removed from Executive**: the "Google Ads" card (its figures are on the
+  Google Ads platform page) and the "All sources" card with its period
+  figures and "Against the contract" row, which the new card replaces. The
+  number checks' "All sources card" source went with it; the contract's
+  measures stay held to Monthly performance per month.
+- **The chart** is "Cost per funded deal vs Zeeraa contract target".

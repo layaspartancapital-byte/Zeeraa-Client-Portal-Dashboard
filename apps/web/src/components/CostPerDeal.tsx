@@ -1,6 +1,7 @@
 import {
   formatCount,
   formatCurrency,
+  formatTargetCurrency,
   type ChannelCostPerDeal,
 } from '@zeeraa/core';
 import { InfoTip } from '@/components/ui/InfoTip';
@@ -76,6 +77,7 @@ export function CostPerDealFigure({
   channelLabel,
   explanation,
   noun,
+  whole = false,
   size = 'kpi',
   className = '',
 }: {
@@ -84,6 +86,8 @@ export function CostPerDealFigure({
   channelLabel: string;
   explanation?: string;
   noun?: readonly [string, string];
+  /** Whole dollars, as a monthly target is stated. */
+  whole?: boolean;
   size?: 'kpi' | 'hero';
   className?: string;
 }) {
@@ -103,7 +107,7 @@ export function CostPerDealFigure({
   return (
     <div className={className}>
       <p className={`font-semibold leading-[1.1] tabular text-text ${figure}`}>
-        {formatCurrency(cost.value, currency)}
+        {whole ? formatTargetCurrency(cost.value, currency) : formatCurrency(cost.value, currency)}
       </p>
       <CostPerDealCoverage
         cost={cost}

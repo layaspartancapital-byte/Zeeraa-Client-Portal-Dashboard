@@ -309,7 +309,7 @@ export function buildRampPanels(input: {
       direction,
       missing: AWAITING,
       series: rampSeries(targets, metric, { startMonth: ramp.startMonth, actualFor: () => null, direction }),
-      channel: 'All sources',
+      channel: 'Zeeraa contract',
       basis,
       timeline:
         ramp.startMonth === null
@@ -324,12 +324,13 @@ export function buildRampPanels(input: {
     };
   };
   const contractPanels: Record<ContractMonthMetric, RampPanel> = {
-    costPerFundedDeal: contractPanel('costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal (all sources)`, 'cost_per_funded_deal', money, `Every ad platform's spend ÷ every source's ${deals}`),
-    cpa: contractPanel('cpa', 'Cost per acquisition (all sources)', 'cpa', money, "Every ad platform's spend ÷ every source's approvals"),
-    fundedAmount: contractPanel('fundedAmount', `${valueLabel} volume (all sources except lead vendors)`, 'funded_volume', money, `${valueLabel} volume from every source but lead vendors`),
-    fundedDeals: contractPanel('fundedDeals', `${valueLabel} deals (all sources except lead vendors)`, 'stage_count', { kind: 'projection' }, `${valueLabel} deals from every source but lead vendors`),
-    budget: contractPanel('budget', 'Ad spend (all ad platforms)', 'paid_media_spend', money, "Every ad platform's spend"),
-    approvals: contractPanel('approvals', 'Approvals (all sources)', 'stage_count', { kind: 'projection' }, "Every source's approvals"),
+    // Plain labels: how each is counted is its ⓘ's to say (30 October 2026).
+    costPerFundedDeal: contractPanel('costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal`, 'cost_per_funded_deal', money, `Every ad platform's spend ÷ every source's ${deals}`),
+    cpa: contractPanel('cpa', 'Cost per acquisition', 'cpa', money, "Every ad platform's spend ÷ every source's approvals"),
+    fundedAmount: contractPanel('fundedAmount', `${valueLabel} volume`, 'funded_volume', money, `${valueLabel} volume from every source but lead vendors`),
+    fundedDeals: contractPanel('fundedDeals', `${valueLabel} deals`, 'stage_count', { kind: 'projection' }, `${valueLabel} deals from every source but lead vendors`),
+    budget: contractPanel('budget', 'Ad spend', 'paid_media_spend', money, "Every ad platform's spend"),
+    approvals: contractPanel('approvals', 'Approvals', 'stage_count', { kind: 'projection' }, "Every source's approvals"),
   };
 
   // The ramp channel's own panels carry no target: every target is the contract's.
@@ -386,49 +387,27 @@ export type ScorecardRow = {
   upcoming: { month: string; value: number } | null;
   /** A figure shown without a target or verdict. */
   untargeted?: boolean;
-  /** A cost's basis line, for `CostPerDealFigure`: the noun and the ⓘ sentence. */
-  cost?: { noun: readonly [string, string]; explanation: (spend: string, n: string) => string };
+  /** A cost's basis line, for `CostPerDealFigure`: the noun, the ⓘ sentence, and whether in whole dollars. */
+  cost?: { noun: readonly [string, string]; explanation: (spend: string, n: string) => string; whole?: boolean };
+  /** How the figure is calculated, for the ⓘ beside its label. */
+  info?: string;
 };
 
 type ScorecardInput = { currentMonth: string; elapsed: number; metrics: Metrics; valueLabel: string };
 
-/** The ramp channel's card (Google Ads): its own figures this month, no targets. */
-export function scorecardRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
-  const { currentMonth, valueLabel } = input;
-  const rows: [RampMetricKey, string][] = [
-    ['costPerFundedDeal', `Cost per ${valueLabel.toLowerCase()} deal`],
-    ['cpa', 'CPA'],
-    ['fundedDeals', `${valueLabel} deals`],
-    ['fundedAmount', `${valueLabel} volume`],
-    ['budget', 'Spend'],
-  ];
-  const panelOf = (metric: RampMetricKey) =>
-    [panels.primary, panels.secondary, ...panels.compact].find((p) => p.metric === metric)!;
-  return rows.map(([metric, label]) => ({
-    metric,
-    label,
-    format: panelOf(metric).format,
-    actual: panels.monthActual(metric, currentMonth),
-    target: null,
-    targetHigh: null,
-    verdict: null,
-    upcoming: null,
-    untargeted: true,
-  }));
-}
-
-const CONTRACT_ROWS: { metric: ContractMonthMetric; formulaKey: string; kind: 'rate' | 'count' }[] = [
-  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate' },
-  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate' },
-  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count' },
-  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count' },
+const CONTRACT_ROWS: { metric: ContractMonthMetric; formulaKey: string; kind: 'rate' | 'count'; targeted: boolean }[] = [
+  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate', targeted: true },
+  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate', targeted: true },
+  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count', targeted: true },
+  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count', targeted: false },
+  { metric: 'budget', formulaKey: 'paid_media_spend', kind: 'count', targeted: false },
 ];
 
 /**
- * This month against the contract, on Executive's All sources card: cost per
- * funded deal and cost per acquisition across every source, funded volume
- * across every source but lead vendors, and funded deals beside them with no
- * target — the contract sets volume only.
+ * This month against the contract, Executive's "Zeeraa contract targets"
+ * card: cost per funded deal and cost per acquisition across every source,
+ * funded volume across every source but lead vendors, and funded deals and ad
+ * spend beside them with no target — the contract sets neither.
  */
 export function contractRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
   const { currentMonth, elapsed, valueLabel } = input;
@@ -450,13 +429,21 @@ export function contractRows(panels: RampPanels, input: ScorecardInput): Scoreca
     cpa: {
       noun: ['approval', 'approvals'],
       explanation: (spend, n) => `${spend} of ad spend divided by all ${n} approvals, from every source.`,
+      whole: true,
     },
   };
-  return CONTRACT_ROWS.map(({ metric, formulaKey, kind }) => {
+  const info: Record<string, string> = {
+    costPerFundedDeal: `Every ad platform's spend this month over every ${deal} deal from every source, lead vendors' included.`,
+    cpa: 'Every ad platform’s spend this month over every approval from every source, lead vendors’ included.',
+    fundedAmount: `${valueLabel} volume this month from every source except lead vendors.`,
+    fundedDeals: `${valueLabel} deals this month from every source except lead vendors. The contract sets no target for the count.`,
+    budget: 'Spend on every connected ad platform this month. Ad spend only: lead vendors’ costs are not included.',
+  };
+  return CONTRACT_ROWS.map(({ metric, formulaKey, kind, targeted }) => {
     const panel = c.panels[metric];
     const actual = c.monthActual(metric, currentMonth);
     const target = c.target(metric, currentMonth);
-    const untargeted = metric === 'fundedDeals';
+    const untargeted = !targeted;
     const first = start ? c.target(metric, start) : null;
     return {
       metric,
@@ -468,6 +455,7 @@ export function contractRows(panels: RampPanels, input: ScorecardInput): Scoreca
       upcoming: !untargeted && beforeStart && first ? { month: start!, value: first.low } : null,
       untargeted,
       cost: costs[metric],
+      info: info[metric],
       verdict: untargeted
         ? null
         : scorecardVerdict({

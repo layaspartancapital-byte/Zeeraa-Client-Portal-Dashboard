@@ -28,7 +28,7 @@ describe('the product tour', () => {
   it('has the eight approved steps, in order', () => {
     expect(STEPS.map((s) => `${s.path || '/'} ${s.target}`)).toEqual([
       '/ date-range',
-      '/ scorecard',
+      '/ contract-targets',
       '/ cost-chart',
       '/ freshness',
       '/ how-measured',

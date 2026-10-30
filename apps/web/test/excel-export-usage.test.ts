@@ -19,7 +19,7 @@ const PAGES = [
 
 const CARDS = [
   'components/AllFunded.tsx',
-  'components/AllSourcesCard.tsx',
+  'components/ContractTargetsCard.tsx',
   'components/ExecutiveRamp.tsx',
   'components/EfficiencyTable.tsx',
   'components/RampTable.tsx',

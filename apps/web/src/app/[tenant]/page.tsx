@@ -32,12 +32,11 @@ import { FunnelStages } from '@/components/FunnelStages';
 import { DataQualityCard } from '@/components/DataQualityCard';
 import { EfficiencyTable, type EfficiencyRow } from '@/components/EfficiencyTable';
 import { NeedsAttention, type Finding } from '@/components/NeedsAttention';
-import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
-import { AllSourcesCard } from '@/components/AllSourcesCard';
+import { RampCostChart } from '@/components/ExecutiveRamp';
+import { ContractTargetsCard } from '@/components/ContractTargetsCard';
 import { ExportButton, ExportEverything, ExportScope } from '@/components/export/ExportScope';
-import { allSources } from '@/lib/all-sources';
 import { monthName } from '@/components/RampCard';
-import { buildRampPanels, contractRows, scorecardRows } from '@/lib/ramp-panels';
+import { buildRampPanels, contractRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
 
 import { AllFunded, type FundedSourceRow } from '@/components/AllFunded';
@@ -244,15 +243,7 @@ export default async function ExecutiveBriefing({
     currency,
     currentMonth: periods.currentMonth,
   });
-  const rampPlatform = rampPanels.platform;
-  const rampChannel = rampPanels.channel;
-  const scorecard = scorecardRows(rampPanels, {
-    currentMonth: periods.currentMonth,
-    elapsed: periods.elapsed,
-    metrics,
-    valueLabel,
-  });
-  // This month against the signed contract, program-wide, on All sources.
+  // This month against the signed contract, program-wide: the first card.
   const contractTargetRows = contractRows(rampPanels, {
     currentMonth: periods.currentMonth,
     elapsed: periods.elapsed,
@@ -260,12 +251,10 @@ export default async function ExecutiveBriefing({
     valueLabel,
   });
 
-  // The scorecard is this calendar month whatever range is picked, so its
-  // sources are asked about this month: Google Ads for spend and costs,
-  // Salesforce for the deals and approvals.
-  const scorecardNote =
-    throughNote(cover.of(rampPlatform, periods.monthToDate), rampChannel) +
-    throughNote(cover.of('salesforce', periods.monthToDate), 'Salesforce');
+  // The contract card is this calendar month whatever range is picked, so its
+  // sources are asked about this month: every ad platform and Salesforce.
+  const monthCover = coverageFor(through, periods.monthToDate);
+  const contractNote = throughNote(monthCover.crm, 'Salesforce') + throughNote(monthCover.spend, 'paid media');
 
   /* ----------------------------------------------------------------------- */
   /* Efficiency                                                              */
@@ -501,27 +490,21 @@ export default async function ExecutiveBriefing({
         'compare. A cost always shows its number with how many it was based on.',
     },
     {
-      heading: rampChannel,
+      heading: 'Zeeraa contract targets',
       body:
-        `Each figure is ${rampChannel} alone this month: its spend, and the deals and approvals attributed to it. ` +
-        'No target: every target is the signed contract’s, and the contract’s targets are program-wide, so they ' +
-        'are judged on All sources.',
-    },
-    {
-      heading: 'All sources',
-      body:
-        'The first row follows the picked period: every funded deal from every source, every ad platform’s spend ' +
-        '(lead vendors’ costs are not ingested), and that spend over all deals and all approvals. Below it, this ' +
-        `month against the signed contract${rampPanels.contract.source ? ` (${rampPanels.contract.source})` : ''}: ` +
-        `cost per ${valueLabel.toLowerCase()} deal and cost per acquisition across every source, and ` +
-        `${valueLabel.toLowerCase()} volume across every source except lead vendors.`,
+        `This month against the signed contract${rampPanels.contract.source ? ` (${rampPanels.contract.source})` : ''}, ` +
+        `whatever range is picked. Cost per ${valueLabel.toLowerCase()} deal and cost per acquisition are every ad ` +
+        `platform’s spend over every source’s ${valueLabel.toLowerCase()} deals and approvals; ` +
+        `${valueLabel.toLowerCase()} volume and deals are every source’s except lead vendors’; ad spend is ad ` +
+        'platforms only, with no lead vendor costs.',
       detail:
         'The contract governs every target, and its targets are program-wide (client decision, 30 October 2026); ' +
-        'it sets none for the number of deals. A month in progress is judged against pace for volume and as it ' +
-        'stands for a cost; a month the contract states as a range is on target at its low end.',
+        'it sets none for the number of deals or for spend. A month in progress is judged against pace for volume ' +
+        'and as it stands for a cost; a month the contract states as a range is on target at its low end. ' +
+        `${rampPanels.channel}’s own figures are on its platform page.`,
     },
     {
-      heading: `Cost per ${valueLabel.toLowerCase()} deal (all sources), by month`,
+      heading: `Cost per ${valueLabel.toLowerCase()} deal vs Zeeraa contract target, by month`,
       body:
         ramp.startMonth === null
           ? 'The contract commits a figure for each month of the engagement; until the start month is recorded the curve is drawn on an M1–M8 axis.'
@@ -534,7 +517,7 @@ export default async function ExecutiveBriefing({
     },
     {
       heading: 'CPA',
-      body: `On the ${rampChannel} card, ${rampChannel} spend over the approvals attributed to it; on All sources, every ad platform’s spend over every source’s approvals.`,
+      body: 'Every ad platform’s spend over every source’s approvals this month, lead vendors’ included — cost per acquisition.',
       detail: 'Every month against the contract is on Monthly performance.',
     },
     {
@@ -628,7 +611,19 @@ export default async function ExecutiveBriefing({
       </PageMeta>
 
       <Grid>
-        {/* 0. The whole business's funded deals, before one channel's contract. */}
+        {/* 0. What the engagement is judged on: this month against the contract. */}
+        <ContractTargetsCard
+          rows={contractTargetRows}
+          heading={`${monthName(periods.currentMonth)}${
+            periods.elapsedDays < periods.monthDays
+              ? ` · month to date, ${formatCount(periods.elapsedDays)} of ${formatCount(periods.monthDays)} days`
+              : ''
+          }${rampPanels.contract.source ? ` · ${rampPanels.contract.source}` : ''}${contractNote}`}
+          currency={currency}
+          partial={periods.elapsedDays < periods.monthDays}
+        />
+
+        {/* 1. The whole business's funded deals for the picked period. */}
         <AllFunded
           title={isMonthToDate ? `All ${valueLabel.toLowerCase()} this month` : `All ${valueLabel.toLowerCase()}`}
           periodLabel={`${mtdLabel}${crmNote}`}
@@ -642,39 +637,11 @@ export default async function ExecutiveBriefing({
           notMeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
         />
 
-        {/* 1. The commitment: this month against it, and the one curve a
-            client is judged on. The other curves are on Monthly performance. */}
-        <RampScorecard
-          channel={rampChannel}
-          rows={scorecard}
-          monthLabel={monthName(periods.currentMonth)}
-          elapsedDays={periods.elapsedDays}
-          monthDays={periods.monthDays}
-          currency={currency}
-          note={scorecardNote}
+        {/* The one curve the contract judges, month by month. */}
+        <RampCostChart
+          panel={rampPanels.contract.primary}
+          title={`Cost per ${valueLabel.toLowerCase()} deal vs Zeeraa contract target`}
         />
-        {/* Every source at once for the picked period, and this month against
-            the signed contract, whose targets are program-wide. */}
-        <AllSourcesCard
-          figures={allSources(current)}
-          valueLabel={valueLabel}
-          periodLabel={`${mtdLabel}${crmNote}${spendNote}`}
-          currency={currency}
-          crmUnmeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
-          spendUnmeasured={isUnmeasured(spendCoverage) ? notMeasuredReason(spendCoverage, 'Paid media') : undefined}
-          targets={{
-            rows: contractTargetRows,
-            source: rampPanels.contract.source,
-            heading: `${monthName(periods.currentMonth)}${
-              periods.elapsedDays < periods.monthDays
-                ? ` · month to date, ${formatCount(periods.elapsedDays)} of ${formatCount(periods.monthDays)} days`
-                : ''
-            }${throughNote(cover.of('salesforce', periods.monthToDate), 'Salesforce')}`,
-            currency,
-            partial: periods.elapsedDays < periods.monthDays,
-          }}
-        />
-        <RampCostChart panel={rampPanels.contract.primary} />
 
         {/* 2. The outcome, and the spend that bought it. */}
         <TwoPeriodKpi

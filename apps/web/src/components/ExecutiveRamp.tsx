@@ -1,58 +1,12 @@
 import { formatCount, formatCurrency, type RampTimeline } from '@zeeraa/core';
 import { Card, CardBody, CardHeader, EmptyLine } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { InfoTip } from '@/components/ui/InfoTip';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { RampTimelineChart } from '@/components/charts/RampTimelineChart';
 import { chartPoint, costCoverage, monthName, renderer, targetRenderer, type RampPanel } from '@/components/RampCard';
 import type { ScorecardRow } from '@/lib/ramp-panels';
 import { ExportButton } from '@/components/export/ExportScope';
-
-/**
- * The ramp channel's month (Google Ads): its own figures, and no targets —
- * every target is the signed contract's, program-wide, on the All sources
- * card (30 October 2026).
- *
- * Deliberately bare. No legend, no basis line, no badge stack: every
- * definition is in the page's one "How this is measured" drawer.
- */
-export function RampScorecard({
-  channel,
-  rows,
-  monthLabel,
-  elapsedDays,
-  monthDays,
-  currency,
-  note = '',
-}: {
-  channel: string;
-  rows: ScorecardRow[];
-  /** `Sep 2026`. */
-  monthLabel: string;
-  elapsedDays: number;
-  monthDays: number;
-  currency: string;
-  /** Where a source's last read falls short of today: ` · Salesforce synced through …`. */
-  note?: string;
-}) {
-  const partial = elapsedDays < monthDays;
-  return (
-    <Card span={12} id="ramp-scorecard" dataTour="scorecard">
-      {/* Named for its channel, so its month is never read as the whole business's. */}
-      <CardHeader
-        title={channel}
-        controls={<ExportButton datasets={['ramp']} />}
-        subtitle={`${monthLabel}${
-          partial ? ` · month to date, ${formatCount(elapsedDays)} of ${formatCount(monthDays)} days` : ''
-        }${note}`}
-      />
-      <dl className={SCORE_GRID}>
-        {rows.map((row) => (
-          <ScoreCell key={row.metric} row={row} channel={channel} currency={currency} partial={partial} />
-        ))}
-      </dl>
-    </Card>
-  );
-}
 
 /**
  * The scorecard's cells: one column on a phone, two on a tablet, all of them
@@ -80,7 +34,14 @@ export function ScoreCell({
 
   return (
     <div className="flex min-w-0 flex-col gap-1 bg-surface px-5 py-4">
-      <dt className="text-[13px] font-medium text-text-2">{row.label}</dt>
+      <dt className="flex items-center gap-1.5 text-[13px] font-medium text-text-2">
+        {row.label}
+        {row.info && (
+          <InfoTip label={`How ${row.label.toLowerCase()} is calculated`} align="start">
+            {row.info}
+          </InfoTip>
+        )}
+      </dt>
       <dd className="flex min-w-0 flex-col gap-1">
         {actual.value === null && actual.empty ? (
           <p className="py-1.5 text-[15px] font-medium text-text-3">{actual.reason?.replace(/\.$/, '')}</p>
@@ -99,6 +60,7 @@ export function ScoreCell({
             currency={currency}
             channelLabel={channel}
             noun={row.cost?.noun}
+            whole={row.cost?.whole}
             explanation={
               row.cost
                 ? row.cost.explanation(formatCurrency(actual.cost.channelSpend, currency), formatCount(actual.cost.attributedDeals))
@@ -187,13 +149,13 @@ function Verdict({
  * The one ramp chart on the executive screen: cost per funded deal across
  * every source, its baseline months before Zeeraa, then the contract's target.
  */
-export function RampCostChart({ panel }: { panel: RampPanel }) {
+export function RampCostChart({ panel, title }: { panel: RampPanel; title?: string }) {
   const timeline = panel.timeline;
   const render = renderer(panel);
   return (
     <Card span={12} id="ramp-chart" dataTour="cost-chart">
       <CardHeader
-        title={panel.label}
+        title={title ?? panel.label}
         subtitle={timeline ? phases(timeline) : undefined}
         controls={<ExportButton datasets={['ramp']} />}
       />

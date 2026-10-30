@@ -23,16 +23,16 @@ export const STEPS: TourStep[] = [
   },
   {
     path: '',
-    target: 'scorecard',
-    title: 'Against target',
-    caption: 'This row shows how this month is going against the targets we agreed for Google Ads.',
+    target: 'contract-targets',
+    title: 'Zeeraa contract targets',
+    caption: 'This card shows how this month is going against the targets in our signed contract.',
   },
   {
     path: '',
     target: 'cost-chart',
     title: 'Cost per funded deal',
     caption:
-      'This chart shows what each funded deal from Google Ads has cost, before we started and against each month’s target since.',
+      'This chart shows what each funded deal has cost, before we started and against the contract’s target since.',
   },
   {
     path: '',

@@ -1,12 +1,12 @@
 /**
- * The scorecards (30 October 2026): the ramp channel's card carries no target,
- * and every target is the signed contract's, judged by `scorecardVerdict` on
- * the All sources card — a range at its low end, a month before the contract
- * naming the first target instead of inventing one.
+ * Executive's "Zeeraa contract targets" card (30 October 2026): every target
+ * is the signed contract's, judged by `scorecardVerdict` — a range at its low
+ * end, a month before the contract naming the first target instead of
+ * inventing one — with funded deals and ad spend untargeted.
  */
 import { describe, expect, it } from 'vitest';
 import { contractTarget, parseContractTargets, type MonthActual, type PopulationVerdict } from '@zeeraa/core';
-import { contractRows, scorecardRows, type RampPanels } from '../src/lib/ramp-panels';
+import { contractRows, type RampPanels } from '../src/lib/ramp-panels';
 import type { Metrics } from '../src/lib/dashboard';
 
 const actual = (value: number | null, deals?: number): MonthActual =>
@@ -42,7 +42,7 @@ const panels = (startMonth: string | null, channel: Record<string, MonthActual>,
       source: contract?.source ?? null,
       primary: panel('costPerFundedDeal'),
       panels: Object.fromEntries(
-        ['costPerFundedDeal', 'cpa', 'fundedAmount', 'fundedDeals', 'budget', 'approvals'].map((m) => [m, panel(m, `${m} (all sources)`)]),
+        ['costPerFundedDeal', 'cpa', 'fundedAmount', 'fundedDeals', 'budget', 'approvals'].map((m) => [m, panel(m)]),
       ),
       monthActual: (metric: string) => all[metric] ?? actual(null),
       target: (metric: string, month: string) =>
@@ -58,15 +58,15 @@ const metrics = {
 const input = (currentMonth: string, elapsed = 0.8) => ({ currentMonth, elapsed, metrics, valueLabel: 'Funded' });
 const byMetric = <T extends { metric: string }>(rows: T[]) => Object.fromEntries(rows.map((r) => [r.metric, r]));
 
-describe('scorecardRows (the ramp channel)', () => {
-  it('draws the channel’s five figures with no target and no verdict', () => {
-    const rows = scorecardRows(panels('2026-10', { costPerFundedDeal: actual(5000, 3) }, {}), input('2026-10'));
-    expect(rows.map((r) => r.label)).toEqual(['Cost per funded deal', 'CPA', 'Funded deals', 'Funded volume', 'Spend']);
-    for (const r of rows) expect(r).toMatchObject({ target: null, verdict: null, untargeted: true });
+describe('contractRows (Zeeraa contract targets)', () => {
+  it('draws the five figures, three of them against the contract, each with its ⓘ', () => {
+    const rows = contractRows(panels('2026-10', {}, {}), input('2026-10'));
+    expect(rows.map((r) => r.metric)).toEqual(['costPerFundedDeal', 'cpa', 'fundedAmount', 'fundedDeals', 'budget']);
+    expect(rows.map((r) => r.untargeted)).toEqual([false, false, false, true, true]);
+    expect(rows.every((r) => r.info && !/\(all sources/.test(r.label))).toBe(true);
+    expect(rows.find((r) => r.metric === 'cpa')?.cost?.whole).toBe(true);
   });
-});
 
-describe('contractRows (All sources, against the contract)', () => {
   it('judges costs as they stand and volume against pace, at a range’s low end', () => {
     const rows = byMetric(
       contractRows(

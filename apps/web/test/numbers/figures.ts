@@ -6,7 +6,7 @@
  */
 import { sql } from 'drizzle-orm';
 import { getMaintenanceDb, schema, withMaintenance, type Database } from '@zeeraa/db';
-import { isPaidChannel, monthRange, stageBeforeValue as coreStageBeforeValue, platformLabel as corePlatformLabel, tenantDay, type DateRange } from '@zeeraa/core';
+import { isPaidChannel, monthRange, platformLabel as corePlatformLabel, tenantDay, type DateRange } from '@zeeraa/core';
 import { channelFigures, UNATTRIBUTED } from '@zeeraa/jobs';
 import type { TenantSession } from '@/lib/tenant';
 import { monthlyPerformance, type MonthlyPerformance } from '@/lib/reporting';
@@ -14,7 +14,6 @@ import { engagementRamp, frozenBaseline, loadMetrics, windowBuckets, type Window
 import { sourcesThrough } from '@/lib/coverage';
 import { platformView } from '@/lib/platform';
 import { buildRampPanels } from '@/lib/ramp-panels';
-import { allSources, approvalStageKey } from '@/lib/all-sources';
 
 export type Figures = Map<string, number | null>;
 export const key = (platform: string, metric: string) => `${platform}|${metric}`;
@@ -173,52 +172,6 @@ export async function fromRamp(t: Tenant, months: string[]): Promise<{ platform:
 export function same(a: number | null | undefined, b: number | null | undefined): boolean {
   if (a == null || b == null) return a == null && b == null;
   return Math.abs(Math.round(a * 10_000) - Math.round(b * 10_000)) <= 1;
-}
-
-/** The key the All sources card's figures are compared under. */
-export const ALL_SOURCES = 'all';
-
-/** Executive's "All sources" card, as the page computes it. */
-export function fromAllSources(mp: MonthlyPerformance): Figures {
-  const a = allSources(mp);
-  const f: Figures = new Map();
-  const approval = stageBeforeValueKey(mp);
-  f.set(key(ALL_SOURCES, 'spend'), a.adSpend);
-  if (mp.valueStageKey) f.set(key(ALL_SOURCES, `stage:${mp.valueStageKey}`), a.deals);
-  if (approval) f.set(key(ALL_SOURCES, `stage:${approval}`), a.approvals);
-  f.set(key(ALL_SOURCES, 'cost_per_funded'), a.costPerDeal.value);
-  f.set(key(ALL_SOURCES, 'cpa'), a.cpa.value);
-  return f;
-}
-
-/**
- * The same five figures summed from a source's per-channel ones — every paid
- * channel's spend, every population's deals and approvals, unattributed
- * included — so the card is compared against what each other screen and the
- * ingestion side say channel by channel.
- */
-export function withAllSources(f: Figures, value: string | null, approval: string | null): Figures {
-  const out: Figures = new Map(f);
-  let spend = 0;
-  let deals = 0;
-  let approvals = 0;
-  for (const [k, v] of f) {
-    const [platform, metric] = k.split('|') as [string, string];
-    if (platform === ALL_SOURCES || v === null || v === undefined) continue;
-    if (metric === 'spend' && isPaidChannel(platform)) spend += v;
-    if (value && metric === `stage:${value}`) deals += v;
-    if (approval && metric === `stage:${approval}`) approvals += v;
-  }
-  out.set(key(ALL_SOURCES, 'spend'), spend);
-  if (value) out.set(key(ALL_SOURCES, `stage:${value}`), deals);
-  if (approval) out.set(key(ALL_SOURCES, `stage:${approval}`), approvals);
-  if (value) out.set(key(ALL_SOURCES, 'cost_per_funded'), cpa(spend, deals));
-  if (approval) out.set(key(ALL_SOURCES, 'cpa'), cpa(spend, approvals));
-  return out;
-}
-
-function stageBeforeValueKey(mp: MonthlyPerformance): string | null {
-  return approvalStageKey(mp.stages);
 }
 
 /**

@@ -11,8 +11,10 @@ proposal, page 22; `contract_targets`, loaded with `load-config-row.ts`).
 Program-wide: CPA (all sources) $1,000, cost per funded deal (all sources)
 $4,500, funded volume (all sources except lead vendors) $100K–$150K in
 October rising to $2M from April; no deal-count target. Google Ads card
-untargeted; All sources card "Against the contract"; the chart and Monthly
-performance's table across sources. "Blended" is gone from every screen.
+card removed from Executive (its figures are on its platform page); one ringed
+"Zeeraa contract targets" card leads Executive; the chart ("Cost per funded
+deal vs Zeeraa contract target") and Monthly performance's table across
+sources. "Blended" is gone from every screen.
 Direct & other's funded volume was frozen for June–August with the decision
 as the reason. **September is not frozen** (no ramp or channel figures) —
 its baseline point reads live until it is. See `docs/brief-amendments.md`,

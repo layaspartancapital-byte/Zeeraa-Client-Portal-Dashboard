@@ -284,8 +284,8 @@ export type MonthlyPerformance = {
 
 const ALL_SOURCES_ELSEWHERE =
   'A total row would put every channel’s spend over every source’s deals, which ' +
-  'is not a channel figure. That figure, cost per funded deal (all sources), is ' +
-  'on Executive’s All sources card, against the contract.';
+  'is not a channel figure. That figure is on Executive’s Zeeraa contract ' +
+  'targets card, against the contract.';
 
 const UNATTRIBUTED_REASON =
   'No ad click, no lead vendor and no website or search referrer: direct visits, ' +

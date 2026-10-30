@@ -16,8 +16,8 @@ import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
 import { platformView } from '@/lib/platform';
-import { allSources, approvalStageKey } from '@/lib/all-sources';
-import { fromAllSources, fromBucket, fromContract, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, withAllSources, type Figures } from './figures';
+import { allSources } from '@/lib/all-sources';
+import { fromBucket, fromContract, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, type Figures } from './figures';
 import { sql } from 'drizzle-orm';
 
 function disagreements(label: string, sources: Record<string, Figures>): string[] {
@@ -51,16 +51,11 @@ describe('the same figure on every screen', () => {
         const mp = await monthlyPerformance(t.session, range, 'last_touch');
         const bucket = buckets.find((b) => b.start.startsWith(m));
         const platforms = mp.channels.map((c) => c.platform);
-        // The All sources card against each other source's channels summed:
-        // its spend, deals, approvals and both blended costs.
-        const approval = approvalStageKey(mp.stages);
-        const rolled = (f: Figures) => withAllSources(f, mp.valueStageKey, approval);
         const sources: Record<string, Figures> = {
-          'Monthly performance': rolled(fromMonthlyPerformance(mp)),
-          'All sources card': fromAllSources(mp),
+          'Monthly performance': fromMonthlyPerformance(mp),
           'platform pages': await fromPlatformPages(t, range, mp),
-          'channel figures': rolled(await fromIngestion(t, m)),
-          ...(bucket ? { 'ramp/charts': rolled(fromBucket(bucket, mp.stages, platforms, mp.valueStageKey)) } : {}),
+          'channel figures': await fromIngestion(t, m),
+          ...(bucket ? { 'ramp/charts': fromBucket(bucket, mp.stages, platforms, mp.valueStageKey) } : {}),
         };
         compared += Object.values(sources).reduce((n, f) => n + f.size, 0);
         problems.push(...disagreements(`${t.slug} ${m}`, sources));

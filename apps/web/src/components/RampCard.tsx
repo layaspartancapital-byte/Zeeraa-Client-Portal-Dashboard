@@ -44,7 +44,7 @@ export type RampPanel = {
  * measurement. Kept quiet on purpose: one legend for the section, not one per
  * chart; a month with no figure is a hollow marker on the axis with its reason
  * on hover and one footnote line, not a stack of badges. Monthly performance
- * draws it; the executive screen draws `RampScorecard` and `RampCostChart`
+ * draws it; the executive screen draws `ContractTargetsCard` and `RampCostChart`
  * instead, from the same panels.
  *
  * Before the start month is recorded the curves are drawn on an M1–Mn axis
