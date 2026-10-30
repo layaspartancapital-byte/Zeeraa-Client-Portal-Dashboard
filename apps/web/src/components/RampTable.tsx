@@ -1,4 +1,4 @@
-import type { RampMetricKey } from '@zeeraa/core';
+import { FUNDED_TARGET_SCOPE, type RampMetricKey } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { monthName, renderer, targetRenderer, type RampPanel } from '@/components/RampCard';
 import { RAMP_TABLE_COLUMNS, type RampTableCell, type RampTableRow } from '@/lib/ramp-panels';
@@ -27,14 +27,17 @@ export function RampTable({
       : `Baseline ${monthName(baseline[0]!.month).split(' ')[0]}–${monthName(baseline.at(-1)!.month)}, then `;
   return (
     <Card span={12}>
-      <CardHeader title="Engagement ramp" subtitle={`${channel} · ${span}M1–M${engagement} against target`} />
+      <CardHeader
+        title="Engagement ramp"
+        subtitle={`${channel} · ${span}M1–M${engagement} against target · ${valueLabel.toLowerCase()} targets across ${FUNDED_TARGET_SCOPE}`}
+      />
       <div className="scroll-x min-w-0 overflow-x-auto border-t border-border">
-        <table className="w-full min-w-[760px] border-collapse text-[13px]">
+        <table className="w-full min-w-[980px] border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-border text-left text-[12px] font-semibold text-text-2">
               <th scope="col" className="px-5 py-2.5">Month</th>
               {RAMP_TABLE_COLUMNS.map((c) => (
-                <th key={c.metric} scope="col" className="numeric px-3 py-2.5">
+                <th key={c.key} scope="col" className="numeric px-3 py-2.5">
                   {c.label(valueLabel)}
                 </th>
               ))}
@@ -56,8 +59,8 @@ export function RampTable({
                   </span>
                 </th>
                 {RAMP_TABLE_COLUMNS.map((c) => (
-                  <td key={c.metric} className="numeric px-3 py-2.5 align-top">
-                    <Cell cell={row.cells[c.metric]} format={formats[c.metric]} future={row.future} />
+                  <td key={c.key} className="numeric px-3 py-2.5 align-top">
+                    <Cell cell={row.cells[c.key]!} format={formats[c.metric]} future={row.future} />
                   </td>
                 ))}
               </tr>

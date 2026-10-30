@@ -306,6 +306,16 @@ export default async function Performance({
     },
     { heading: 'Deals no channel can claim', body: data.unattributed.reason },
     {
+      heading: 'Engagement ramp',
+      body:
+        'Spend, approvals, CPA and cost per funded deal are the ramp channel’s own and are judged against its ' +
+        'targets. Its funded deals are shown without one: the funded deals and volume targets are every ' +
+        'source’s except lead vendors’, in the two columns marked all sources.',
+      detail:
+        'Client decision, 30 October 2026. A month in progress is judged against pace; a month not yet read is ' +
+        'not measured, never zero.',
+    },
+    {
       heading: 'Cost per deal by channel',
       body:
         'Each bar is the range the data supports, not a single figure. The marker at the right ' +

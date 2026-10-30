@@ -3906,3 +3906,30 @@ through a byte-counting proxy on the local database, and what changed:
   `RETURNING id` only to count the rows — about 0.8 GB a month. They count from
   the command tag (`affectedRows`).
 - Connection rows are read without their encrypted credentials.
+
+## §8 — the funded targets are every source's but lead vendors' (30 October 2026)
+
+Client decision. The engagement model's funded deals and funded volume targets
+(e.g. $80K in M1) apply to the marketing as a whole, not to Google Ads alone.
+They are measured against every source except lead vendors — Google Ads, Meta,
+LinkedIn, SEO/Organic and Direct & other, attributed or not — by
+`fundedTargetActuals` in core, beside `channelMonthActuals`. A vendor is paid
+per lead, and the contract is not judged on what was bought.
+
+- **Executive.** "Google Ads vs target" keeps CPA, cost per funded deal and
+  spend against their targets, which stay Google's because Google spend is
+  their numerator, and shows Google's funded deals and volume with "Targeted
+  across all sources" in place of a target. The All sources card gains a
+  "Funded targets" row: this calendar month's deals and volume across every
+  source but vendors, against the target with `scorecardVerdict`'s on-target or
+  behind-pace verdict. It is a different population from the card's total
+  above it, which counts vendors' deals, so the two never share a cell.
+- **Monthly performance.** The ramp table's Funded column is Google's without a
+  target; two columns, "Funded, all sources" and "Funded volume, all sources",
+  carry the funded targets and verdicts.
+- **The freeze is unchanged.** Google's six frozen ramp figures stay exactly
+  as frozen. The new measure is computed live for every month, baseline months
+  included: the frozen channel figures carry no unattributed volume to rebuild
+  it from. Freezing it is the follow-up if the baseline for it must hold.
+- The cross-screen number check holds the measure, per month, to Monthly
+  performance's non-vendor sources summed.

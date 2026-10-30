@@ -1,20 +1,25 @@
-import { formatCount, formatCurrency } from '@zeeraa/core';
+import { FUNDED_TARGET_SCOPE, formatCount, formatCurrency } from '@zeeraa/core';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { InfoTip } from '@/components/ui/InfoTip';
 import { CostPerDealFigure } from '@/components/CostPerDeal';
 import { platformLabel } from '@/lib/platform-labels';
 import type { AllSources } from '@/lib/all-sources';
+import type { ScorecardRow } from '@/lib/ramp-panels';
+import { SCORE_GRID, ScoreCell } from '@/components/ExecutiveRamp';
 
 /**
  * Every source at once, beside the one channel the contract names: the
  * period's deals from everywhere, every ad platform's spend, and the blended
  * costs between them.
  *
- * Laid out as `RampScorecard` is, and with no target line: the targets are
- * contracted for Google Ads alone, and a blended figure has none. "Blended" is
- * in the title and in every cost's label, because a reader who takes it for a
- * channel's cost per deal will credit the ads with the sales team's month.
+ * Laid out as `RampScorecard` is. The blended figures carry no target, and
+ * "blended" is in the title and in every cost's label, because a reader who
+ * takes one for a channel's cost per deal will credit the ads with the sales
+ * team's month. Below them, this calendar month's funded deals and volume
+ * against the funded targets, which are every source's except lead vendors'
+ * (30 October 2026) — a different population from the total above, which
+ * counts vendors too, so the two never share a cell.
  */
 export function AllSourcesCard({
   figures,
@@ -23,6 +28,7 @@ export function AllSourcesCard({
   currency,
   crmUnmeasured,
   spendUnmeasured,
+  targets,
 }: {
   figures: AllSources;
   valueLabel: string;
@@ -33,6 +39,8 @@ export function AllSourcesCard({
   crmUnmeasured?: string;
   /** The reason, where the ad platforms have not been read for the period. */
   spendUnmeasured?: string;
+  /** This calendar month against the funded targets (`fundedTargetRows`). */
+  targets?: { rows: ScorecardRow[]; heading: string; currency: string; partial: boolean };
 }) {
   const deal = valueLabel.toLowerCase();
   const platforms = figures.spendPlatforms.map(platformLabel);
@@ -42,7 +50,7 @@ export function AllSourcesCard({
   return (
     <Card span={12} id="all-sources">
       <CardHeader title="All sources · blended" subtitle={periodLabel} />
-      <dl className="grid grid-cols-1 gap-px border-t border-border bg-border sm:grid-cols-2 xl:grid-cols-4">
+      <dl className={SCORE_GRID}>
         <Cell label={`Total ${deal} deals`} unmeasured={crmUnmeasured}>
           <Figure>{formatCount(figures.deals)}</Figure>
           <Sub>Every source, attributed or not</Sub>
@@ -83,6 +91,25 @@ export function AllSourcesCard({
           />
         </Cell>
       </dl>
+      {targets && targets.rows.length > 0 && (
+        <>
+          <div className="border-t border-border px-5 pt-4 pb-3">
+            <h3 className="text-[14px] font-semibold text-text">Funded targets</h3>
+            <p className="mt-0.5 text-[13px] text-text-2">{`${targets.heading} · ${FUNDED_TARGET_SCOPE}`}</p>
+          </div>
+          <dl className={SCORE_GRID}>
+            {targets.rows.map((row) => (
+              <ScoreCell
+                key={row.metric}
+                row={row}
+                channel="all sources"
+                currency={targets.currency}
+                partial={targets.partial}
+              />
+            ))}
+          </dl>
+        </>
+      )}
     </Card>
   );
 }

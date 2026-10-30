@@ -45,7 +45,7 @@ export function RampScorecard({
           partial ? ` · month to date, ${formatCount(elapsedDays)} of ${formatCount(monthDays)} days` : ''
         }${note}`}
       />
-      <dl className="grid grid-cols-1 gap-px border-t border-border bg-border sm:grid-cols-2 xl:grid-cols-4">
+      <dl className={SCORE_GRID}>
         {rows.map((row) => (
           <ScoreCell key={row.metric} row={row} channel={channel} currency={currency} partial={partial} />
         ))}
@@ -54,7 +54,16 @@ export function RampScorecard({
   );
 }
 
-function ScoreCell({
+/**
+ * The scorecard's cells: one column on a phone, two on a tablet, all of them
+ * on a wide screen. A last cell alone in its row spans it, so no grey gap
+ * shows through the hairlines.
+ */
+export const SCORE_GRID =
+  'grid grid-cols-1 gap-px border-t border-border bg-border sm:grid-cols-2 xl:auto-cols-fr xl:grid-flow-col xl:grid-cols-none ' +
+  'sm:[&>*:last-child:nth-child(odd)]:col-span-2 xl:[&>*:last-child:nth-child(odd)]:col-span-1';
+
+export function ScoreCell({
   row,
   channel,
   currency,
@@ -94,13 +103,15 @@ function ScoreCell({
         {partial && actual.value !== null && <p className="text-[12px] text-text-3">Month to date</p>}
 
         <p className="mt-1 text-[13px] tabular text-text-2">
-          {row.target !== null
-            ? `Target ${renderTarget(row.target)}`
-            : row.upcoming
-              ? `Target from ${monthName(row.upcoming.month)}: ${renderTarget(row.upcoming.value)}`
-              : 'No target this month'}
+          {row.untargeted
+            ? row.untargeted
+            : row.target !== null
+              ? `Target ${renderTarget(row.target)}`
+              : row.upcoming
+                ? `Target from ${monthName(row.upcoming.month)}: ${renderTarget(row.upcoming.value)}`
+                : 'No target this month'}
         </p>
-        <Verdict row={row} render={render} renderWhole={renderTarget} />
+        {!row.untargeted && <Verdict row={row} render={render} renderWhole={renderTarget} />}
       </dd>
     </div>
   );

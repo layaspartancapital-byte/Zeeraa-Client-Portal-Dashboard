@@ -4,7 +4,7 @@ Where the build actually is, so a fresh session does not have to reconstruct it
 from commit history. Short by design: current phase, what is done, what is
 blocked, what is next. Updated at the end of every session.
 
-**Last updated: 30 October 2026 (Neon back on Launch; transfer cut, All sources card; deploying).**
+**Last updated: 30 October 2026 (Neon back on Launch; transfer cut; All sources card with the funded targets; deployed).**
 
 **30 October 2026: Neon outage and network transfer.** The Free plan refused
 every connection from 26 October ~15:40 UTC to 30 October ~13:50 UTC: October's
@@ -28,9 +28,15 @@ a merge or source edit, and block only on unexplained or ramp differences.
 **30 October 2026: Executive's "All sources" card** (blended, client decision)
 and whole dollars on the scorecard's verdict. See `docs/brief-amendments.md`.
 
-**Queued, not started:** funded targets onto All sources (all sources except
-lead vendors; Google keeps CPA, cost per funded deal and spend); a Comparison
-page; Excel export (field report given, build awaits a go-ahead).
+**30 October 2026: the funded targets are every source's but lead vendors'**
+(`fundedTargetActuals`; All sources card and the ramp table). Google's card
+keeps CPA, cost per funded deal and spend targets. Google's frozen ramp figures
+are untouched; the new measure is live, not frozen. See
+`docs/brief-amendments.md`.
+
+**Queued, not started:** a Comparison page; Excel export (field report given,
+build awaits a go-ahead); the deploy check freezing Salesforce-proven merge
+corrections itself.
 
 **13 October 2026: every ⓘ bubble renders in a portal** on `document.body`,
 fixed against the icon, kept inside the viewport and flipped below when there

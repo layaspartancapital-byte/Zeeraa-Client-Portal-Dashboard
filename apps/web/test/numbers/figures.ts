@@ -119,7 +119,8 @@ export async function fromIngestion(t: Tenant, month: string): Promise<Figures> 
 }
 
 /** The ramp's live figures for a month (the frozen snapshot bypassed). */
-export async function fromRamp(t: Tenant, months: string[]): Promise<{ platform: string; values: Map<string, Figures> } | null> {
+/** The ramp's panels as the screens build them, over `months` to today. */
+async function rampPanelsFor(t: Tenant, months: string[]) {
   const ramp = await engagementRamp(t.session);
   if (ramp.byPlatform.size === 0) return null;
   const first = months.slice().sort()[0]!;
@@ -142,6 +143,13 @@ export async function fromRamp(t: Tenant, months: string[]): Promise<{ platform:
     currency: t.session.tenant.currency,
     currentMonth: t.today.slice(0, 7),
   });
+  return { panels, valueStage };
+}
+
+export async function fromRamp(t: Tenant, months: string[]): Promise<{ platform: string; values: Map<string, Figures> } | null> {
+  const built = await rampPanelsFor(t, months);
+  if (!built) return null;
+  const { panels, valueStage } = built;
   const values = new Map<string, Figures>();
   for (const month of months) {
     const f: Figures = new Map();
@@ -204,4 +212,23 @@ export function withAllSources(f: Figures, value: string | null, approval: strin
 
 function stageBeforeValueKey(mp: MonthlyPerformance): string | null {
   return coreStageBeforeValue(mp.stages)?.key ?? null;
+}
+
+/**
+ * The funded targets' measure per month, as Executive and the ramp table read
+ * it (`fundedTarget`): every source's value deals and volume but lead
+ * vendors'. Null where the tenant has no ramp.
+ */
+export async function fromFundedTargets(
+  t: Tenant,
+  months: string[],
+): Promise<Map<string, { deals: number | null; volume: number | null }> | null> {
+  const built = await rampPanelsFor(t, months);
+  if (!built) return null;
+  return new Map(
+    months.map((m) => [
+      m,
+      { deals: built.panels.fundedTarget('fundedDeals', m).value, volume: built.panels.fundedTarget('fundedAmount', m).value },
+    ]),
+  );
 }

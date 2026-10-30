@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fundedTargetActuals,
   gapToTarget,
   monthKeyOf,
   rampMonthIndex,
@@ -325,5 +326,27 @@ describe('channelMonthActuals', () => {
   it('says the CRM is not synced rather than counting zero deals', () => {
     const f = channelMonthActuals({ ...base, crmRead: false }, opts);
     expect(f.fundedDeals).toEqual({ value: null, reason: 'Salesforce is not synced for this month.' });
+  });
+});
+
+describe('fundedTargetActuals (30 October 2026)', () => {
+  const input = {
+    dealsBySource: { google_ads: 3, meta: 1, organic_search: 2, 'vendor:Popcrumbs': 4, 'vendor:Lendfax': 1 },
+    unattributedDeals: 2,
+    volumeBySource: { google_ads: 90_000, meta: 20_000, organic_search: 30_000, 'vendor:Popcrumbs': 75_000 },
+    unattributedVolume: 15_000,
+    crmRead: true,
+  };
+
+  it('counts every source and the unattributed, and no lead vendor', () => {
+    const a = fundedTargetActuals(input, { valueStage: 'funded' });
+    expect(a.fundedDeals).toEqual({ value: 8, reason: null });
+    expect(a.fundedAmount).toEqual({ value: 155_000, reason: null });
+  });
+
+  it('is not measured, not zero, where the CRM was not read', () => {
+    const a = fundedTargetActuals({ ...input, crmRead: false }, { valueStage: 'funded' });
+    expect(a.fundedDeals.value).toBeNull();
+    expect(a.fundedDeals.reason).toMatch(/not synced/);
   });
 });

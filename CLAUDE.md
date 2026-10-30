@@ -159,7 +159,10 @@ commit history and get it wrong.
   executive scorecard alone judges it, against pace, through `scorecardVerdict`
   in core — see `docs/brief-amendments.md`), and a
   month with no figure is `Not measured` with its reason, never a zero. Each
-  ramp chart names the channel its target is contracted for.
+  ramp chart names the channel its target is contracted for. **The funded
+  deals and volume targets are every source's except lead vendors'**
+  (`fundedTargetActuals`, 30 October 2026); CPA, cost per funded deal and spend
+  stay the ramp channel's.
 - **A ratio has a minimum population, and the metric declares it.** Whether a
   formula means anything below a population is a property of the formula, so it
   is declared in `packages/core/src/population.ts` keyed on `formula_key`,

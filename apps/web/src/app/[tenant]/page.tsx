@@ -36,7 +36,7 @@ import { RampCostChart, RampScorecard } from '@/components/ExecutiveRamp';
 import { AllSourcesCard } from '@/components/AllSourcesCard';
 import { allSources } from '@/lib/all-sources';
 import { monthName } from '@/components/RampCard';
-import { buildRampPanels, scorecardRows } from '@/lib/ramp-panels';
+import { buildRampPanels, fundedTargetRows, scorecardRows } from '@/lib/ramp-panels';
 import { SourceFreshness } from '@/components/SourceFreshness';
 
 import { AllFunded, type FundedSourceRow } from '@/components/AllFunded';
@@ -246,6 +246,13 @@ export default async function ExecutiveBriefing({
   const rampPlatform = rampPanels.platform;
   const rampChannel = rampPanels.channel;
   const scorecard = scorecardRows(rampPanels, {
+    currentMonth: periods.currentMonth,
+    elapsed: periods.elapsed,
+    metrics,
+    valueLabel,
+  });
+  // The funded targets, against every source but lead vendors, on All sources.
+  const fundedTargets = fundedTargetRows(rampPanels, {
     currentMonth: periods.currentMonth,
     elapsed: periods.elapsed,
     metrics,
@@ -496,11 +503,25 @@ export default async function ExecutiveBriefing({
       heading: `${rampChannel} vs target`,
       body:
         `Each figure is ${rampChannel} alone: its spend, and the deals and approvals attributed to it. ` +
-        'The target is the engagement model’s figure for this month of the ramp.',
+        `CPA, cost per ${valueLabel.toLowerCase()} deal and spend are judged against the engagement model’s figure ` +
+        `for this month; ${valueLabel.toLowerCase()} deals and volume are shown without one, because those targets ` +
+        `are every source’s except lead vendors’ and are judged on All sources.`,
       detail:
         'A month in progress is judged against pace — a count or a spend against the target times the share ' +
         'of the month gone, a cost as it stands once it has enough deals under it. Within 5% of target is on ' +
         'target; spend is stated as over or under, never as behind.',
+    },
+    {
+      heading: 'All sources',
+      body:
+        'The blended figures follow the picked period: every funded deal from every source, every ad platform’s ' +
+        'spend (lead vendors’ costs are not ingested), and that spend over all deals and all approvals. Below them, ' +
+        `this month’s ${valueLabel.toLowerCase()} deals and volume against the engagement model’s funded targets, ` +
+        'counted across every source except lead vendors.',
+      detail:
+        'The funded targets are the marketing’s, not Google Ads’ alone (client decision, 30 October 2026). A month ' +
+        'in progress is judged against pace. The total above includes vendors’ deals and the target count does not, ' +
+        'so the two can differ.',
     },
     {
       heading: `${rampChannel} cost per ${valueLabel.toLowerCase()} deal, by month`,
@@ -641,6 +662,16 @@ export default async function ExecutiveBriefing({
           currency={currency}
           crmUnmeasured={crmUnmeasured ? notMeasuredReason(crmCoverage, 'Salesforce') : undefined}
           spendUnmeasured={isUnmeasured(spendCoverage) ? notMeasuredReason(spendCoverage, 'Paid media') : undefined}
+          targets={{
+            rows: fundedTargets,
+            heading: `${monthName(periods.currentMonth)}${
+              periods.elapsedDays < periods.monthDays
+                ? ` · month to date, ${formatCount(periods.elapsedDays)} of ${formatCount(periods.monthDays)} days`
+                : ''
+            }${throughNote(cover.of('salesforce', periods.monthToDate), 'Salesforce')}`,
+            currency,
+            partial: periods.elapsedDays < periods.monthDays,
+          }}
         />
         <RampCostChart panel={rampPanels.primary} />
 

@@ -1,6 +1,7 @@
 import {
   channelCostPerDeal,
   channelMonthActuals,
+  fundedTargetActuals,
   improvementDirectionFor,
   monthKeyOf,
   rampMonthKey,
@@ -9,6 +10,7 @@ import {
   rangeCoverage,
   scorecardVerdict,
   type ScorecardVerdict,
+  type FundedTargetMetric,
   type MonthActual,
   type RampMetricKey,
   type RampTarget,
@@ -38,6 +40,12 @@ export type RampPanels = {
   compact: RampPanel[];
   /** One month of any contracted metric, frozen or live. */
   monthActual: (metric: RampMetricKey, month: string) => MonthActual;
+  /**
+   * One month of funded deals or volume as the funded targets measure them:
+   * every source except lead vendors (`fundedTargetActuals`, 30 October 2026).
+   * `monthActual` keeps the ramp channel's own, which carries no target now.
+   */
+  fundedTarget: (metric: FundedTargetMetric, month: string) => MonthActual;
 };
 
 /** Never more baseline than this before M1, however long the record. */
@@ -150,6 +158,27 @@ export function buildRampPanels(input: {
   const monthActual = (metric: RampMetricKey, month: string): MonthActual =>
     frozen.get(`${month}|${metric}`) ?? liveMonth(month)[metric];
 
+  // Not frozen: the freeze holds the ramp channel's six figures, and the
+  // channel figures it holds carry no unattributed volume to rebuild this from.
+  const fundedTarget = (metric: FundedTargetMetric, month: string): MonthActual => {
+    const bucket = buckets.find((b) => monthKeyOf(b.start) === month);
+    const dealsBySource = Object.fromEntries(
+      Object.entries(bucket?.stagesByPlatform ?? {}).map(([source, stages]) => [source, valueKey ? (stages[valueKey] ?? 0) : 0]),
+    );
+    const volumeBySource = bucket?.valueVolumeByPlatform ?? {};
+    const attributedVolume = Object.values(volumeBySource).reduce((sum, v) => sum + v, 0);
+    return fundedTargetActuals(
+      {
+        dealsBySource,
+        unattributedDeals: valueKey ? (bucket?.unattributedStages[valueKey] ?? 0) : 0,
+        volumeBySource,
+        unattributedVolume: (bucket?.valueVolume ?? 0) - attributedVolume,
+        crmRead: bucket?.crmIngested ?? false,
+      },
+      { valueStage: valueKey },
+    )[metric];
+  };
+
   const panelFor = (
     metric: RampMetricKey,
     label: string,
@@ -201,6 +230,7 @@ export function buildRampPanels(input: {
       panelFor('fundedAmount', `${valueLabel} volume`, 'funded_volume', money, AWAITING, `${valueLabel} volume attributed to ${channel}`),
     ],
     monthActual,
+    fundedTarget,
   };
 }
 
@@ -222,20 +252,33 @@ export type ScorecardRow = {
   verdict: ScorecardVerdict;
   /** Before M1: the first contracted figure and the month it applies to. */
   upcoming: { month: string; value: number } | null;
+  /** Shown in place of a target where the figure carries none here. */
+  untargeted?: string;
 };
 
-const SCORECARD: { metric: RampMetricKey; formulaKey: string; kind: 'rate' | 'count' }[] = [
-  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate' },
-  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate' },
-  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count' },
-  { metric: 'budget', formulaKey: 'paid_media_spend', kind: 'count' },
+/**
+ * The ramp channel's card. Funded deals and volume are its own and carry no
+ * target: the funded targets are every source's except lead vendors', on the
+ * All sources card (`fundedTargetRows`). CPA, cost per funded deal and spend
+ * keep theirs, because Google spend is their numerator (30 October 2026).
+ */
+const SCORECARD: { metric: RampMetricKey; formulaKey: string; kind: 'rate' | 'count'; targeted: boolean }[] = [
+  { metric: 'costPerFundedDeal', formulaKey: 'cost_per_funded_deal', kind: 'rate', targeted: true },
+  { metric: 'cpa', formulaKey: 'cpa', kind: 'rate', targeted: true },
+  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count', targeted: false },
+  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count', targeted: false },
+  { metric: 'budget', formulaKey: 'paid_media_spend', kind: 'count', targeted: true },
 ];
 
-export function scorecardRows(
-  panels: RampPanels,
-  input: { currentMonth: string; elapsed: number; metrics: Metrics; valueLabel: string },
-): ScorecardRow[] {
-  const { currentMonth, elapsed, metrics, valueLabel } = input;
+const FUNDED_TARGET_ROWS: { metric: FundedTargetMetric; formulaKey: string; kind: 'count' }[] = [
+  { metric: 'fundedDeals', formulaKey: 'stage_count', kind: 'count' },
+  { metric: 'fundedAmount', formulaKey: 'funded_volume', kind: 'count' },
+];
+
+type ScorecardInput = { currentMonth: string; elapsed: number; metrics: Metrics; valueLabel: string };
+
+/** This month's ramp month, and why there is no target where there is none. */
+function thisRampMonth(panels: RampPanels, currentMonth: string) {
   const start = panels.startMonth;
   const rampMonth =
     start === null
@@ -250,40 +293,82 @@ export function scorecardRows(
         : rampMonth === null
           ? 'This month is past the contracted ramp.'
           : null;
+  return { start, rampMonth, beforeM1, noTarget };
+}
+
+function scorecardRow(
+  panels: RampPanels,
+  input: ScorecardInput,
+  row: { metric: RampMetricKey; formulaKey: string; kind: 'rate' | 'count'; label: string; format: RampPanel['format'] },
+  actual: MonthActual,
+  untargeted?: string,
+): ScorecardRow {
+  const { start, rampMonth, beforeM1, noTarget } = thisRampMonth(panels, input.currentMonth);
+  const raw = untargeted ? null : rampMonth?.[row.metric];
+  const target = raw === null || raw === undefined ? null : Number(raw);
+  const m1 = panels.targets.find((t) => t.monthIndex === 1)?.[row.metric];
+  return {
+    metric: row.metric,
+    label: row.label,
+    format: row.format,
+    actual,
+    target,
+    upcoming: !untargeted && beforeM1 && m1 !== null && m1 !== undefined ? { month: start!, value: Number(m1) } : null,
+    ...(untargeted ? { untargeted } : {}),
+    verdict: scorecardVerdict({
+      actual: actual.value,
+      actualReason: actual.reason,
+      target,
+      noTarget: untargeted ?? noTarget ?? 'No target is recorded for this month.',
+      direction: improvementDirectionFor(row.formulaKey),
+      kind: row.kind,
+      partial: true,
+      elapsed: input.elapsed,
+    }),
+  };
+}
+
+const panelOf = (panels: RampPanels, metric: RampMetricKey) =>
+  [panels.primary, panels.secondary, ...panels.compact].find((p) => p.metric === metric)!;
+
+export function scorecardRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
+  const { currentMonth, valueLabel } = input;
   const labels: Record<string, string> = {
     costPerFundedDeal: `Cost per ${valueLabel.toLowerCase()} deal`,
     cpa: 'CPA',
     fundedDeals: `${valueLabel} deals`,
+    fundedAmount: `${valueLabel} volume`,
     budget: 'Spend',
   };
-  const panelOf = (metric: RampMetricKey) =>
-    [panels.primary, panels.secondary, ...panels.compact].find((p) => p.metric === metric)!;
+  return SCORECARD.map(({ metric, formulaKey, kind, targeted }) =>
+    scorecardRow(
+      panels,
+      input,
+      { metric, formulaKey, kind, label: labels[metric]!, format: panelOf(panels, metric).format },
+      panels.monthActual(metric, currentMonth),
+      targeted ? undefined : 'Targeted across all sources',
+    ),
+  );
+}
 
-  return SCORECARD.map(({ metric, formulaKey, kind }) => {
-    const panel = panelOf(metric);
-    const actual = panels.monthActual(metric, currentMonth);
-    const raw = rampMonth?.[metric];
-    const target = raw === null || raw === undefined ? null : Number(raw);
-    const m1 = panels.targets.find((t) => t.monthIndex === 1)?.[metric];
-    return {
-      metric,
-      label: labels[metric]!,
-      format: panel.format,
-      actual,
-      target,
-      upcoming: beforeM1 && m1 !== null && m1 !== undefined ? { month: start!, value: Number(m1) } : null,
-      verdict: scorecardVerdict({
-        actual: actual.value,
-        actualReason: actual.reason,
-        target,
-        noTarget: noTarget ?? 'No target is recorded for this month.',
-        direction: improvementDirectionFor(formulaKey),
-        kind,
-        partial: true,
-        elapsed,
-      }),
-    };
-  });
+/**
+ * The funded targets for this month, against every source except lead
+ * vendors: the All sources card's half of the ramp (30 October 2026).
+ */
+export function fundedTargetRows(panels: RampPanels, input: ScorecardInput): ScorecardRow[] {
+  const { currentMonth, valueLabel } = input;
+  const labels: Record<FundedTargetMetric, string> = {
+    fundedDeals: `${valueLabel} deals`,
+    fundedAmount: `${valueLabel} volume`,
+  };
+  return FUNDED_TARGET_ROWS.map(({ metric, formulaKey, kind }) =>
+    scorecardRow(
+      panels,
+      input,
+      { metric, formulaKey, kind, label: labels[metric], format: panelOf(panels, metric).format },
+      panels.fundedTarget(metric, currentMonth),
+    ),
+  );
 }
 
 /** `Oct 2026`, from `2026-10`. */
@@ -306,12 +391,29 @@ function monthLabelOf(month: string): string {
  * a finished month against its target, the month in progress against pace.
  * A month that has not happened shows its target and nothing else.
  */
-export const RAMP_TABLE_COLUMNS: { metric: RampMetricKey; label: (valueLabel: string) => string; formulaKey: string; kind: 'rate' | 'count' }[] = [
-  { metric: 'budget', label: () => 'Spend', formulaKey: 'paid_media_spend', kind: 'count' },
-  { metric: 'approvals', label: () => 'Approvals', formulaKey: 'stage_count', kind: 'count' },
-  { metric: 'cpa', label: () => 'CPA', formulaKey: 'cpa', kind: 'rate' },
-  { metric: 'fundedDeals', label: (v) => `${v}`, formulaKey: 'stage_count', kind: 'count' },
-  { metric: 'costPerFundedDeal', label: (v) => `Cost per ${v.toLowerCase()}`, formulaKey: 'cost_per_funded_deal', kind: 'rate' },
+export type RampTableColumn = {
+  key: string;
+  metric: RampMetricKey;
+  label: (valueLabel: string) => string;
+  formulaKey: string;
+  kind: 'rate' | 'count';
+  /**
+   * `channel`: the ramp channel's own figure. `funded`: the funded targets'
+   * measure, every source except lead vendors (30 October 2026).
+   */
+  scope: 'channel' | 'funded';
+  /** False where the figure is shown without its target. */
+  targeted: boolean;
+};
+
+export const RAMP_TABLE_COLUMNS: RampTableColumn[] = [
+  { key: 'budget', metric: 'budget', label: () => 'Spend', formulaKey: 'paid_media_spend', kind: 'count', scope: 'channel', targeted: true },
+  { key: 'approvals', metric: 'approvals', label: () => 'Approvals', formulaKey: 'stage_count', kind: 'count', scope: 'channel', targeted: true },
+  { key: 'cpa', metric: 'cpa', label: () => 'CPA', formulaKey: 'cpa', kind: 'rate', scope: 'channel', targeted: true },
+  { key: 'fundedDeals', metric: 'fundedDeals', label: (v) => `${v}`, formulaKey: 'stage_count', kind: 'count', scope: 'channel', targeted: false },
+  { key: 'costPerFundedDeal', metric: 'costPerFundedDeal', label: (v) => `Cost per ${v.toLowerCase()}`, formulaKey: 'cost_per_funded_deal', kind: 'rate', scope: 'channel', targeted: true },
+  { key: 'allFundedDeals', metric: 'fundedDeals', label: (v) => `${v}, all sources`, formulaKey: 'stage_count', kind: 'count', scope: 'funded', targeted: true },
+  { key: 'allFundedAmount', metric: 'fundedAmount', label: (v) => `${v} volume, all sources`, formulaKey: 'funded_volume', kind: 'count', scope: 'funded', targeted: true },
 ];
 
 export type RampTableCell = {
@@ -326,7 +428,8 @@ export type RampTableRow = {
   rampLabel: string | null;
   inProgress: boolean;
   future: boolean;
-  cells: Record<RampMetricKey, RampTableCell>;
+  /** Keyed by `RampTableColumn.key`. */
+  cells: Record<string, RampTableCell>;
 };
 
 export function rampTableRows(
@@ -340,10 +443,14 @@ export function rampTableRows(
     const inProgress = point.month === input.currentMonth;
     const target = point.monthIndex === null ? null : (panels.targets.find((t) => t.monthIndex === point.monthIndex) ?? null);
     const cells = Object.fromEntries(
-      RAMP_TABLE_COLUMNS.map(({ metric, formulaKey, kind }) => {
-        const raw = target?.[metric];
+      RAMP_TABLE_COLUMNS.map(({ key, metric, formulaKey, kind, scope, targeted }) => {
+        const raw = targeted ? target?.[metric] : null;
         const targetValue = raw === null || raw === undefined ? null : Number(raw);
-        const actual = future ? null : panels.monthActual(metric, point.month);
+        const actual = future
+          ? null
+          : scope === 'funded'
+            ? panels.fundedTarget(metric as FundedTargetMetric, point.month)
+            : panels.monthActual(metric, point.month);
         const verdict =
           point.monthIndex === null || future || targetValue === null
             ? null
@@ -357,9 +464,9 @@ export function rampTableRows(
                 partial: inProgress,
                 elapsed: inProgress ? input.elapsed : 1,
               });
-        return [metric, { actual, target: targetValue, verdict }];
+        return [key, { actual, target: targetValue, verdict }];
       }),
-    ) as Record<RampMetricKey, RampTableCell>;
+    ) as Record<string, RampTableCell>;
     return {
       month: point.month,
       rampLabel: point.monthIndex === null ? null : `M${point.monthIndex}`,

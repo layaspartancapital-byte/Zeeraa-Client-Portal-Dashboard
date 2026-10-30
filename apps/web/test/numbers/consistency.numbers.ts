@@ -11,12 +11,12 @@
  * summed against the funnel's totals.
  */
 import { describe, expect, it } from 'vitest';
-import { AD_DETAIL, addDays, cohortConversionRate, monthRange, platformLabel, previousMonth, stageBeforeValue, type DateRange } from '@zeeraa/core';
+import { AD_DETAIL, addDays, isVendorChannel, cohortConversionRate, monthRange, platformLabel, previousMonth, stageBeforeValue, type DateRange } from '@zeeraa/core';
 import { monthlyPerformance, submissionReport } from '@/lib/reporting';
 import { windowBuckets } from '@/lib/dashboard';
 import { BREAKDOWN_DIMENSIONS, breakdownAvailability, breakdownRows } from '@/lib/breakdown';
 import { platformView } from '@/lib/platform';
-import { fromAllSources, fromBucket, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, withAllSources, type Figures } from './figures';
+import { fromAllSources, fromBucket, fromFundedTargets, fromIngestion, fromMonthlyPerformance, fromPlatformPages, readOnly, same, tenants, withAllSources, type Figures } from './figures';
 import { sql } from 'drizzle-orm';
 
 function disagreements(label: string, sources: Record<string, Figures>): string[] {
@@ -44,6 +44,7 @@ describe('the same figure on every screen', () => {
         month = previousMonth(month);
       }
       const buckets = await windowBuckets(t.session, { start: `${months[0]}-01`, end: t.today }, 'month', 'last_touch');
+      const funded = await fromFundedTargets(t, months);
       for (const m of months) {
         const range: DateRange = monthRange(m);
         const mp = await monthlyPerformance(t.session, range, 'last_touch');
@@ -62,6 +63,19 @@ describe('the same figure on every screen', () => {
         };
         compared += Object.values(sources).reduce((n, f) => n + f.size, 0);
         problems.push(...disagreements(`${t.slug} ${m}`, sources));
+
+        // The funded targets' measure (30 October 2026): every source's value
+        // deals and volume but lead vendors', on Executive and the ramp table.
+        const v = mp.valueStageKey;
+        const target = funded?.get(m);
+        if (v && target && target.deals !== null) {
+          const kept = mp.channels.filter((c) => !isVendorChannel(c.platform));
+          const deals = kept.reduce((n, c) => n + (c.stages[v] ?? 0), 0) + (mp.unattributed.stages[v] ?? 0);
+          const volume = kept.reduce((n, c) => n + c.valueVolume, 0) + mp.unattributed.valueVolume;
+          compared += 2;
+          if (!same(target.deals, deals)) problems.push(`${t.slug} ${m} funded targets deals: ramp ${target.deals}, Monthly performance ${deals}`);
+          if (!same(target.volume, volume)) problems.push(`${t.slug} ${m} funded targets volume: ramp ${target.volume}, Monthly performance ${volume}`);
+        }
       }
     }
     console.log(`Consistency: ${compared} figures compared.`);
